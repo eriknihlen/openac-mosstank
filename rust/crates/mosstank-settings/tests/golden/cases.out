@@ -1587,7 +1587,7 @@ Looter.JumpWhenLooting|Bool|Profile|Looter|"False"|"False"|"Looter.JumpWhenLooti
 Looter.JumpHeight|Int|Profile|Looter|"100"|"100"|"Looter.JumpHeight (Profile) = 100"|"Kept for macros; the looter does not jump here."|
 Looter.AutoSalvageAfterLooting|Bool|Profile|Looter|"False"|"False"|"Looter.AutoSalvageAfterLooting (Profile) = False"|"Kept for macros; the looter does not salvage here."|
 Looter.TestMode|Bool|Profile|Looter|"False"|"False"|"Looter.TestMode (Profile) = False"|"Kept for macros; the looter has no test mode here."|
-ItemInfo.DescribeOnLoot|Bool|Profile|ItemInfo|"False"|"False"|"ItemInfo.DescribeOnLoot (Profile) = False"|"Kept for macros; the looter does not describe what it takes here."|
+ItemInfo.DescribeOnLoot|Bool|Profile|ItemInfo|"True"|"True"|"ItemInfo.DescribeOnLoot (Profile) = True"|"Kept for macros; the looter does not describe what it takes here."|
 ItemInfo.AutoClipboard|Bool|Profile|ItemInfo|"False"|"False"|"ItemInfo.AutoClipboard (Profile) = False"|"Kept for macros; a plugin cannot reach the clipboard here."|
 ItemInfo.ShowMagtoolsBuffedValues|Bool|Profile|ItemInfo|"False"|"False"|"ItemInfo.ShowMagtoolsBuffedValues (Profile) = False"|"Kept for macros; the buffed weapon values are not worked out here."|
 ItemInfo.ShowDamage|Bool|Profile|ItemInfo|"False"|"False"|"ItemInfo.ShowDamage (Profile) = False"|"Kept for macros; the damage calculations are not worked out here."|

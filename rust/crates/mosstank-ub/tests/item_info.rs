@@ -430,3 +430,113 @@ fn a_weapon_shows_its_damage_type_mastery_damage_and_bonuses() {
          8%a (13), 15%md, Major Heart Thirst, Infected Caress, Value 12,345, BU 350 "
     );
 }
+
+/// A summoning essence the character carries: its level in its name, its
+/// ratings, and the summoning backdrop under its icon unless `plain`.
+fn essence(rig: &mut Rig, object_id: u32, name: &str, ratings: Vec<(u32, i32)>, plain: bool) {
+    let object = WorldObject {
+        object_id,
+        name: name.to_owned(),
+        object_class: ObjectClass::Misc,
+        is_owned: true,
+        container_id: 1,
+        has_appraisal_data: true,
+        ..WorldObject::default()
+    };
+    let item = InventoryItem {
+        object_id,
+        name: name.to_owned(),
+        container_id: 1,
+        icon_underlay_id: if plain { 0 } else { 0x0600_7420 },
+        ..InventoryItem::default()
+    };
+    let properties = ItemProperties {
+        ints: ratings,
+        ..ItemProperties::default()
+    };
+    carry(rig, object, item, properties);
+}
+
+#[test]
+fn a_summoning_essence_shows_its_approximate_damage_per_second() {
+    // UtilityBelt's summon estimate: the level in the name picks the base
+    // (50 here), damage rating 10 adds 10%, crit 5 makes 15% of hits
+    // critical, crit damage 20 makes a critical hit 2 x 1.2 times as hard:
+    // 55 x 0.85 + 132 x 0.15 = 66.55.
+    let mut rig = enabled();
+    essence(
+        &mut rig,
+        70,
+        "Mudstone Essence (50)",
+        vec![(370, 10), (372, 5), (374, 20)],
+        false,
+    );
+
+    select(&mut rig, 70);
+
+    assert_eq!(
+        rig.single_message(),
+        "[UB] ItemInfo: Mudstone Essence (50), [D 10, C 5, CD 20], Approx DPS: 66.55 "
+    );
+}
+
+#[test]
+fn an_essence_without_a_level_in_its_name_is_reckoned_at_level_200() {
+    // Level 200's base is 750: 750 x 0.9 + 1500 x 0.1 = 825.
+    let mut rig = enabled();
+    essence(&mut rig, 71, "Essence", Vec::new(), false);
+    // Without the summoning backdrop there is no estimate.
+    essence(&mut rig, 72, "Pebble (50)", Vec::new(), true);
+
+    select(&mut rig, 71);
+    select(&mut rig, 72);
+
+    assert_eq!(
+        rig.messages(),
+        [
+            "[UB] ItemInfo: Essence, Approx DPS: 825 ",
+            "[UB] ItemInfo: Pebble (50) ",
+        ]
+    );
+}
+
+#[test]
+fn a_players_pk_ratings_alone_show_no_ratings() {
+    // UtilityBelt adds up a player's ratings without the PK ones before it
+    // shows any; once one counts, the PK ones are listed too.
+    let mut rig = enabled();
+    let player = |object_id, name: &str| WorldObject {
+        object_id,
+        name: name.to_owned(),
+        object_class: ObjectClass::Player,
+        has_appraisal_data: true,
+        ..WorldObject::default()
+    };
+    rig.host.meta.objects.push(player(80, "Pker"));
+    rig.host.meta.properties.insert(
+        80,
+        ItemProperties {
+            ints: vec![(381, 5), (382, 3)],
+            ..ItemProperties::default()
+        },
+    );
+    rig.host.meta.objects.push(player(81, "Hitter"));
+    rig.host.meta.properties.insert(
+        81,
+        ItemProperties {
+            ints: vec![(307, 2), (381, 5)],
+            ..ItemProperties::default()
+        },
+    );
+
+    select(&mut rig, 80);
+    select(&mut rig, 81);
+
+    assert_eq!(
+        rig.messages(),
+        [
+            "[UB] ItemInfo: Pker ",
+            "[UB] ItemInfo: Hitter, [D 2, PKD 5] "
+        ]
+    );
+}

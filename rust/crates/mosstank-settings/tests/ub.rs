@@ -1364,3 +1364,26 @@ fn the_shape_of_the_catalogue_is_what_the_display_tools_imply() {
         ["NetworkUI.WindowPositionX", "NetworkUI.WindowPositionY"]
     );
 }
+
+#[test]
+fn the_item_info_switches_kept_for_macros_default_as_utility_belt_ships_them() {
+    // UtilityBelt's ItemInfo ships DescribeOnLoot on and the others off.
+    let default = |name: &str| {
+        definitions::accepted_only()
+            .iter()
+            .find(|definition| definition.name == name)
+            .unwrap_or_else(|| panic!("{name} is accepted"))
+            .default
+            .boolean
+    };
+    assert!(default("ItemInfo.DescribeOnLoot"));
+    for name in [
+        "ItemInfo.AutoClipboard",
+        "ItemInfo.ShowMagtoolsBuffedValues",
+        "ItemInfo.ShowDamage",
+        "ItemInfo.ShowRetailComparison",
+        "ItemInfo.ShowRetailMax",
+    ] {
+        assert!(!default(name), "{name}");
+    }
+}

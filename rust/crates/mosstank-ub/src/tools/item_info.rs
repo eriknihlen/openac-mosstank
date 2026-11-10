@@ -90,6 +90,24 @@ const SUMMONING_SPEC_SKILL: u32 = 368;
 const SUMMONING_LEVEL: u32 = 369;
 const EQUIPABLE_SLOTS: u32 = VTANK_INT + 14;
 const MAX_DAMAGE: u32 = VTANK_INT + 34;
+/// The icon's underlay, without the `0x06000000` every icon id carries.
+const ICON_UNDERLAY: u32 = VTANK_INT + 42;
+const GEAR_DAMAGE: u32 = 370;
+const GEAR_CRIT: u32 = 372;
+const GEAR_CRIT_DAMAGE: u32 = 374;
+
+/// The underlay a summoning essence's icon carries.
+const SUMMONING_UNDERLAY: i32 = 29_728;
+/// A summon's base damage per second by its level (`petDPS`).
+const SUMMON_BASE_DPS: [(i32, f32); 7] = [
+    (50, 50.0),
+    (80, 80.0),
+    (100, 100.0),
+    (125, 125.0),
+    (150, 150.0),
+    (180, 225.0),
+    (200, 750.0),
+];
 
 // Decal's `DoubleValueKey`s.
 const MELEE_DEFENSE_BONUS: u32 = 29;
@@ -646,6 +664,17 @@ impl Description<'_> {
             ));
         }
 
+        // A summoning essence (the summoning backdrop under its icon).
+        if self.int(ICON_UNDERLAY) == SUMMONING_UNDERLAY {
+            let dps = summon_damage(
+                &self.object.name,
+                self.int(GEAR_DAMAGE),
+                self.int(GEAR_CRIT),
+                self.int(GEAR_CRIT_DAMAGE),
+            );
+            sb.push_str(&format!(", Approx DPS: {}", text(round_to(dps, 2))));
+        }
+
         if let Some((_, inscription)) = self
             .properties
             .strings
@@ -745,7 +774,19 @@ impl Description<'_> {
 
     /// The ratings: `[D 2, CD 1]`.
     fn append_ratings(&self, sb: &mut String) {
-        let keys: &[(u32, &str)] = if self.class() == ObjectClass::Player {
+        let player = self.class() == ObjectClass::Player;
+        if player {
+            // The reference adds up a player's ratings without the PK ones
+            // before it shows any: PK ratings alone show nothing.
+            let counted: i64 = [307, 308, 314, 316, 323, 379]
+                .iter()
+                .map(|key| i64::from(self.properties.int(*key).unwrap_or(0)))
+                .sum();
+            if counted <= 0 {
+                return;
+            }
+        }
+        let keys: &[(u32, &str)] = if player {
             &[
                 (307, "D"),
                 (308, "DR"),
@@ -852,6 +893,39 @@ fn shows_spell(facts: &SpellFacts, loot_generated: bool, unenchantable: bool) ->
         .iter()
         .any(|level| name.ends_with(level));
     !(ordinary || facts.difficulty == 300 || name.contains("Incantation"))
+}
+
+/// A summon's approximate damage per second (`GetSummonDamage`), worked in
+/// single precision as the reference does: the base for the level named in
+/// the last `(n)` of its name (200 when it names none, nothing for a level
+/// the table lacks), raised by the damage rating, with the crit rating
+/// added to a 10% critical chance and a critical hit doing double, raised
+/// by the crit damage rating.
+#[allow(clippy::cast_precision_loss)]
+fn summon_damage(name: &str, damage: i32, crit: i32, crit_damage: i32) -> f64 {
+    let level = match level_in_name(name) {
+        // A number too large to read is level 0, as `int.TryParse` leaves it.
+        Some(digits) => digits.parse::<i32>().unwrap_or(0),
+        None => 200,
+    };
+    let base = SUMMON_BASE_DPS
+        .iter()
+        .find(|(known, _)| *known == level)
+        .map_or(0.0, |(_, dps)| *dps);
+    let average = base * (1.0 + damage as f32 / 100.0);
+    let crit_chance = 0.1_f32 + crit as f32 / 100.0;
+    let average_crit = average * 2.0 * (1.0 + crit_damage as f32 / 100.0);
+    let hit_chance = 1.0 - crit_chance;
+    f64::from(average * hit_chance + average_crit * crit_chance)
+}
+
+/// The digits of the last `(digits)` in a name (`.*\((?<level>\d+)\)`).
+fn level_in_name(name: &str) -> Option<&str> {
+    name.match_indices('(').rev().find_map(|(open, _)| {
+        let rest = &name[open + 1..];
+        let digits = rest.len() - rest.trim_start_matches(|c: char| c.is_ascii_digit()).len();
+        (digits > 0 && rest[digits..].starts_with(')')).then(|| &rest[..digits])
+    })
 }
 
 /// `, Melee Defense 300` and the like, or the unknown skill's number.

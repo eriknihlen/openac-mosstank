@@ -267,9 +267,10 @@ fn build_accepted_only() -> Vec<UbSettingDefinition> {
             false,
         ),
         switch(
+            // On, as UtilityBelt ships it, though nothing here reads it.
             "ItemInfo.DescribeOnLoot",
             "Kept for macros; the looter does not describe what it takes here.",
-            false,
+            true,
         ),
         switch(
             "ItemInfo.AutoClipboard",
