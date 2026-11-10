@@ -3,7 +3,7 @@
 mod common;
 
 use ac_plugin_abi::combat::CombatMode;
-use ac_plugin_abi::items::{EquipmentItem, EquipmentObservation};
+use ac_plugin_abi::items::{EquipmentItem, EquipmentObservation, ItemResult, ItemStatus};
 use ac_plugin_abi::social::BusyState;
 use ac_plugin_abi::world::ObjectClass;
 use common::{FakeAutomation, Gear, in_mode, physical, recording_log, wand};
@@ -455,6 +455,39 @@ fn gate_drop_to_peace_budget_is_counted_in_passes_and_ends_in_wand_use_recovery(
             .to_lowercase()
             .contains("bugged combat state")
     );
+}
+
+/// A refused recovery says why the client refused it, not only that it did.
+#[test]
+fn gate_wand_use_recovery_refused_reports_the_clients_reason() {
+    let vitals = VitalSettings {
+        drop_to_peace_mode_retry_count: 1,
+        ..VitalSettings::default()
+    };
+    let mut rig = Rig::with(
+        FakeAutomation {
+            combat_snapshot: physical(),
+            defer_mode_confirmation: true,
+            equipment_items: vec![wand(800, "Recovery Wand").build()],
+            use_item_result: Some(ItemResult {
+                status: ItemStatus::Refused,
+                notice: Some("This item requires a target".to_owned()),
+            }),
+            ..FakeAutomation::default()
+        },
+        profiled(&[("Recovery Wand", Some(800))]),
+        vitals,
+    );
+
+    rig.advance(1.0);
+    assert!(!rig.prepare(CombatMode::Magic));
+
+    assert_eq!(rig.surface.last_used_item, 800);
+    assert_eq!(
+        rig.gate.status(),
+        "Combat-state recovery with Recovery Wand: Refused (This item requires a target)"
+    );
+    assert!(rig.surface.posted_system_messages.is_empty());
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/CombatControllerTests.cs :: GateFallbackWandIsItemsPageInsertionOrderNotNameOrder
