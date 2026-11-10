@@ -8,6 +8,7 @@ use ac_plugin_abi::magic::{CastGate, SpellInfo};
 use ac_plugin_abi::navigation::MovementIntent;
 use ac_plugin_abi::types::ChatLine;
 use mosstank_automation::Automation;
+use mosstank_automation::cast_tracker::SpellCastTracker;
 use mosstank_automation::combat_text::{self, CombatResultTextClass, log_text_type};
 use mosstank_automation::components::uses_blacklisted_component;
 use mosstank_automation::locks::{ActionLockKind, item_use_lock};
@@ -17,7 +18,7 @@ use mosstank_settings::monster::{MonsterActionFlags, MonsterRuleActions};
 
 use super::equip::resolve_inventory_offhand_object_id;
 use super::swing::projectile_status;
-use super::{CombatController, Ctx, POWER_RELEASE_EPSILON, PendingItemDebuff};
+use super::{CombatController, Ctx, POWER_RELEASE_EPSILON, PendingItemDebuff, is_known_dead};
 use crate::MacroLogChannel;
 use crate::debuff::{self, CombatDebuffStep, DebuffCompletion, DebuffIdentity, DebuffLines};
 use crate::gate::{CombatModeGate, GateTurn, Prepare};
@@ -181,14 +182,17 @@ impl CombatController {
         }
 
         let revision = cx.automation.last_cast_completion().revision;
-        self.debuffs.begin_cast(
+        self.debuffs.begin(
             target.object_id,
             choice.identity,
             choice.spell.clone(),
             self.now,
             revision,
-            choice.path_kind.is_some(),
         );
+        // A projectile is up only once its result line says it landed.
+        if choice.spell.is_projectile {
+            self.debuffs.watch_landing(&target.name);
+        }
         self.announce_cast_attempt(cx.automation, target.object_id, &choice.spell);
         let target_name = display_name(target);
         self.log_line(
@@ -695,6 +699,10 @@ impl CombatController {
             ));
             return;
         }
+        // The result line came first: it was counted when it came.
+        if completion.answered_by_line {
+            return;
+        }
         // A projectile is announced once it is known to have landed.
         if completion.awaiting_landing {
             self.set_status(format!("Waiting for {} to land", completion.spell_name));
@@ -705,13 +713,20 @@ impl CombatController {
         }
     }
 
-    /// A result line for the flying debuff projectile: its own success
-    /// line means it is up; a resist means it reached the monster.
+    /// A result line for the awaited debuff projectile, read from the
+    /// dispatch on: its own success line naming its monster means it is
+    /// up; a resist means it reached the monster and is cast again; a
+    /// refusal the same cast would meet again gives a single-target
+    /// spell's monster up.
     pub(super) fn observe_debuff_landing(&mut self, cx: &mut Ctx<'_>, message: &ChatLine) {
-        let Some((target_object_id, spell_name)) = self
-            .debuffs
-            .in_flight()
-            .map(|(target, spell)| (target, spell.name.clone()))
+        let Some((target_object_id, target_name, spell)) =
+            self.debuffs.watched_landing().map(|watched| {
+                (
+                    watched.target_object_id,
+                    watched.target_name.to_owned(),
+                    watched.spell.clone(),
+                )
+            })
         else {
             return;
         };
@@ -719,57 +734,75 @@ impl CombatController {
             return;
         }
         let result = combat_text::classify(&message.text);
+        // Corruption's bolts fan out: a line about another monster is not
+        // this one's.
+        let names_target = result.target_name.is_empty()
+            || target_name.is_empty()
+            || ordinal::equals_ignore_case(&result.target_name, &target_name);
         match result.class {
             CombatResultTextClass::Success => {
-                if !ordinal::equals_ignore_case(
-                    debuff::normalize(result.spell_name.trim()),
-                    debuff::normalize(spell_name.trim()),
-                ) {
+                if !result.spell_name.is_empty() && result.spell_name != spell.name {
                     return;
                 }
-                // Corruption's bolts fan out: one landing on another
-                // monster is not this one's.
-                if !self.names_debuff_target(target_object_id, &result.target_name) {
+                if !names_target {
                     return;
                 }
+                self.log_line(
+                    MacroLogChannel::CastInfo,
+                    &format!("SpellCaster: Spell success reset ({})", message.text),
+                );
                 if let Some((target, spell)) = self.debuffs.land(self.now) {
                     self.failures.reset_attempts(target);
                     self.announce_cast_success(cx.automation, target, &spell);
                 }
             }
             CombatResultTextClass::Fail => {
-                // "<monster> resists your spell": another monster's resist
-                // is not this projectile's.
-                if !self.names_debuff_target(target_object_id, &result.target_name) {
+                if !names_target {
                     return;
                 }
-                self.debuffs.reached();
+                self.log_line(
+                    MacroLogChannel::CastInfo,
+                    &format!("SpellCaster: Spell fail reset ({})", message.text),
+                );
+                self.debuffs.end_landing_watch();
+            }
+            CombatResultTextClass::PermanentFail => {
+                // A spell that strikes several cannot say whose it was.
+                if SpellCastTracker::hits_multiple_targets_for(&spell) {
+                    return;
+                }
+                self.log_line(
+                    MacroLogChannel::CastInfo,
+                    &format!("SpellCaster: Spell permanent fail reset ({})", message.text),
+                );
+                self.debuffs.end_landing_watch();
+                self.failures
+                    .force_blacklist(target_object_id, self.now, cx.settings);
             }
             _ => {}
         }
     }
 
-    /// Whether a result line's monster is the debuff's (a line naming none,
-    /// or a monster with no name, is taken as it).
-    fn names_debuff_target(&self, target_object_id: u32, named: &str) -> bool {
-        let named = named.trim().trim_end_matches('.');
-        let target_name = self.find_target(target_object_id).name;
-        named.is_empty()
-            || target_name.trim().is_empty()
-            || ordinal::equals_ignore_case(named, target_name.trim())
-    }
-
     /// The flying debuff projectile never reported landing: a miss against
-    /// its monster, toward the blacklist as an attack spell's would be.
+    /// its monster, toward the blacklist as an attack spell's would be,
+    /// unless the spell strikes several. A monster that died or left
+    /// meanwhile is let go at once, with no miss.
     pub(super) fn expire_debuff_flight(&mut self, cx: &mut Ctx<'_>) {
+        if let Some(watched) = self.debuffs.watched_landing()
+            && self.debuffs.is_in_flight()
+        {
+            let target = self.find_target(watched.target_object_id);
+            let reported_dead = self.failures.reason(watched.target_object_id, self.now)
+                == crate::failure::CombatSuppressionReason::Dead;
+            if target.object_id == 0 || is_known_dead(&target) || reported_dead {
+                self.debuffs.abandon_flight();
+                return;
+            }
+        }
         let Some((missed, spell)) = self.debuffs.expire_in_flight(self.now) else {
             return;
         };
         let target = self.find_target(missed);
-        // Gone (dead or out of the scan): nothing was missed.
-        if target.object_id == 0 {
-            return;
-        }
         self.log_line(
             MacroLogChannel::CastInfo,
             &format!(
@@ -778,6 +811,9 @@ impl CombatController {
                 display_name(&target)
             ),
         );
+        if SpellCastTracker::hits_multiple_targets_for(&spell) {
+            return;
+        }
         let tripped = self.failures.record_miss(missed, self.now, cx.settings);
         self.announce_blacklist(cx, tripped, missed, &target.name);
     }

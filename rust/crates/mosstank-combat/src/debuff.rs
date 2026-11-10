@@ -8,7 +8,6 @@ use std::collections::{HashMap, HashSet};
 use ac_plugin_abi::magic::{CastCompletion, SpellInfo};
 use mosstank_automation::spells::{SpellCatalog, SpellTable};
 use mosstank_data::damage::MonsterDamageType;
-use mosstank_dotnet::text::ordinal;
 use mosstank_settings::monster::{MonsterActionFlags, MonsterRuleActions};
 
 /// One debuff: its column, and for a vulnerability its element.
@@ -269,49 +268,6 @@ struct DebuffLine {
     component_set: (u32, u32, u32, u32),
 }
 
-/// How long a debuff lasts, seconds: the spell table's duration, else the
-/// "over N seconds" of its description. The client's spell table carries no
-/// duration for an enchantment projectile (Corrosion's 15 seconds and
-/// Corruption's 30 are only in the text), and 0 would make the curse due
-/// again the moment it landed.
-#[must_use]
-pub fn duration_seconds(spell: &SpellInfo) -> f64 {
-    let listed = f64::from(spell.duration_seconds);
-    if listed.is_finite() && listed > 0.0 {
-        return listed;
-    }
-    described_duration(&spell.description).unwrap_or(0.0)
-}
-
-fn described_duration(description: &str) -> Option<f64> {
-    let words: Vec<&str> = description.split_whitespace().collect();
-    words.windows(3).find_map(|window| {
-        if !window[0].eq_ignore_ascii_case("over") {
-            return None;
-        }
-        let amount: f64 = window[1].parse().ok()?;
-        let unit = window[2]
-            .trim_end_matches(['.', ',', ';'])
-            .to_ascii_lowercase();
-        let scale = match unit.as_str() {
-            "second" | "seconds" => 1.0,
-            "minute" | "minutes" => 60.0,
-            _ => return None,
-        };
-        (amount.is_finite() && amount > 0.0).then_some(amount * scale)
-    })
-}
-
-/// A spell name without its "Incantation of " prefix.
-pub(crate) fn normalize(name: &str) -> &str {
-    const INCANTATION: &str = "Incantation of ";
-    if ordinal::starts_with_ignore_case(name, INCANTATION) {
-        &name[INCANTATION.len()..]
-    } else {
-        name
-    }
-}
-
 /// Which spells are which debuff, read from the spell table.
 ///
 /// A debuff is a family of the table, not a name: the game names the
@@ -381,6 +337,24 @@ impl DebuffLines {
     }
 }
 
+/// How long a debuff lasts, seconds: the reference client's own table for
+/// three Void curses, else the spell table's duration. The spell table
+/// stores no duration for an enchantment projectile (Corrosion and
+/// Corruption have 0 there), and 0 would make the curse due again the
+/// moment it landed.
+#[must_use]
+pub fn duration_seconds(spell: &SpellInfo) -> f64 {
+    match spell.family {
+        // Corruption.
+        638 => 31.0,
+        // Corrosion.
+        637 => 16.0,
+        // Destructive Curse.
+        636 => 31.0,
+        _ => f64::from(spell.duration_seconds).max(0.0),
+    }
+}
+
 /// What the server says when it will not take a request yet.
 pub mod cast_refusal {
     /// "The character is already doing something."
@@ -404,9 +378,13 @@ pub struct DebuffCompletion {
     pub target_object_id: u32,
     /// The spell.
     pub spell: Option<SpellInfo>,
-    /// A projectile went out: it is up only once a result line says it
-    /// reached the monster.
+    /// A projectile went out and no result line has come: it is up only
+    /// once one says it reached the monster.
     pub awaiting_landing: bool,
+    /// A projectile's result line came before the server finished the
+    /// cast: what it said is already counted (a landing recorded and
+    /// announced, a resist or refusal ended the wait).
+    pub answered_by_line: bool,
 }
 
 /// How long a debuff projectile has to report reaching its monster after
@@ -414,22 +392,43 @@ pub struct DebuffCompletion {
 pub const LANDING_TIMEOUT_SECONDS: f64 =
     mosstank_automation::cast_tracker::SpellCastTracker::RESULT_TIMEOUT_SECONDS;
 
+/// A projectile debuff's wait for its result line, from the dispatch on.
+#[derive(Debug, Clone)]
+struct LandingWatch {
+    /// The monster's name as the result line gives it.
+    target_name: String,
+    /// A result line already answered.
+    answered: bool,
+}
+
 #[derive(Debug, Clone)]
 struct Pending {
     target_object_id: u32,
     identity: DebuffIdentity,
     spell: SpellInfo,
     dispatched_at: f64,
-    projectile: bool,
+    landing: Option<LandingWatch>,
 }
 
 /// A debuff projectile the server launched, not yet known to have landed.
 #[derive(Debug, Clone)]
 struct InFlight {
     target_object_id: u32,
+    target_name: String,
     identity: DebuffIdentity,
     spell: SpellInfo,
     launched_at: f64,
+}
+
+/// The projectile debuff whose result line is awaited.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WatchedLanding<'a> {
+    /// The monster.
+    pub target_object_id: u32,
+    /// Its name as the result line gives it (empty when unknown).
+    pub target_name: &'a str,
+    /// The spell.
+    pub spell: &'a SpellInfo,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -554,27 +553,6 @@ impl DebuffTracker {
         now: f64,
         completion_revision: i64,
     ) {
-        self.begin_cast(
-            target_object_id,
-            identity,
-            spell,
-            now,
-            completion_revision,
-            false,
-        );
-    }
-
-    /// A cast went out; a projectile's answer only launches it, and it is
-    /// up once [`Self::land`] is told it reached the monster.
-    pub fn begin_cast(
-        &mut self,
-        target_object_id: u32,
-        identity: DebuffIdentity,
-        spell: SpellInfo,
-        now: f64,
-        completion_revision: i64,
-        projectile: bool,
-    ) {
         self.observed_completion_revision =
             self.observed_completion_revision.max(completion_revision);
         self.in_flight = None;
@@ -583,8 +561,21 @@ impl DebuffTracker {
             identity,
             spell,
             dispatched_at: now,
-            projectile,
+            landing: None,
         });
+    }
+
+    /// The cast just begun is a projectile: it is up only once its result
+    /// line names `target_name`, and that line is awaited from now on,
+    /// since the server sends it as the projectile lands, which can be
+    /// before it finishes the cast.
+    pub fn watch_landing(&mut self, target_name: &str) {
+        if let Some(pending) = &mut self.pending {
+            pending.landing = Some(LandingWatch {
+                target_name: target_name.to_owned(),
+                answered: false,
+            });
+        }
     }
 
     /// Reads the server's newest cast answer.
@@ -602,78 +593,119 @@ impl DebuffTracker {
             return DebuffCompletion::default();
         }
         let pending = self.pending.take().unwrap_or_else(|| unreachable!());
-        if !completion.is_success() {
-            if completion.weenie_error == cast_refusal::CHARACTER_WAS_BUSY {
-                self.retry_not_before = now + cast_refusal::RETRY_WAIT_SECONDS;
-            }
-            return DebuffCompletion {
-                completed: true,
-                succeeded: false,
-                spell_name: pending.spell.name.clone(),
-                weenie_error: completion.weenie_error,
-                target_object_id: pending.target_object_id,
-                spell: Some(pending.spell),
-                awaiting_landing: false,
-            };
-        }
-        if pending.projectile {
-            let completion = DebuffCompletion {
-                completed: true,
-                succeeded: true,
-                spell_name: pending.spell.name.clone(),
-                weenie_error: 0,
-                target_object_id: pending.target_object_id,
-                spell: Some(pending.spell.clone()),
-                awaiting_landing: true,
-            };
-            self.in_flight = Some(InFlight {
-                target_object_id: pending.target_object_id,
-                identity: pending.identity,
-                spell: pending.spell,
-                launched_at: now,
-            });
-            return completion;
-        }
-        let duration = duration_seconds(&pending.spell);
-        self.applied.insert(
-            (pending.target_object_id, pending.identity),
-            Applied {
-                spell_id: pending.spell.spell_id,
-                tier: pending.spell.tier,
-                expires_at: now + duration,
-            },
-        );
-        DebuffCompletion {
+        let mut answer = DebuffCompletion {
             completed: true,
             succeeded: true,
             spell_name: pending.spell.name.clone(),
             weenie_error: 0,
             target_object_id: pending.target_object_id,
-            spell: Some(pending.spell),
+            spell: None,
             awaiting_landing: false,
+            answered_by_line: false,
+        };
+        if !completion.is_success() {
+            if completion.weenie_error == cast_refusal::CHARACTER_WAS_BUSY {
+                self.retry_not_before = now + cast_refusal::RETRY_WAIT_SECONDS;
+            }
+            answer.succeeded = false;
+            answer.weenie_error = completion.weenie_error;
+            answer.spell = Some(pending.spell);
+            return answer;
+        }
+        match pending.landing {
+            // Its result line already came: nothing more to wait for.
+            Some(LandingWatch { answered: true, .. }) => {
+                answer.answered_by_line = true;
+                answer.spell = Some(pending.spell);
+            }
+            Some(LandingWatch {
+                target_name,
+                answered: false,
+            }) => {
+                answer.awaiting_landing = true;
+                answer.spell = Some(pending.spell.clone());
+                self.in_flight = Some(InFlight {
+                    target_object_id: pending.target_object_id,
+                    target_name,
+                    identity: pending.identity,
+                    spell: pending.spell,
+                    launched_at: now,
+                });
+            }
+            None => {
+                self.record_applied(
+                    pending.target_object_id,
+                    pending.identity,
+                    &pending.spell,
+                    now,
+                );
+                answer.spell = Some(pending.spell);
+            }
+        }
+        answer
+    }
+
+    /// The projectile debuff whose result line is awaited: the cast still
+    /// out, or the projectile flying after it.
+    #[must_use]
+    pub fn watched_landing(&self) -> Option<WatchedLanding<'_>> {
+        if let Some(flying) = &self.in_flight {
+            return Some(WatchedLanding {
+                target_object_id: flying.target_object_id,
+                target_name: &flying.target_name,
+                spell: &flying.spell,
+            });
+        }
+        let pending = self.pending.as_ref()?;
+        match &pending.landing {
+            Some(watch) if !watch.answered => Some(WatchedLanding {
+                target_object_id: pending.target_object_id,
+                target_name: &watch.target_name,
+                spell: &pending.spell,
+            }),
+            _ => None,
         }
     }
 
-    /// The flying debuff's monster and spell.
-    #[must_use]
-    pub fn in_flight(&self) -> Option<(u32, &SpellInfo)> {
-        self.in_flight
-            .as_ref()
-            .map(|flying| (flying.target_object_id, &flying.spell))
-    }
-
-    /// The flying debuff reached its monster and took hold: it is up from
-    /// now. Its monster and spell.
+    /// The awaited projectile reached its monster and took hold: it is up
+    /// from now. Its monster and spell. A cast still out stays out until
+    /// the server finishes it.
     pub fn land(&mut self, now: f64) -> Option<(u32, SpellInfo)> {
-        let flying = self.in_flight.take()?;
-        self.record_applied(flying.target_object_id, flying.identity, &flying.spell, now);
-        Some((flying.target_object_id, flying.spell))
+        let (target_object_id, identity, spell) = if let Some(flying) = self.in_flight.take() {
+            (flying.target_object_id, flying.identity, flying.spell)
+        } else {
+            let pending = self.pending.as_mut()?;
+            let watch = pending.landing.as_mut().filter(|watch| !watch.answered)?;
+            watch.answered = true;
+            (
+                pending.target_object_id,
+                pending.identity,
+                pending.spell.clone(),
+            )
+        };
+        self.record_applied(target_object_id, identity, &spell, now);
+        Some((target_object_id, spell))
     }
 
-    /// The flying debuff reached its monster but did not take hold (a
-    /// resist): it is due again, and it was no miss.
-    pub fn reached(&mut self) -> Option<u32> {
-        self.in_flight.take().map(|flying| flying.target_object_id)
+    /// The awaited projectile's result line said it did not take hold (a
+    /// resist, or a refusal the same cast would meet again): it is due
+    /// again. Its monster.
+    pub fn end_landing_watch(&mut self) -> Option<u32> {
+        if let Some(flying) = self.in_flight.take() {
+            return Some(flying.target_object_id);
+        }
+        let pending = self.pending.as_mut()?;
+        let watch = pending.landing.as_mut().filter(|watch| !watch.answered)?;
+        watch.answered = true;
+        Some(pending.target_object_id)
+    }
+
+    /// Stops waiting for the flying projectile (its monster died or left):
+    /// no landing, and no miss. Its monster and spell.
+    pub fn abandon_flight(&mut self) -> Option<(u32, SpellInfo)> {
+        self.in_flight
+            .take()
+            .map(|flying| (flying.target_object_id, flying.spell))
     }
 
     /// No word of the flying debuff in time: it went somewhere else. Its

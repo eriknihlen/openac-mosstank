@@ -469,33 +469,25 @@ fn a_remote_record_merges_by_higher_tier_and_later_expiry() {
 }
 
 #[test]
-fn a_debuff_without_a_listed_duration_takes_the_one_its_description_gives() {
+fn the_void_curses_last_the_reference_clients_time_and_the_rest_their_tables() {
     use mosstank_combat::debuff::duration_seconds;
-    let described = |listed: f32, text: &str| SpellInfo {
-        duration_seconds: listed,
-        description: text.to_owned(),
-        ..SpellInfo::default()
-    };
-    // The spell table's own duration stands.
-    assert_eq!(duration_seconds(&described(30.0, "")), 30.0);
-    // The client dat's Corrosion and Corruption carry none.
+    use mosstank_combat::testing::debuff_spell;
+    // The spell table gives Corrosion and Corruption no duration of their
+    // own; the reference client's table does, by family.
+    assert_eq!(debuff_spell("Corrosion VII").duration_seconds, 0.0);
+    assert_eq!(duration_seconds(&debuff_spell("Corrosion VII")), 16.0);
     assert_eq!(
-        duration_seconds(&described(
-            0.0,
-            "Sends a bolt of corrosion towards the target. The bolt does 448 points of damage over 15 seconds."
-        )),
-        15.0
+        duration_seconds(&debuff_spell("Incantation of Corrosion")),
+        16.0
     );
+    assert_eq!(debuff_spell("Corruption VII").duration_seconds, 0.0);
+    assert_eq!(duration_seconds(&debuff_spell("Corruption VII")), 31.0);
+    // Destructive Curse has 30 seconds in the table, 31 in that list.
     assert_eq!(
-        duration_seconds(&described(
-            0.0,
-            "Sends 5 bolts of corruption outward from the caster. Each bolt does 357 points of damage over 30 seconds."
-        )),
-        30.0
+        duration_seconds(&debuff_spell("Destructive Curse VII")),
+        31.0
     );
-    assert_eq!(
-        duration_seconds(&described(0.0, "Lasts over 2 minutes.")),
-        120.0
-    );
-    assert_eq!(duration_seconds(&described(0.0, "Deals damage.")), 0.0);
+    // Every other debuff keeps the table's.
+    assert_eq!(duration_seconds(&debuff_spell("Weakening Curse VII")), 15.0);
+    assert_eq!(duration_seconds(&debuff_spell("Gossamer Flesh")), 240.0);
 }

@@ -37,6 +37,10 @@ const SELF_TARGETED: u32 = 0x8;
 const REVERSED: u32 = 0x10;
 const FELLOWSHIP: u32 = 0x2000;
 const DAMAGE_OVER_TIME: u32 = 0x0001_0000;
+/// The families whose spells the table types as enchantment projectiles
+/// (Corrosion and Corruption): a projectile by its type, not its flags,
+/// and the rows do not carry the type.
+const ENCHANTMENT_PROJECTILE_FAMILIES: [u32; 2] = [637, 638];
 
 impl Row {
     fn spell(&self) -> SpellInfo {
@@ -63,6 +67,7 @@ impl Row {
             is_fellowship: flags & FELLOWSHIP != 0,
             is_damage_over_time: flags & DAMAGE_OVER_TIME != 0,
             requires_turn_to: !self.10,
+            is_projectile: ENCHANTMENT_PROJECTILE_FAMILIES.contains(&self.2),
             base_range_constant: self.12,
             base_range_modifier: self.13,
             saying: "testwords".to_owned(),
