@@ -2,8 +2,10 @@
 //! (`MagTools.Macros.InventoryPacker` by Mag-nus, used with the author's
 //! permission; see `rust/NOTICE.md`). A loot profile says which pack each
 //! item belongs in: a rule whose action is keep-up-to names the packs in
-//! the digits of its count, the first choice first: 0 is the main pack, 1
-//! the first side pack, and `312` reads "pack 3, else pack 1, else pack 2".
+//! the digits of its count, the first choice first: 0 is the main pack and
+//! a side pack is its slot on the character plus one, the slots foci take
+//! counted (so a focus in the first slot makes the first side pack 2), and
+//! `312` reads "pack 3, else pack 1, else pack 2".
 //! The first rule that matches an item decides it; any other action leaves
 //! the item where it is.
 //!
