@@ -32,8 +32,9 @@ const PUBLIC_WEENIE_FOCI: u32 = 0x0080_0000;
 /// The pause between two looks at the packs (the reference thinks every
 /// 100 ms).
 pub const THINK_INTERVAL_SECONDS: f64 = 0.1;
-/// How long one item may stay the item being worked on before it is left
-/// alone for the rest of the run.
+/// How long one item may stay the item being worked on, counting only time
+/// in which the run could act, before it is left alone for the rest of the
+/// run.
 pub const GIVE_UP_SECONDS: f64 = 10.0;
 /// How long a move's receipt is waited for before the packs are looked at
 /// again without it.
@@ -293,10 +294,17 @@ impl InventoryPacker {
         let elapsed = elapsed_seconds.max(0.0);
         self.since_think += elapsed;
         self.since_request += elapsed;
-        self.working_seconds += elapsed;
         self.observe_appraisal(call, elapsed);
 
         let state = call.host.item_state();
+        // Only time in which the run could act counts against the item
+        // being worked on: waiting on its own request does, while a buff
+        // burst, a portal, an earlier owner or somebody else's item command
+        // holds the character it does not.
+        let able = can_act && state.is_available;
+        if able && (self.in_flight.is_some() || !state.is_busy) {
+            self.working_seconds += elapsed;
+        }
         if let Some((_, baseline)) = self.in_flight {
             self.in_flight_seconds += elapsed;
             let answered = state.last_inventory_completion.revision != baseline;
@@ -305,7 +313,7 @@ impl InventoryPacker {
             }
             self.in_flight = None;
         }
-        if !can_act || !state.is_available {
+        if !able {
             return false;
         }
         if state.is_busy || self.since_think < THINK_INTERVAL_SECONDS {

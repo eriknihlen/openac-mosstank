@@ -440,6 +440,28 @@ fn an_item_every_open_rule_would_pack_alike_is_not_appraised() {
 }
 
 #[test]
+fn a_run_held_by_another_owner_does_not_count_against_the_item() {
+    let mut rig = rig(vec![loose(20, "Trade Note", PLAYER)], true);
+    save(
+        &mut rig,
+        "Tester.AutoPack",
+        vec![keep_up_to("Notes", "name ~= trade", 1)],
+    );
+
+    rig.ub("autopack");
+    assert!(tick(&mut rig, 0.0));
+    assert_eq!(1, rig.host.meta.moves.len());
+
+    // A buff burst holds the character for fifteen seconds; the move's
+    // receipt never came.
+    assert!(!rig.with_call(|call, commands| commands.tools_mut().pack.tick(call, 15.0, false)));
+    assert!(tick(&mut rig, 0.1));
+
+    assert_eq!(2, rig.host.meta.moves.len(), "the note is asked for again");
+    assert_eq!(vec!["[UB] Auto Pack - Started.".to_owned()], rig.messages());
+}
+
+#[test]
 fn an_item_that_will_not_move_is_left_alone_after_ten_seconds() {
     let mut rig = rig(vec![loose(20, "Trade Note", PLAYER)], true);
     save(
