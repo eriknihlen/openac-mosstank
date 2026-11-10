@@ -1200,6 +1200,408 @@ fn with_sharing_off_nothing_is_announced() {
 
 // Not applicable: tests/AcDream.Plugins.MossTank.Tests/CombatControllerTests.cs :: FailedTrustReadDoesNotConsumeAnEligiblePeerCast: the client list read cannot fail through the SDK, so there is no failed read to retry (register COMBAT-4)
 
+// The Void curses as the spell table has them: Corrosion (family 637) and
+// Corruption (family 638) are enchantment projectiles with no duration of
+// their own, and the five bolts of Corruption make it a spell that strikes
+// several monsters.
+const CORROSION: u32 = 5393;
+const CORRUPTION: u32 = 5401;
+const INCANTATION_OF_CORRUPTION: u32 = 5402;
+
+/// A fight debuffing with `known`, the rule asking for `flag` only.
+fn void_fight(
+    flag: MonsterActionFlags,
+    known: &[&str],
+    targets: Vec<CombatTarget>,
+    settings: CombatSettings,
+) -> Fight {
+    let mut rule = debuff_only(flag);
+    rule.maximum_range = 40.0;
+    rule.scan_interval_seconds = 0.05;
+    rule.blacklist_monster_attempt_count = settings.blacklist_monster_attempt_count;
+    rule.blacklist_monster_timeout_seconds = settings.blacklist_monster_timeout_seconds;
+    rule.use_projectile_awareness = settings.use_projectile_awareness;
+    let known = known
+        .iter()
+        .map(|name| mosstank_combat::testing::debuff_spell(name))
+        .collect();
+    Fight::new(magic(targets, known), rule)
+}
+
+fn corrosion_fight(settings: CombatSettings) -> Fight {
+    void_fight(
+        MonsterActionFlags::CORROSION,
+        &["Corrosion VII"],
+        drudge(),
+        settings,
+    )
+}
+
+fn corruption_fight(settings: CombatSettings) -> Fight {
+    void_fight(
+        MonsterActionFlags::CORRUPTION,
+        &["Corruption VII"],
+        drudge(),
+        settings,
+    )
+}
+
+/// Any miss gives the monster up at once: a fight that still has its
+/// target counted none.
+fn blacklist_on_first_miss() -> CombatSettings {
+    CombatSettings {
+        blacklist_monster_attempt_count: 0,
+        blacklist_monster_timeout_seconds: 300.0,
+        ..CombatSettings::default()
+    }
+}
+
+fn magic_line(sequence: u64, text: &str) -> ChatLine {
+    ChatLine {
+        sequence,
+        text: text.to_owned(),
+        log_text_type: 0x07,
+        ..ChatLine::default()
+    }
+}
+
+fn ticks(fight: &mut Fight, count: usize) {
+    for _ in 0..count {
+        fight.tick(0.25);
+    }
+}
+
+fn gave_up(fight: &Fight, name: &str) -> bool {
+    fight
+        .surface
+        .posted_system_messages
+        .iter()
+        .any(|message| message.contains(&format!("Cannot hit {name}")))
+}
+
+fn logged(fight: &Fight, text: &str) -> bool {
+    fight.log_texts().iter().any(|line| line.contains(text))
+}
+
+// The server sends the landing line as the bolt lands, which at a short
+// range is before it finishes the cast (a second of recoil later).
+#[test]
+fn a_landing_line_before_the_cast_finishes_counts_and_corrosion_lasts_sixteen_seconds() {
+    let mut fight = corrosion_fight(blacklist_on_first_miss());
+
+    fight.toggle();
+    fight.tick(0.25);
+    assert_eq!(fight.surface.cast_spell_ids, [CORROSION]);
+
+    fight.surface.chat_messages = vec![magic_line(1, "You cast Corrosion VII on Drudge")];
+    fight.tick(0.25);
+    assert_eq!(fight.surface.peers.successes, [(10, CORROSION, 0, 16.0)]);
+
+    // The server finishes the cast: nothing more to wait for.
+    fight.surface.last_cast_completion = completion(1, CORROSION, 10, 0);
+    fight.tick(0.25);
+    assert!(!fight.status().contains("land"), "{}", fight.status());
+
+    // Up for its sixteen seconds from the landing (at 0.5 s): no recast,
+    // and no miss when the landing budget runs out.
+    ticks(&mut fight, 62);
+    assert_eq!(fight.surface.cast_spell_ids, [CORROSION]);
+    assert!(!gave_up(&fight, "Drudge"));
+    assert!(!logged(&fight, "never landed"));
+    assert_eq!(fight.surface.peers.successes.len(), 1);
+
+    ticks(&mut fight, 2);
+    assert_eq!(fight.surface.cast_spell_ids, [CORROSION, CORROSION]);
+}
+
+#[test]
+fn a_landing_line_after_the_cast_finishes_counts_and_corruption_lasts_thirty_one_seconds() {
+    let mut fight = corruption_fight(CombatSettings::default());
+
+    fight.toggle();
+    fight.tick(0.25);
+    assert_eq!(fight.surface.cast_spell_ids, [CORRUPTION]);
+
+    // The server finished the cast: the projectile is flying, not landed.
+    fight.surface.last_cast_completion = completion(1, CORRUPTION, 10, 0);
+    fight.tick(0.25);
+    assert!(fight.surface.peers.successes.is_empty());
+    assert!(fight.status().contains("land"), "{}", fight.status());
+
+    fight.surface.chat_messages = vec![magic_line(1, "You cast Corruption VII on Drudge")];
+    fight.tick(0.25);
+    assert_eq!(fight.surface.peers.successes, [(10, CORRUPTION, 0, 31.0)]);
+
+    // Up for thirty-one seconds from the landing (at 0.75 s).
+    ticks(&mut fight, 122);
+    assert_eq!(fight.surface.cast_spell_ids, [CORRUPTION]);
+    ticks(&mut fight, 4);
+    assert_eq!(fight.surface.cast_spell_ids, [CORRUPTION, CORRUPTION]);
+}
+
+#[test]
+fn a_corruption_bolt_landing_on_another_monster_is_not_this_ones() {
+    let mut fight = corruption_fight(CombatSettings::default());
+
+    fight.toggle();
+    fight.tick(0.25);
+    fight.surface.last_cast_completion = completion(1, CORRUPTION, 10, 0);
+    fight.tick(0.25);
+    fight.surface.chat_messages = vec![magic_line(
+        1,
+        "You cast Corruption VII on Tusker Guard, refreshing Corruption VII",
+    )];
+    fight.tick(0.25);
+
+    assert!(fight.surface.peers.successes.is_empty());
+    assert!(fight.status().contains("land"), "{}", fight.status());
+}
+
+#[test]
+fn a_corruption_that_never_lands_is_no_miss() {
+    let mut fight = corruption_fight(blacklist_on_first_miss());
+
+    fight.toggle();
+    fight.tick(0.25);
+    fight.surface.last_cast_completion = completion(1, CORRUPTION, 10, 0);
+    // Past the landing budget: given up on, and cast again.
+    ticks(&mut fight, 20);
+
+    assert!(
+        logged(&fight, "never landed on Drudge"),
+        "{:?}",
+        fight.log_texts()
+    );
+    assert!(fight.has_target());
+    assert!(!gave_up(&fight, "Drudge"));
+    assert_eq!(fight.surface.cast_spell_ids, [CORRUPTION, CORRUPTION]);
+}
+
+#[test]
+fn a_resisted_projectile_debuff_is_cast_again_without_a_miss() {
+    let mut fight = corrosion_fight(blacklist_on_first_miss());
+
+    fight.toggle();
+    fight.tick(0.25);
+    fight.surface.last_cast_completion = completion(1, CORROSION, 10, 0);
+    fight.tick(0.25);
+    fight.surface.chat_messages = vec![magic_line(1, "Drudge resists your spell")];
+    fight.tick(0.25);
+    fight.tick(0.25);
+
+    assert!(fight.has_target());
+    assert_eq!(fight.surface.cast_spell_ids, [CORROSION, CORROSION]);
+    assert!(fight.surface.peers.successes.is_empty());
+}
+
+#[test]
+fn five_corrosions_that_never_land_give_the_monster_up() {
+    let mut fight = corrosion_fight(CombatSettings {
+        blacklist_monster_attempt_count: 4,
+        blacklist_monster_timeout_seconds: 120.0,
+        ..CombatSettings::default()
+    });
+
+    fight.toggle();
+    for revision in 1..=5 {
+        fight.tick(0.25);
+        assert!(fight.has_target(), "cast {revision}");
+        let cast = usize::try_from(revision).unwrap();
+        assert_eq!(fight.surface.cast_spell_ids.len(), cast);
+        fight.surface.last_cast_completion = completion(revision, CORROSION, 10, 0);
+        // Into the wall: no result line before the landing budget runs out.
+        for _ in 0..16 {
+            fight.tick(0.25);
+            if fight.surface.cast_spell_ids.len() > cast {
+                break;
+            }
+        }
+    }
+
+    assert!(!fight.has_target());
+    assert!(
+        gave_up(&fight, "Drudge (10)"),
+        "{:?}",
+        fight.surface.posted_system_messages
+    );
+    assert_eq!(fight.surface.cast_spell_ids.len(), 5);
+}
+
+#[test]
+fn a_monster_dead_while_the_curse_flies_is_no_miss_and_the_next_is_cursed() {
+    let mut fight = void_fight(
+        MonsterActionFlags::CORROSION,
+        &["Corrosion VII"],
+        vec![
+            target(10, "Drudge", 5.0, 0.0),
+            target(11, "Tusker", 8.0, 0.0),
+        ],
+        blacklist_on_first_miss(),
+    );
+
+    fight.toggle();
+    fight.tick(0.25);
+    assert_eq!(fight.surface.last_targeted_cast, (CORROSION, 10));
+    fight.surface.last_cast_completion = completion(1, CORROSION, 10, 0);
+    fight.tick(0.25);
+    assert!(fight.status().contains("land"), "{}", fight.status());
+
+    // It dies (a fellow's blow) and stays in the scan, dead.
+    fight.surface.targets[0].is_dead = true;
+    ticks(&mut fight, 4);
+
+    assert_eq!(fight.surface.last_targeted_cast, (CORROSION, 11));
+    ticks(&mut fight, 20);
+    assert!(!gave_up(&fight, "Drudge"));
+    assert!(
+        !logged(&fight, "never landed on Drudge"),
+        "{:?}",
+        fight.log_texts()
+    );
+}
+
+// The retail client's wording of a refused target. The local server says
+// out of range in its finish-cast answer instead, the case of
+// `a_cast_the_server_refuses_is_cast_again_with_no_miss`.
+#[test]
+fn a_projectile_debuff_out_of_range_gives_the_monster_up() {
+    let mut fight = corrosion_fight(CombatSettings::default());
+
+    fight.toggle();
+    fight.tick(0.25);
+    fight.surface.chat_messages = vec![magic_line(1, "Target is out of range")];
+    fight.tick(0.25);
+    fight.surface.last_cast_completion = completion(1, CORROSION, 10, 0);
+    fight.tick(0.25);
+
+    assert!(!fight.has_target());
+    assert!(fight.surface.peers.successes.is_empty());
+}
+
+// A single-target spell has only its one monster: any resist is that
+// spell's, whatever name the line carries.
+#[test]
+fn a_resist_ends_a_single_target_curses_wait_whoever_it_names() {
+    let mut fight = corrosion_fight(blacklist_on_first_miss());
+
+    fight.toggle();
+    fight.tick(0.25);
+    fight.surface.last_cast_completion = completion(1, CORROSION, 10, 0);
+    fight.tick(0.25);
+    fight.surface.chat_messages = vec![magic_line(1, "Tusker Guard resists your spell")];
+    fight.tick(0.25);
+    fight.tick(0.25);
+
+    assert!(fight.has_target());
+    assert_eq!(fight.surface.cast_spell_ids, [CORROSION, CORROSION]);
+}
+
+// Corruption's side bolts can be resisted by others while the aimed one
+// is still on its way.
+#[test]
+fn a_side_bolts_resist_does_not_end_corruptions_wait() {
+    let mut fight = corruption_fight(CombatSettings::default());
+
+    fight.toggle();
+    fight.tick(0.25);
+    fight.surface.last_cast_completion = completion(1, CORRUPTION, 10, 0);
+    fight.tick(0.25);
+    fight.surface.chat_messages = vec![magic_line(1, "Tusker Guard resists your spell")];
+    fight.tick(0.25);
+
+    assert_eq!(fight.surface.cast_spell_ids, [CORRUPTION]);
+    assert!(fight.status().contains("land"), "{}", fight.status());
+}
+
+// A late line of the cast before is in the chat when this one goes out.
+#[test]
+fn a_line_from_before_the_cast_is_not_its_landing() {
+    let mut fight = corrosion_fight(CombatSettings::default());
+    fight.surface.chat_messages = vec![magic_line(1, "You cast Corrosion VII on Drudge")];
+
+    fight.toggle();
+    fight.tick(0.25);
+    assert_eq!(fight.surface.cast_spell_ids, [CORROSION]);
+    fight.surface.last_cast_completion = completion(1, CORROSION, 10, 0);
+    fight.tick(0.25);
+
+    assert!(fight.surface.peers.successes.is_empty());
+    assert!(fight.status().contains("land"), "{}", fight.status());
+}
+
+#[test]
+fn a_killing_blow_on_the_monster_ends_the_wait_with_no_miss() {
+    let mut fight = corrosion_fight(blacklist_on_first_miss());
+
+    fight.toggle();
+    fight.tick(0.25);
+    fight.surface.last_cast_completion = completion(1, CORROSION, 10, 0);
+    fight.tick(0.25);
+    assert!(fight.status().contains("land"), "{}", fight.status());
+    fight.surface.chat_messages = vec![ChatLine {
+        sequence: 1,
+        text: "You killed Drudge!".to_owned(),
+        log_text_type: 0,
+        ..ChatLine::default()
+    }];
+    fight.tick(0.25);
+
+    assert!(!fight.status().contains("land"), "{}", fight.status());
+    assert!(!logged(&fight, "never landed"));
+    assert!(!gave_up(&fight, "Drudge"));
+}
+
+// The server refuses a cast at a monster out of reach in its finish-cast
+// answer (0x550, missile out of range): nothing flew, so nothing is awaited
+// and it is no miss.
+#[test]
+fn a_cast_the_server_refuses_is_cast_again_with_no_miss() {
+    let mut fight = corrosion_fight(blacklist_on_first_miss());
+
+    fight.toggle();
+    fight.tick(0.25);
+    assert_eq!(fight.surface.cast_spell_ids, [CORROSION]);
+    fight.surface.last_cast_completion = completion(1, CORROSION, 10, 0x550);
+    fight.tick(0.25);
+
+    assert!(!fight.status().contains("land"), "{}", fight.status());
+    assert_eq!(fight.surface.cast_spell_ids, [CORROSION, CORROSION]);
+    assert!(fight.has_target());
+    assert!(!gave_up(&fight, "Drudge"));
+    assert!(fight.surface.peers.successes.is_empty());
+}
+
+#[test]
+fn the_incantation_landing_line_marks_the_curse_up() {
+    let surface = magic(
+        vec![target(10, "Tamed Armoredillo", 5.0, 0.0)],
+        vec![mosstank_combat::testing::debuff_spell(
+            "Incantation of Corruption",
+        )],
+    );
+    let mut rule = debuff_only(MonsterActionFlags::CORRUPTION);
+    rule.maximum_range = 40.0;
+    let mut fight = Fight::new(surface, rule);
+
+    fight.toggle();
+    fight.tick(0.25);
+    assert_eq!(fight.surface.cast_spell_ids, [INCANTATION_OF_CORRUPTION]);
+    fight.surface.last_cast_completion = completion(1, INCANTATION_OF_CORRUPTION, 10, 0);
+    fight.tick(0.25);
+    fight.surface.chat_messages = vec![magic_line(
+        1,
+        "You cast Incantation of Corruption on Tamed Armoredillo",
+    )];
+    fight.tick(0.25);
+
+    assert_eq!(
+        fight.surface.peers.successes,
+        [(10, INCANTATION_OF_CORRUPTION, 0, 31.0)]
+    );
+    ticks(&mut fight, 40);
+    assert_eq!(fight.surface.cast_spell_ids, [INCANTATION_OF_CORRUPTION]);
+}
+
 /// A caster with the life and creature skills the real debuffs' reach is
 /// worked out from, knowing `known`.
 fn debuffer(known: &[&str]) -> FakeAutomation {

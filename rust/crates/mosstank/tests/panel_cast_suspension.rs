@@ -680,3 +680,201 @@ fn random_helper_buffs_go_to_a_nearby_fellow_with_the_setting_on() {
         call_log(&mut world)
     );
 }
+
+// The hold on the pass while a debuff is out: these run through the frame,
+// so the hold stands in the path. Each cast is held open by hand (no
+// receipt, no result line) and answered on the test's own clock, with t = 0
+// the frame of the cast. What releases the pass shows as the next cast.
+const CORROSION_VII: u32 = 5393;
+const GOSSAMER_FLESH: u32 = 2074;
+const DECREPITUDES_GRASP: u32 = 2178;
+const FRAME_SECONDS: f64 = 0.05;
+
+/// A wand in the hand, a held-open cast, and the debuffs `toggles` asks
+/// for on the one monster rule, against `monsters`.
+fn debuffer(
+    known: &[&str],
+    toggles: &[&str],
+    monsters: Vec<ac_plugin_abi::combat::CombatTarget>,
+) -> (World, MossTank) {
+    let mut automation = rig();
+    automation.suppress_cast_completion = true;
+    automation.catalog_spells = mosstank_combat::testing::debuff_spells();
+    automation.known_combat_spells = known
+        .iter()
+        .map(|name| mosstank_combat::testing::debuff_spell(name))
+        .collect();
+    automation.skills = vec![skill(33, "Life Magic", 400), skill(43, "Void Magic", 400)];
+    let mut wand = equipment_item(10, "Wand", 0x0000_8000);
+    wand.valid_locations = 0x0100_0000;
+    wand.equipped_location = 0x0100_0000;
+    automation.equipment = vec![wand];
+    automation.hostile_targets = monsters;
+    automation.combat.mode = CombatMode::Magic;
+    let (mut world, mut plugin) = open(automation);
+    for toggle in toggles {
+        world.act_int(&mut plugin, toggle, 0);
+    }
+    set_option(
+        &mut world,
+        &mut plugin,
+        "EnableBuffing",
+        ExpressionValue::Boolean(false),
+    );
+    world.act(&mut plugin, "ToggleCombat");
+    for _ in 0..200 {
+        if !world.automation().cast_spell_ids.is_empty() {
+            return (world, plugin);
+        }
+        world.frame(&mut plugin, FRAME_SECONDS);
+    }
+    panic!("the rig never cast: {}", call_log(&mut world).join(" | "));
+}
+
+fn corrosion_then_imperil() -> (World, MossTank) {
+    debuffer(
+        &["Corrosion VII", "Gossamer Flesh"],
+        &["ToggleMonsterCorrosionAt", "ToggleMonsterImperilAt"],
+        vec![combat_target(30, "Drudge", 700, 2.0)],
+    )
+}
+
+fn use_done(world: &mut World, spell_id: u32, target_id: u32) {
+    world
+        .automation()
+        .post_cast_receipt_at(spell_id, target_id, 0);
+}
+
+/// Runs frames until t = `until`, one step at a time from `from`, with
+/// `at_each` run at the top of each; the time of the second cast, if one
+/// went out by then.
+fn second_cast_time(
+    world: &mut World,
+    plugin: &mut MossTank,
+    until: f64,
+    mut at_each: impl FnMut(&mut World, f64),
+) -> Option<f64> {
+    let mut clock = 0.0;
+    while clock < until {
+        at_each(world, clock);
+        world.frame(plugin, FRAME_SECONDS);
+        clock += FRAME_SECONDS;
+        if world.automation().cast_spell_ids.len() > 1 {
+            return Some(clock);
+        }
+    }
+    None
+}
+
+/// Calls `act` once, the first frame at or after `at`.
+fn once_at(at: f64, act: impl FnOnce(&mut World)) -> impl FnMut(&mut World, f64) {
+    let mut act = Some(act);
+    move |world, clock| {
+        if clock + 1e-9 >= at
+            && let Some(act) = act.take()
+        {
+            act(world);
+        }
+    }
+}
+
+fn assert_released(released: Option<f64>, from: f64, to: f64, world: &mut World) {
+    let log = call_log(world).join(" | ");
+    let released = released.unwrap_or_else(|| panic!("never released: {log}"));
+    assert!(
+        (from..=to).contains(&released),
+        "released at {released}, wanted {from}..={to}: {log}"
+    );
+}
+
+#[test]
+fn a_curse_landing_after_the_cast_finishes_releases_the_pass_at_the_line() {
+    let (mut world, mut plugin) = corrosion_then_imperil();
+    let mut finish = once_at(2.0, |world| use_done(world, CORROSION_VII, 30));
+    let mut land = once_at(2.5, |world| {
+        world.post_captured("You cast Corrosion VII on Drudge", SPELL_RESULT_TEXT_TYPE);
+    });
+
+    let released = second_cast_time(&mut world, &mut plugin, 8.0, |world, clock| {
+        finish(world, clock);
+        land(world, clock);
+    });
+
+    assert_released(released, 2.5, 3.0, &mut world);
+    assert_eq!(world.automation().cast_spell_ids[1], GOSSAMER_FLESH);
+}
+
+#[test]
+fn a_curse_landing_before_the_cast_finishes_releases_the_pass_at_the_finish() {
+    let (mut world, mut plugin) = corrosion_then_imperil();
+    let mut land = once_at(1.0, |world| {
+        world.post_captured("You cast Corrosion VII on Drudge", SPELL_RESULT_TEXT_TYPE);
+    });
+    let mut finish = once_at(2.0, |world| use_done(world, CORROSION_VII, 30));
+
+    let released = second_cast_time(&mut world, &mut plugin, 8.0, |world, clock| {
+        land(world, clock);
+        finish(world, clock);
+    });
+
+    assert_released(released, 2.0, 2.5, &mut world);
+    assert_eq!(world.automation().cast_spell_ids[1], GOSSAMER_FLESH);
+}
+
+#[test]
+fn a_curse_with_no_landing_line_releases_the_pass_at_the_budget() {
+    let (mut world, mut plugin) = corrosion_then_imperil();
+    let mut finish = once_at(2.0, |world| use_done(world, CORROSION_VII, 30));
+
+    let released = second_cast_time(&mut world, &mut plugin, 8.0, |world, clock| {
+        finish(world, clock);
+    });
+
+    // The finish at 2 s and the 3.6 s result budget after it.
+    assert_released(released, 5.6, 6.1, &mut world);
+    assert_eq!(world.automation().cast_spell_ids[1], CORROSION_VII);
+}
+
+#[test]
+fn a_monster_dead_under_the_curse_releases_the_pass_at_once() {
+    let (mut world, mut plugin) = debuffer(
+        &["Corrosion VII"],
+        &["ToggleMonsterCorrosionAt"],
+        vec![
+            combat_target(30, "Drudge", 700, 2.0),
+            combat_target(31, "Tusker", 701, 4.0),
+        ],
+    );
+    assert_eq!(world.automation().cast_targets, [30]);
+    let mut finish = once_at(2.0, |world| use_done(world, CORROSION_VII, 30));
+    let mut die = once_at(3.0, |world| {
+        world.automation().hostile_targets[0].is_dead = true;
+    });
+
+    let released = second_cast_time(&mut world, &mut plugin, 8.0, |world, clock| {
+        finish(world, clock);
+        die(world, clock);
+    });
+
+    assert_released(released, 3.0, 3.5, &mut world);
+    assert_eq!(world.automation().cast_targets, [30, 31]);
+}
+
+// The control: a debuff that does not fly is over when the cast is.
+#[test]
+fn a_debuff_that_does_not_fly_releases_the_pass_at_the_finish() {
+    let (mut world, mut plugin) = debuffer(
+        &["Gossamer Flesh", "Decrepitude's Grasp"],
+        &["ToggleMonsterImperilAt", "ToggleMonsterFesterAt"],
+        vec![combat_target(30, "Drudge", 700, 2.0)],
+    );
+    assert_eq!(world.automation().cast_spell_ids, [GOSSAMER_FLESH]);
+    let mut finish = once_at(2.0, |world| use_done(world, GOSSAMER_FLESH, 30));
+
+    let released = second_cast_time(&mut world, &mut plugin, 8.0, |world, clock| {
+        finish(world, clock);
+    });
+
+    assert_released(released, 2.0, 2.5, &mut world);
+    assert_eq!(world.automation().cast_spell_ids[1], DECREPITUDES_GRASP);
+}

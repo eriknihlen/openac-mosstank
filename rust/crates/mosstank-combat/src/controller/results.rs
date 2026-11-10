@@ -162,6 +162,7 @@ impl CombatController {
             );
             self.drain_cast_events(cx);
         }
+        self.observe_debuff_flight(cx);
     }
 
     /// The in-flight item transaction's own watcher.
@@ -485,7 +486,13 @@ impl CombatController {
     }
 
     /// The reference's "Cannot hit" line when a monster is given up on.
-    fn announce_blacklist(&mut self, cx: &mut Ctx<'_>, tripped: bool, object_id: u32, name: &str) {
+    pub(super) fn announce_blacklist(
+        &mut self,
+        cx: &mut Ctx<'_>,
+        tripped: bool,
+        object_id: u32,
+        name: &str,
+    ) {
         if !tripped {
             return;
         }

@@ -467,3 +467,27 @@ fn a_remote_record_merges_by_higher_tier_and_later_expiry() {
         assert!(!tracker.is_due(99, identity, &probe, expires - 0.5, 0.0));
     }
 }
+
+#[test]
+fn the_void_curses_last_the_reference_clients_time_and_the_rest_their_tables() {
+    use mosstank_combat::debuff::duration_seconds;
+    use mosstank_combat::testing::debuff_spell;
+    // The spell table gives Corrosion and Corruption no duration of their
+    // own; the reference client's table does, by family.
+    assert_eq!(debuff_spell("Corrosion VII").duration_seconds, 0.0);
+    assert_eq!(duration_seconds(&debuff_spell("Corrosion VII")), 16.0);
+    assert_eq!(
+        duration_seconds(&debuff_spell("Incantation of Corrosion")),
+        16.0
+    );
+    assert_eq!(debuff_spell("Corruption VII").duration_seconds, 0.0);
+    assert_eq!(duration_seconds(&debuff_spell("Corruption VII")), 31.0);
+    // Destructive Curse has 30 seconds in the table, 31 in that list.
+    assert_eq!(
+        duration_seconds(&debuff_spell("Destructive Curse VII")),
+        31.0
+    );
+    // Every other debuff keeps the table's.
+    assert_eq!(duration_seconds(&debuff_spell("Weakening Curse VII")), 15.0);
+    assert_eq!(duration_seconds(&debuff_spell("Gossamer Flesh")), 240.0);
+}

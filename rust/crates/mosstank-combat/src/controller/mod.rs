@@ -222,6 +222,8 @@ pub struct CombatController {
     last_target_id: u32,
     pending_item_debuff: Option<PendingItemDebuff>,
     observed_chat_sequence: u64,
+    /// The last chat line the debuff landing watch has heard.
+    debuff_landing_chat_sequence: u64,
     item_transaction_chat_sequence: u64,
     observed_item_completion: i64,
     combat_policy_suspended: bool,
@@ -360,6 +362,7 @@ impl CombatController {
             last_target_id: 0,
             pending_item_debuff: None,
             observed_chat_sequence: 0,
+            debuff_landing_chat_sequence: 0,
             item_transaction_chat_sequence: 0,
             observed_item_completion: 0,
             combat_policy_suspended: false,
@@ -1206,6 +1209,7 @@ impl CombatController {
         self.pending_attack_target = 0;
         self.clear_pending_item_debuff();
         self.observed_chat_sequence = 0;
+        self.debuff_landing_chat_sequence = 0;
         self.item_transaction_chat_sequence = 0;
         self.observed_item_completion = 0;
         // A stopped macro must not leave the busy latch up.

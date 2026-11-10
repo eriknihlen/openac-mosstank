@@ -350,11 +350,17 @@ impl CombatController {
 
     /// Steps the swing executor on the host frame.
     pub fn drive_swing_executor(&mut self, automation: &mut dyn Automation, elapsed_seconds: f64) {
-        if !self.swing_timer_running || !self.enabled || self.paused || !automation.is_available() {
+        if !self.swing_driver_runs(automation) {
             return;
         }
         self.advance_clock_from_frame(elapsed_seconds);
         let _ = self.pump_swing_executor(automation);
+    }
+
+    /// Whether the swing executor steps on this host frame (and so moves
+    /// the clock).
+    pub(super) fn swing_driver_runs(&self, automation: &mut dyn Automation) -> bool {
+        self.swing_timer_running && self.enabled && !self.paused && automation.is_available()
     }
 
     fn stamp_swing_sent(&mut self) {

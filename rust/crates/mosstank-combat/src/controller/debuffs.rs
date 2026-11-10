@@ -6,15 +6,19 @@ use ac_plugin_abi::combat::{AttackHeight, CombatMode, CombatSnapshot, CombatStat
 use ac_plugin_abi::items::{EquipmentStatus, InventoryItem};
 use ac_plugin_abi::magic::{CastGate, SpellInfo};
 use ac_plugin_abi::navigation::MovementIntent;
+use ac_plugin_abi::types::ChatLine;
 use mosstank_automation::Automation;
+use mosstank_automation::cast_tracker::SpellCastTracker;
+use mosstank_automation::combat_text::{self, CombatResultTextClass, log_text_type};
 use mosstank_automation::components::uses_blacklisted_component;
 use mosstank_automation::locks::{ActionLockKind, item_use_lock};
+use mosstank_dotnet::text::ordinal;
 use mosstank_settings::model::CombatSettings;
 use mosstank_settings::monster::{MonsterActionFlags, MonsterRuleActions};
 
 use super::equip::resolve_inventory_offhand_object_id;
 use super::swing::projectile_status;
-use super::{CombatController, Ctx, POWER_RELEASE_EPSILON, PendingItemDebuff};
+use super::{CombatController, Ctx, POWER_RELEASE_EPSILON, PendingItemDebuff, is_known_dead};
 use crate::MacroLogChannel;
 use crate::debuff::{self, CombatDebuffStep, DebuffCompletion, DebuffIdentity, DebuffLines};
 use crate::gate::{CombatModeGate, GateTurn, Prepare};
@@ -56,7 +60,9 @@ impl CombatController {
         combat: &CombatSnapshot,
     ) -> DebuffArmOutcome {
         if self.debuffs.has_pending() {
-            let status = if cx.automation.is_casting() {
+            let status = if self.debuffs.is_in_flight() {
+                format!("Waiting for {} to land", self.debuffs.pending_name())
+            } else if cx.automation.is_casting() {
                 format!("Casting {}", self.debuffs.pending_name())
             } else {
                 format!("Waiting for {}", self.debuffs.pending_name())
@@ -183,6 +189,13 @@ impl CombatController {
             self.now,
             revision,
         );
+        // A projectile is up only once its result line says it landed.
+        if choice.spell.is_projectile {
+            self.debuffs.watch_landing(&target.name);
+            // Every line so far was read this pass: the watch hears what
+            // comes after the dispatch.
+            self.debuff_landing_chat_sequence = self.observed_chat_sequence;
+        }
         self.announce_cast_attempt(cx.automation, target.object_id, &choice.spell);
         let target_name = display_name(target);
         self.log_line(
@@ -689,9 +702,147 @@ impl CombatController {
             ));
             return;
         }
+        // The result line came first: it was counted when it came.
+        if completion.answered_by_line {
+            return;
+        }
+        // A projectile is announced once it is known to have landed.
+        if completion.awaiting_landing {
+            self.set_status(format!("Waiting for {} to land", completion.spell_name));
+            return;
+        }
         if let Some(spell) = completion.spell {
             self.announce_cast_success(automation, completion.target_object_id, &spell);
         }
+    }
+
+    /// A result line for the awaited debuff projectile, read from the
+    /// dispatch on: its own success line naming its monster means it is
+    /// up; a resist means it reached the monster and is cast again; a
+    /// refusal the same cast would meet again gives a single-target
+    /// spell's monster up; a killing blow on its monster ends the wait.
+    fn observe_debuff_landing(&mut self, cx: &mut Ctx<'_>, message: &ChatLine) {
+        let Some((target_object_id, target_name, spell)) =
+            self.debuffs.watched_landing().map(|watched| {
+                (
+                    watched.target_object_id,
+                    watched.target_name.to_owned(),
+                    watched.spell.clone(),
+                )
+            })
+        else {
+            return;
+        };
+        if message.log_text_type == log_text_type::DEFAULT
+            && let Some(slain) = combat_text::is_killing_blow(&message.text)
+        {
+            if slain.is_empty() || slain == target_name {
+                self.debuffs.end_landing_watch();
+            }
+            return;
+        }
+        if message.log_text_type != log_text_type::MAGIC {
+            return;
+        }
+        let result = combat_text::classify(&message.text);
+        // Corruption's bolts fan out: a line about another monster is not
+        // this one's.
+        let names_target = result.target_name.is_empty()
+            || target_name.is_empty()
+            || ordinal::equals_ignore_case(&result.target_name, &target_name);
+        match result.class {
+            CombatResultTextClass::Success => {
+                if !result.spell_name.is_empty() && result.spell_name != spell.name {
+                    return;
+                }
+                if !names_target {
+                    return;
+                }
+                self.log_line(
+                    MacroLogChannel::CastInfo,
+                    &format!("SpellCaster: Spell success reset ({})", message.text),
+                );
+                if let Some((target, spell)) = self.debuffs.land(self.now) {
+                    self.failures.reset_attempts(target);
+                    self.announce_cast_success(cx.automation, target, &spell);
+                }
+            }
+            CombatResultTextClass::Fail => {
+                // Only a spell that strikes several can have a resist
+                // from a monster it was not aimed at.
+                if SpellCastTracker::hits_multiple_targets_for(&spell) && !names_target {
+                    return;
+                }
+                self.log_line(
+                    MacroLogChannel::CastInfo,
+                    &format!("SpellCaster: Spell fail reset ({})", message.text),
+                );
+                self.debuffs.end_landing_watch();
+            }
+            CombatResultTextClass::PermanentFail => {
+                // A spell that strikes several cannot say whose it was.
+                if SpellCastTracker::hits_multiple_targets_for(&spell) {
+                    return;
+                }
+                self.log_line(
+                    MacroLogChannel::CastInfo,
+                    &format!("SpellCaster: Spell permanent fail reset ({})", message.text),
+                );
+                self.debuffs.end_landing_watch();
+                self.failures
+                    .force_blacklist(target_object_id, self.now, cx.settings);
+            }
+            _ => {}
+        }
+    }
+
+    /// The flying debuff projectile never reported landing: a miss against
+    /// its monster, toward the blacklist as an attack spell's would be,
+    /// unless the spell strikes several. A monster that died or left
+    /// meanwhile is let go at once, with no miss. The monster is read from
+    /// the client: the frame runs while the pass is held, so the scan's
+    /// list is as old as the hold.
+    fn expire_debuff_flight(&mut self, cx: &mut Ctx<'_>) {
+        if !self.debuffs.is_in_flight() {
+            return;
+        }
+        let Some(object_id) = self
+            .debuffs
+            .watched_landing()
+            .map(|watched| watched.target_object_id)
+        else {
+            return;
+        };
+        #[allow(clippy::cast_possible_truncation)]
+        let range = self.acquisition_range as f32;
+        let reported_dead = self.failures.reason(object_id, self.now)
+            == crate::failure::CombatSuppressionReason::Dead;
+        let Some(target) = cx
+            .automation
+            .hostile_targets(range)
+            .into_iter()
+            .find(|target| target.object_id == object_id)
+            .filter(|target| !reported_dead && !is_known_dead(target))
+        else {
+            self.debuffs.abandon_flight();
+            return;
+        };
+        let Some((missed, spell)) = self.debuffs.expire_in_flight(self.now) else {
+            return;
+        };
+        self.log_line(
+            MacroLogChannel::CastInfo,
+            &format!(
+                "SpellCaster: {} never landed on {} ({missed})",
+                spell.name,
+                display_name(&target)
+            ),
+        );
+        if SpellCastTracker::hits_multiple_targets_for(&spell) {
+            return;
+        }
+        let tripped = self.failures.record_miss(missed, self.now, cx.settings);
+        self.announce_blacklist(cx, tripped, missed, &target.name);
     }
 
     pub(super) fn announce_cast_attempt(
@@ -713,19 +864,12 @@ impl CombatController {
         target_object_id: u32,
         spell: &SpellInfo,
     ) {
-        if !(self.cast_sharing_enabled)()
-            || spell.duration_seconds <= 0.0
-            || spell.duration_seconds.is_nan()
-        {
+        let duration = debuff::duration_seconds(spell);
+        if !(self.cast_sharing_enabled)() || duration <= 0.0 {
             return;
         }
         let skill = effective_skill_for(automation, spell);
-        automation.announce_cast_success(
-            target_object_id,
-            spell.spell_id,
-            skill,
-            f64::from(spell.duration_seconds),
-        );
+        automation.announce_cast_success(target_object_id, spell.spell_id, skill, duration);
     }
 
     /// Reads the server's answer to a learned debuff on the host frame.
@@ -737,11 +881,35 @@ impl CombatController {
         if !self.debuffs.has_pending() || !automation.is_available() {
             return;
         }
-        self.advance_clock_from_frame(elapsed_seconds);
+        // A swing still armed moves the clock on this same frame; a second
+        // advance would spend a curse's result budget at twice the speed.
+        if !self.swing_driver_runs(automation) {
+            self.advance_clock_from_frame(elapsed_seconds);
+        }
         let completion = automation.last_cast_completion();
         let answered = self.debuffs.observe(&completion, self.now);
         self.on_learned_debuff_completed(automation, answered);
         self.debuffs.expire_pending(self.now, 15.0);
+    }
+
+    /// The awaited debuff projectile: what chat said since the last look,
+    /// then its time and its monster. The hold on the pass rests on this
+    /// wait and stops the turn, so the host frame drives it too; the
+    /// watch's own place in the chat means a line is heard once whichever
+    /// of the two reads it first.
+    pub fn observe_debuff_flight(&mut self, cx: &mut Ctx<'_>) {
+        if self.debuffs.watched_landing().is_none() {
+            return;
+        }
+        for message in cx
+            .automation
+            .chat_messages(self.debuff_landing_chat_sequence)
+        {
+            self.debuff_landing_chat_sequence =
+                self.debuff_landing_chat_sequence.max(message.sequence);
+            self.observe_debuff_landing(cx, &message);
+        }
+        self.expire_debuff_flight(cx);
     }
 }
 

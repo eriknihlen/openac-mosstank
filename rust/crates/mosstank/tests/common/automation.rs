@@ -87,6 +87,8 @@ pub struct FakeAutomation {
     pub is_casting: bool,
     /// `NextCastWeenieError`: the error every cast is answered with.
     pub next_cast_weenie_error: u32,
+    /// The combat spells the character knows.
+    pub known_combat_spells: Vec<SpellInfo>,
     /// `SuppressCastCompletion`: no receipt, words, result or enchantment.
     pub suppress_cast_completion: bool,
     /// `SuppressCastReceipt`: no receipt.
@@ -233,6 +235,7 @@ impl Default for FakeAutomation {
             catalog_spells: Vec::new(),
             is_casting: false,
             next_cast_weenie_error: 0,
+            known_combat_spells: Vec::new(),
             suppress_cast_completion: false,
             suppress_cast_receipt: false,
             suppress_cast_result_text: false,
@@ -462,6 +465,17 @@ impl FakeAutomation {
             revision: self.last_completion.revision + 1,
             spell_id,
             target_id: self.object_id,
+            weenie_error: error,
+        };
+    }
+
+    /// The server's answer to a cast at `target_id` held open by
+    /// `suppress_cast_completion`.
+    pub fn post_cast_receipt_at(&mut self, spell_id: u32, target_id: u32, error: u32) {
+        self.last_completion = CastCompletion {
+            revision: self.last_completion.revision + 1,
+            spell_id,
+            target_id,
             weenie_error: error,
         };
     }
@@ -803,6 +817,7 @@ impl World {
                         automation.known_self_buff_reads += 1;
                         automation.known_self_buffs.clone()
                     }
+                    SpellList::Combat => world.automation().known_combat_spells.clone(),
                     _ => Vec::new(),
                 })
             }
@@ -1275,11 +1290,14 @@ impl World {
         }
         automation.cast_spell_ids.push(spell_id);
         automation.call_log.push(format!("Cast:{spell_id}"));
+        if automation.suppress_cast_completion {
+            return CastResult::Sent;
+        }
         let error = automation.next_cast_weenie_error;
         automation.last_completion = CastCompletion {
             revision: automation.last_completion.revision + 1,
             spell_id,
-            target_id: 0,
+            target_id: request.target_id,
             weenie_error: error,
         };
         let name = automation
