@@ -1264,13 +1264,12 @@ fn session_loss_disables_and_aborts() {
 }
 
 fn lens_fight() -> Fight {
-    let imperil = SpellInfo {
-        school: 31,
+    let imperil = mosstank_combat::testing::in_debuff_line(SpellInfo {
         is_debuff: true,
         is_offensive: true,
         duration_seconds: 60.0,
         ..spell(90, "Imperil Other VII")
-    };
+    });
     let mut lens = inventory_item(800, "Imperil Lens", 0x8000, 90, true);
     lens.item_spellcraft = 400;
     let surface = FakeAutomation {
@@ -1342,14 +1341,13 @@ fn a_wand_debuff_holds_the_item_slot_for_its_whole_cast() {
 // Source: tests/AcDream.Plugins.MossTank.Tests/CombatControllerTests.cs :: ProcWeaponChargesAtZeroAndRequiresCastChatNotAttackDone
 #[test]
 fn proc_weapon_charges_at_zero_and_requires_cast_chat_not_attack_done() {
-    let imperil = SpellInfo {
-        school: 31,
+    let imperil = mosstank_combat::testing::in_debuff_line(SpellInfo {
         is_debuff: true,
         is_offensive: true,
         duration_seconds: 60.0,
         target_mask: 0x10,
         ..spell(91, "Imperil Other VII")
-    };
+    });
     let mut sword = inventory_item(801, "Imperil Sword", 1, 0, true);
     sword.item_spellcraft = 400;
     sword.appraised_spell_ids = vec![91];

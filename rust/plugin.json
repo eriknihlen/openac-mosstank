@@ -4,7 +4,7 @@
   "version": "0.7.1",
   "entry": "mosstank.wasm",
   "apiVersion": "1.11",
-  "minHostVersion": "0.2.3",
+  "minHostVersion": "0.2.4",
   "permissionsVersion": 1,
   "permissions": [
     { "name": "chat", "note": "Reads chat to follow combat and loot results, and posts its own status lines." },

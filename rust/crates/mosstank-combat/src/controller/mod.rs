@@ -39,7 +39,7 @@ use mosstank_settings::model::{CombatSettings, VitalSettings};
 use mosstank_settings::monster::{MonsterActionFlags, MonsterRuleActions, ResolvedMonsterRule};
 use openac_plugin_compat::number::format_f32;
 
-use crate::debuff::{DebuffIdentity, DebuffTracker};
+use crate::debuff::{DebuffIdentity, DebuffLines, DebuffTracker};
 use crate::failure::CombatFailureTracker;
 use crate::gate::{CombatModeGate, SharedCombatModeGate};
 use crate::health::MonsterHealthTracker;
@@ -202,6 +202,9 @@ pub struct CombatController {
     /// Whether this pass has sorted every known combat spell into
     /// `pass_debuff_spells` (each debuff's strongest).
     pass_debuff_spells_complete: bool,
+    /// Which spells are which debuff, read from the spell table once a
+    /// pass.
+    pass_debuff_lines: Option<std::rc::Rc<DebuffLines>>,
     pass_deliverable: HashMap<(MonsterDamageType, u32), bool>,
     pass_components: HashMap<u32, bool>,
     pass_invalid_targets: HashSet<u32>,
@@ -339,6 +342,7 @@ impl CombatController {
             pass_clearance: Vec::new(),
             pass_debuff_spells: HashMap::new(),
             pass_debuff_spells_complete: false,
+            pass_debuff_lines: None,
             pass_deliverable: HashMap::new(),
             pass_components: HashMap::new(),
             pass_invalid_targets: HashSet::new(),
@@ -791,6 +795,7 @@ impl CombatController {
         self.pass_debuff_sources.clear();
         self.pass_debuff_spells.clear();
         self.pass_debuff_spells_complete = false;
+        self.pass_debuff_lines = None;
         self.pass_deliverable.clear();
         self.pass_components.clear();
         self.pass_spell_refusals.clear();

@@ -54,17 +54,80 @@ fn lift(point: &Position) -> MapPoint {
     }
 }
 
+/// The longest leg drawn past a waypoint that is not a place, metres. A
+/// route's legs are walks, but a chat command or a pause can teleport the
+/// character with no waypoint saying so (`/ah`, `/ub use Gateway`, a recall
+/// a meta casts during a pause): a leg longer than this past one of them
+/// joins the two sides of such a teleport, and would be drawn as a line
+/// across the world. A leg straight from one place to the next is a walk
+/// however long it is, and is always drawn.
+pub const MAX_LEG_METRES: f64 = 1000.0;
+
+/// An object's recorded position, or `None` when the waypoint has none: a
+/// NAV file marks it not valid, and a file or a waypoint that never had one
+/// leaves it at the map's centre (0, 0), where no route's object stands.
+fn recorded_object(waypoint: &RouteWaypoint) -> Option<&Position> {
+    let position = &waypoint.reference_position;
+    let unset = position.east_west == 0.0 && position.north_south == 0.0;
+    (waypoint.legacy_reference_valid && !unset).then_some(position)
+}
+
+/// Where a waypoint is drawn, or `None` when it is not a place on the
+/// route. A point, a checkpoint, a portal and a jump are where the
+/// character stands. A portal or NPC found by name is where the object was
+/// recorded (not where the character stood when the waypoint was written):
+/// the character walks to the object to use it. One with no recorded
+/// object position is not drawn. A chat command, a pause and a recall are
+/// done where the character is: their position is wherever it was when
+/// they were added, often far from the route, and the steering never goes
+/// there. A vendor is walked to as well, but neither route file keeps
+/// where it stands, so it is passed over like them.
+fn drawn_place(waypoint: &RouteWaypoint) -> Option<&Position> {
+    match waypoint.kind {
+        RouteWaypointType::Point
+        | RouteWaypointType::Checkpoint
+        | RouteWaypointType::Portal
+        | RouteWaypointType::Jump => Some(&waypoint.position),
+        RouteWaypointType::PortalByName | RouteWaypointType::UseNpc => recorded_object(waypoint),
+        RouteWaypointType::Pause
+        | RouteWaypointType::ChatCommand
+        | RouteWaypointType::Recall
+        | RouteWaypointType::OpenVendor => None,
+    }
+}
+
+/// Whether no leg leaves the waypoint: a portal and a recall teleport, and
+/// where a jump comes down is not recorded (the steering goes on to the
+/// next point from wherever it lands).
+fn breaks_after(kind: RouteWaypointType) -> bool {
+    matches!(
+        kind,
+        RouteWaypointType::Portal
+            | RouteWaypointType::PortalByName
+            | RouteWaypointType::Recall
+            | RouteWaypointType::Jump
+    )
+}
+
+/// Where a leg starts: the place's index and position, and whether a
+/// waypoint that is not a place has been passed since.
+struct LegStart<'a> {
+    index: usize,
+    from: &'a Position,
+    passed_over: bool,
+}
+
 /// The loaded route as world lines ("Show Nav Lines"): a ring of the
-/// arrival radius around each point, the current point in its own colour,
-/// and a leg from each point to the next (back to the first on a circular
-/// route), except from a portal, a recall or a jump. Lines follow the
-/// terrain outdoors.
+/// arrival radius around each place on the route ([`drawn_place`]), the
+/// current one in its own colour, and a leg from each place to the next
+/// (back to the first on a circular route). The waypoints that are not
+/// places are passed over; no leg leaves a portal, a recall or a jump, and
+/// none that passes over a waypoint is longer than [`MAX_LEG_METRES`].
+/// Every line asks to follow the ground: the client fits it to the terrain
+/// or to the floors under its ends, indoors and out, and keeps a line
+/// straight where neither is under it.
 #[must_use]
-pub fn route_lines(
-    settings: &NavigationSettings,
-    current_waypoint_index: i32,
-    is_outdoor: bool,
-) -> Vec<WorldLine> {
+pub fn route_lines(settings: &NavigationSettings, current_waypoint_index: i32) -> Vec<WorldLine> {
     let mut lines = Vec::new();
     let points = &settings.waypoints;
     let count = points.len().min(MAX_DRAWN_POINTS);
@@ -77,11 +140,26 @@ pub fn route_lines(
         start,
         end,
         color_rgb,
-        follow_terrain: is_outdoor,
+        follow_terrain: true,
         width_metres: 0.25,
     };
+    let leg = |lines: &mut Vec<WorldLine>, start: &LegStart<'_>, to: &Position| {
+        if !start.passed_over || start.from.horizontal_distance_metres(to) <= MAX_LEG_METRES {
+            lines.push(line(lift(start.from), lift(to), ROUTE_COLOR));
+        }
+    };
+    // Where the next leg starts; none after a break.
+    let mut previous: Option<LegStart<'_>> = None;
     for (i, waypoint) in points.iter().enumerate().take(count) {
-        let point = lift(&waypoint.position);
+        let Some(place) = drawn_place(waypoint) else {
+            if breaks_after(waypoint.kind) {
+                previous = None;
+            } else if let Some(start) = previous.as_mut() {
+                start.passed_over = true;
+            }
+            continue;
+        };
+        let centre = lift(place);
         let current = usize::try_from(current_waypoint_index).is_ok_and(|index| index == i);
         let color = if current { CURRENT_COLOR } else { ROUTE_COLOR };
         for j in 0..RING_SEGMENTS {
@@ -89,35 +167,45 @@ pub fn route_lines(
             let b = f64::from(j + 1) * std::f64::consts::TAU / f64::from(RING_SEGMENTS);
             lines.push(line(
                 MapPoint {
-                    east_west: point.east_west + a.cos() * radius,
-                    north_south: point.north_south + a.sin() * radius,
-                    elevation: point.elevation,
+                    east_west: centre.east_west + a.cos() * radius,
+                    north_south: centre.north_south + a.sin() * radius,
+                    elevation: centre.elevation,
                 },
                 MapPoint {
-                    east_west: point.east_west + b.cos() * radius,
-                    north_south: point.north_south + b.sin() * radius,
-                    elevation: point.elevation,
+                    east_west: centre.east_west + b.cos() * radius,
+                    north_south: centre.north_south + b.sin() * radius,
+                    elevation: centre.elevation,
                 },
                 color,
             ));
         }
-        let mut next = i + 1;
-        if next == count && settings.mode == RouteMode::Circular {
-            next = 0;
+        if let Some(start) = &previous {
+            leg(&mut lines, start, place);
         }
-        if next >= count
-            || next == i
-            || matches!(
-                waypoint.kind,
-                RouteWaypointType::Portal
-                    | RouteWaypointType::PortalByName
-                    | RouteWaypointType::Recall
-                    | RouteWaypointType::Jump
-            )
-        {
-            continue;
+        previous = (!breaks_after(waypoint.kind)).then_some(LegStart {
+            index: i,
+            from: place,
+            passed_over: false,
+        });
+    }
+    // A circular route goes on from its last place to its first, unless a
+    // recall comes between them.
+    if settings.mode == RouteMode::Circular
+        && let Some(mut start) = previous
+    {
+        for (i, waypoint) in points.iter().enumerate().take(count) {
+            if i == start.index {
+                break;
+            }
+            if let Some(place) = drawn_place(waypoint) {
+                leg(&mut lines, &start, place);
+                break;
+            }
+            if breaks_after(waypoint.kind) {
+                break;
+            }
+            start.passed_over = true;
         }
-        lines.push(line(point, lift(&points[next].position), ROUTE_COLOR));
     }
     lines
 }

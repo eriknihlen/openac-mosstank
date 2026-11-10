@@ -32,10 +32,10 @@ impl NavLines {
     }
 }
 
-/// What the drawing depends on: the route's mode, its arrival radius,
-/// whether the player is outdoors, the point the route is heading for, and
-/// every point's kind and position.
-fn signature(navigation: &NavigationSettings, is_outdoor: bool, current_waypoint: i32) -> u64 {
+/// What the drawing depends on: the route's mode, its arrival radius, the
+/// point the route is heading for, and every point's kind, position and
+/// recorded object position.
+fn signature(navigation: &NavigationSettings, current_waypoint: i32) -> u64 {
     fn position(hasher: &mut DefaultHasher, p: &Position) {
         p.cell_id.hash(hasher);
         p.east_west.to_bits().hash(hasher);
@@ -50,11 +50,12 @@ fn signature(navigation: &NavigationSettings, is_outdoor: bool, current_waypoint
         .minimum_distance_meters
         .to_bits()
         .hash(&mut hasher);
-    is_outdoor.hash(&mut hasher);
     current_waypoint.hash(&mut hasher);
     for point in &navigation.waypoints {
         std::mem::discriminant(&point.kind).hash(&mut hasher);
         position(&mut hasher, &point.position);
+        position(&mut hasher, &point.reference_position);
+        point.legacy_reference_valid.hash(&mut hasher);
     }
     hasher.finish()
 }
@@ -76,14 +77,13 @@ impl TankCx<'_> {
             Some(layer) => layer,
             None => *core.nav_lines.layer.insert(self.client.create_line_layer()),
         };
-        let is_outdoor = snapshot.position.is_outdoor;
         let current = core.navigation.current_waypoint_index();
-        let signature = signature(navigation, is_outdoor, current);
+        let signature = signature(navigation, current);
         if core.nav_lines.signature == Some(signature) {
             return;
         }
         core.nav_lines.signature = Some(signature);
-        let lines = route_lines(navigation, current, is_outdoor);
+        let lines = route_lines(navigation, current);
         self.client.set_world_lines(layer, &lines);
     }
 }

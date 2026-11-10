@@ -334,6 +334,16 @@ impl SpellCatalog for FakeAutomation {
         self.known_combat_spell_reads += 1;
         self.known_combat_spells.clone()
     }
+
+    /// The spell table: the debuff lines as the game has them, then every
+    /// spell this fake was given.
+    fn all(&mut self) -> Vec<SpellInfo> {
+        let mut all = mosstank_combat::testing::debuff_spells();
+        all.extend(self.known_attack_spells.iter().cloned());
+        all.extend(self.known_combat_spells.iter().cloned());
+        all.extend(self.spell_lookup.iter().cloned());
+        all
+    }
 }
 
 impl Automation for FakeAutomation {
@@ -1261,14 +1271,15 @@ pub fn magic_spell(id: u32, name: &str, difficulty: i32) -> SpellInfo {
     }
 }
 
-/// A debuff spell, offensive and lasting a minute.
+/// A debuff spell, offensive and lasting a minute, in the spell table's
+/// line for its name.
 pub fn learned_debuff(id: u32, name: &str) -> SpellInfo {
-    SpellInfo {
+    mosstank_combat::testing::in_debuff_line(SpellInfo {
         is_debuff: true,
         is_offensive: true,
         duration_seconds: 60.0,
         ..spell(id, name)
-    }
+    })
 }
 
 /// An item in the pack (`InventoryItem`).
@@ -1350,9 +1361,9 @@ pub fn fixture_facts() -> mosstank_settings::monster::MonsterFactTable {
     mosstank_settings::monster::MonsterFactTable::new(game_info())
 }
 
-/// A learned debuff of the creature school (`Debuff`).
+/// A learned debuff (`Debuff`), in the spell table's line for its name.
 pub fn debuff(id: u32, name: &str) -> SpellInfo {
-    SpellInfo {
+    mosstank_combat::testing::in_debuff_line(SpellInfo {
         spell_id: id,
         name: name.to_owned(),
         family: id,
@@ -1367,7 +1378,7 @@ pub fn debuff(id: u32, name: &str) -> SpellInfo {
         base_range_constant: 80.0,
         saying: "testwords".to_owned(),
         ..SpellInfo::default()
-    }
+    })
 }
 
 /// The C# `Equipment` helper with its defaults.

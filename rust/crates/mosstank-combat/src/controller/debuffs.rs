@@ -19,7 +19,7 @@ use super::equip::resolve_inventory_offhand_object_id;
 use super::swing::projectile_status;
 use super::{CombatController, Ctx, POWER_RELEASE_EPSILON, PendingItemDebuff};
 use crate::MacroLogChannel;
-use crate::debuff::{self, CombatDebuffStep, DebuffCompletion, DebuffIdentity};
+use crate::debuff::{self, CombatDebuffStep, DebuffCompletion, DebuffIdentity, DebuffLines};
 use crate::gate::{CombatModeGate, GateTurn, Prepare};
 use crate::item_debuff::{self, CombatDebuffSource, CombatDebuffSourceKind, DebuffPlanInput};
 
@@ -545,6 +545,19 @@ impl CombatController {
         score
     }
 
+    /// Which spells are which debuff (read once per pass).
+    pub(super) fn debuff_lines(
+        &mut self,
+        automation: &mut dyn Automation,
+    ) -> std::rc::Rc<DebuffLines> {
+        if let Some(lines) = &self.pass_debuff_lines {
+            return std::rc::Rc::clone(lines);
+        }
+        let lines = std::rc::Rc::new(DebuffLines::of(automation.spells()));
+        self.pass_debuff_lines = Some(std::rc::Rc::clone(&lines));
+        lines
+    }
+
     /// The strongest known spell of a debuff (once per pass).
     pub(super) fn find_debuff_spell(
         &mut self,
@@ -559,9 +572,10 @@ impl CombatController {
             // first of the highest tier: what a walk per debuff finds.
             let mut best: std::collections::HashMap<DebuffIdentity, SpellInfo> =
                 std::collections::HashMap::new();
+            let lines = self.debuff_lines(automation);
             let known = automation.spells().known_combat_spells_shared();
             for spell in known.iter() {
-                let Some((found, _)) = debuff::classify(spell) else {
+                let Some((found, _)) = lines.classify_learned(spell) else {
                     continue;
                 };
                 if best
@@ -598,11 +612,13 @@ impl CombatController {
         }
         let skills = cx.automation.skills();
         let grenades = self.game_info.grenade_options.clone();
+        let debuff_lines = self.debuff_lines(cx.automation);
         let mut lines: Vec<String> = Vec::new();
         let sources = {
             let mut input = DebuffPlanInput {
                 settings: cx.settings,
                 skills: &skills,
+                lines: &debuff_lines,
                 spells: cx.automation.spells(),
                 items: inventory,
                 grenades: &grenades,

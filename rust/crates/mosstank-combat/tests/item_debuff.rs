@@ -3,8 +3,8 @@
 use ac_plugin_abi::character::{Skill, Training};
 use ac_plugin_abi::items::InventoryItem;
 use ac_plugin_abi::magic::SpellInfo;
-use mosstank_automation::StaticSpellCatalog;
-use mosstank_combat::debuff::DebuffIdentity;
+use mosstank_automation::{SpellTable, StaticSpellCatalog};
+use mosstank_combat::debuff::{DebuffIdentity, DebuffLines};
 use mosstank_combat::item_debuff::{
     CombatDebuffSource, CombatDebuffSourceKind, DebuffPlanInput, candidates, sources,
 };
@@ -20,8 +20,12 @@ fn grenades() -> Vec<VtankGrenadeOption> {
         .grenade_options
 }
 
+/// A spell in the spell table's line for its name; `school` stands for a
+/// spell of no debuff line. (The C# tests give every debuff the
+/// creature school; Imperil is life magic, so their characters have both
+/// skills here.)
 fn spell(id: u32, name: &str, quality: i32, school: u32) -> SpellInfo {
-    SpellInfo {
+    mosstank_combat::testing::in_debuff_line(SpellInfo {
         spell_id: id,
         name: name.to_owned(),
         family: 1,
@@ -34,7 +38,12 @@ fn spell(id: u32, name: &str, quality: i32, school: u32) -> SpellInfo {
         is_offensive: true,
         target_mask: 0x10,
         ..SpellInfo::default()
-    }
+    })
+}
+
+/// The debuffs of the game's spell table.
+fn lines() -> DebuffLines {
+    DebuffLines::build(&SpellTable::new(mosstank_combat::testing::debuff_spells()))
 }
 
 fn item(id: u32, name: &str, item_type: u32, spell_id: u32) -> InventoryItem {
@@ -104,9 +113,11 @@ fn plan(
     items: &[InventoryItem],
 ) -> Vec<CombatDebuffSource> {
     let grenades = grenades();
+    let lines = lines();
     let mut input = DebuffPlanInput {
         settings,
         skills,
+        lines: &lines,
         spells: catalog,
         items,
         grenades: &grenades,
@@ -124,7 +135,7 @@ fn spell_level_and_skill_methods_use_official_comparison_order() {
         std::slice::from_ref(&learned),
         &[learned.clone(), lens_spell],
     );
-    let character = skills(&[(31, 500)]);
+    let character = skills(&[(31, 500), (33, 500)]);
     let mut lens = item(100, "Imperil Lens", 0x8000, 2);
     lens.item_spellcraft = 100;
     let mut settings = CombatSettings {
@@ -158,7 +169,7 @@ fn sources_answers_for_one_kind_only_and_emits_authentic_debuff_choice_lines() {
         &[imperil.clone(), yield_spell.clone()],
         &[imperil, yield_spell, lens_spell],
     );
-    let character = skills(&[(31, 500)]);
+    let character = skills(&[(31, 500), (33, 500)]);
     let mut lens = item(100, "Imperil Lens", 0x8000, 3);
     lens.item_spellcraft = 900;
     let mut settings = CombatSettings {
@@ -169,9 +180,11 @@ fn sources_answers_for_one_kind_only_and_emits_authentic_debuff_choice_lines() {
     let mut log: Vec<String> = Vec::new();
     let grenades = grenades();
     let items = [lens];
+    let lines = lines();
     let mut input = DebuffPlanInput {
         settings: &settings,
         skills: &character,
+        lines: &lines,
         spells: &mut catalog,
         items: &items,
         grenades: &grenades,
@@ -211,11 +224,13 @@ fn sources_logs_authentic_wrong_object_type_stop_for_a_profiled_non_source() {
     settings.combat_item_object_ids.insert(armour.object_id);
     let mut log: Vec<String> = Vec::new();
     let grenades = grenades();
-    let character = skills(&[(31, 500)]);
+    let character = skills(&[(31, 500), (33, 500)]);
     let items = [armour];
+    let lines = lines();
     let mut input = DebuffPlanInput {
         settings: &settings,
         skills: &character,
+        lines: &lines,
         spells: &mut catalog,
         items: &items,
         grenades: &grenades,

@@ -20,7 +20,7 @@ use openac_plugin_compat::number::format_f64;
 use super::magic::is_vtank_instant_cast;
 use super::{CombatController, Ctx, PHYSICAL_RESULT_TEXT_TAIL_SECONDS, is_known_dead};
 use crate::item_debuff::CombatDebuffSourceKind;
-use crate::{MacroLogChannel, debuff, post};
+use crate::{MacroLogChannel, post};
 
 /// The chat kind of local speech.
 const LOCAL_SPEECH_CHAT_KIND: u32 = 0;
@@ -623,7 +623,7 @@ impl CombatController {
             if !table_live {
                 continue;
             }
-            let Some((identity, _)) = debuff::classify(&spell) else {
+            let Some((identity, _)) = self.debuff_lines(cx.automation).classify(&spell) else {
                 continue;
             };
             if !self.debuffs.record_remote(

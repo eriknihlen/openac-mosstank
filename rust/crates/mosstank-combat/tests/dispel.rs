@@ -49,6 +49,14 @@ impl SpellCatalog for Surface {
     fn is_known(&mut self, spell_id: u32) -> bool {
         self.known_spell_ids.contains(&spell_id)
     }
+
+    /// The spell table: the debuff lines as the game has them, then the
+    /// spells this client was given.
+    fn all(&mut self) -> Vec<SpellInfo> {
+        let mut all = mosstank_combat::testing::debuff_spells();
+        all.extend(self.spell_lookup.iter().cloned());
+        all
+    }
 }
 
 impl Automation for Surface {
@@ -157,8 +165,9 @@ impl Automation for Surface {
     fn log_warn(&mut self, _text: &str) {}
 }
 
+/// A fire vulnerability, in the spell table's line for its name.
 fn vulnerability(id: u32, difficulty: i32) -> SpellInfo {
-    SpellInfo {
+    mosstank_combat::testing::in_debuff_line(SpellInfo {
         spell_id: id,
         name: "Fire Vulnerability Other VII".to_owned(),
         family: 7,
@@ -169,7 +178,7 @@ fn vulnerability(id: u32, difficulty: i32) -> SpellInfo {
         is_debuff: true,
         is_offensive: true,
         ..SpellInfo::default()
-    }
+    })
 }
 
 fn self_dispel_spell() -> SpellInfo {
@@ -201,7 +210,7 @@ fn item(id: u32, name: &str) -> InventoryItem {
 fn vulnerable() -> Vec<ActiveEnchantment> {
     vec![ActiveEnchantment {
         spell_id: 100,
-        family: 7,
+        family: vulnerability(100, 0).family,
         tier: 7,
         seconds_remaining: 120.0,
     }]
@@ -431,7 +440,7 @@ fn attenuated_awakener_dispels_the_highest_scoring_nearby_fellow() {
     // The C# fixture gives the fire spell a quality override of 300 and the
     // cold one 320; the tracked entries carry those qualities.
     let fire = vulnerability(100, 350);
-    let cold = SpellInfo {
+    let cold = mosstank_combat::testing::in_debuff_line(SpellInfo {
         spell_id: 101,
         name: "Cold Vulnerability Other VII".to_owned(),
         family: 8,
@@ -442,7 +451,7 @@ fn attenuated_awakener_dispels_the_highest_scoring_nearby_fellow() {
         is_debuff: true,
         is_offensive: true,
         ..SpellInfo::default()
-    };
+    });
     let tracked = |target: u32, spell: &SpellInfo, quality: i32| TrackedEnchantment {
         target_id: target,
         spell_id: spell.spell_id,
