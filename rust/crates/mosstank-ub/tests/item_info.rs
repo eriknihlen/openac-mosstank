@@ -15,8 +15,12 @@ const LINK: &str = "<Tell:IIDString:438347936:select|";
 const SILVER: u32 = 63;
 
 fn switch_on(rig: &mut Rig, name: &str) {
+    set_switch(rig, name, true);
+}
+
+fn set_switch(rig: &mut Rig, name: &str, on: bool) {
     let row = UbCatalog::require(&rig.catalog, name);
-    rig.catalog.set(&row, UbSettingValue::from_bool(true));
+    rig.catalog.set(&row, UbSettingValue::from_bool(on));
 }
 
 fn enabled() -> Rig {
@@ -229,6 +233,34 @@ fn a_new_selection_replaces_the_one_waiting() {
     tick(&mut rig, 0.1);
 
     assert!(rig.messages().is_empty());
+}
+
+#[test]
+fn switching_the_tool_or_its_trigger_off_drops_the_selection_waiting() {
+    // UtilityBelt stops waiting when one of its switches changes.
+    for setting in [
+        item_info::ENABLED_SETTING,
+        item_info::DESCRIBE_ON_SELECT_SETTING,
+    ] {
+        let mut rig = enabled();
+        let (object, item, properties) = breastplate(false);
+        let id = object.object_id;
+        carry(&mut rig, object, item, properties);
+        select(&mut rig, id);
+        assert_eq!(rig.host.identified, [id]);
+
+        set_switch(&mut rig, setting, false);
+        tick(&mut rig, 0.1);
+        assert_eq!(
+            rig.with_call(|_, commands| commands.tools_mut().item_info.pending()),
+            None,
+            "{setting}"
+        );
+        rig.host.meta.objects[0].has_appraisal_data = true;
+        set_switch(&mut rig, setting, true);
+        tick(&mut rig, 0.1);
+        assert!(rig.messages().is_empty(), "{setting}: {:?}", rig.messages());
+    }
 }
 
 #[test]

@@ -111,6 +111,25 @@ struct Pending {
     object_id: u32,
     asked: bool,
     waited: f64,
+    /// The switches as they stood when it was selected: a change to any of
+    /// them drops the wait, as UtilityBelt stops when one changes.
+    switches: Switches,
+}
+
+/// The switch and the triggers that decide whether a selection is described.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Switches {
+    enabled: bool,
+    on_select: bool,
+}
+
+impl Switches {
+    fn read(call: &UbCall<'_>) -> Self {
+        Self {
+            enabled: call.flag(ENABLED_SETTING),
+            on_select: call.flag(DESCRIBE_ON_SELECT_SETTING),
+        }
+    }
 }
 
 /// The tool: the one selection it is waiting to describe.
@@ -145,7 +164,8 @@ impl ItemInfoController {
         let Some(object_id) = selected.filter(|id| *id != 0) else {
             return;
         };
-        if !call.flag(ENABLED_SETTING) || !call.flag(DESCRIBE_ON_SELECT_SETTING) {
+        let switches = Switches::read(call);
+        if !switches.enabled || !switches.on_select {
             return;
         }
         let Some(object) = call.host.object(object_id) else {
@@ -165,6 +185,7 @@ impl ItemInfoController {
             object_id,
             asked: false,
             waited: 0.0,
+            switches,
         };
         ask(call, &mut pending);
         self.pending = Some(pending);
@@ -172,11 +193,16 @@ impl ItemInfoController {
 
     /// One frame: the object waiting is described once its appraisal is in,
     /// or once it has waited [`APPRAISAL_TIMEOUT_SECONDS`] or the client gave
-    /// up on it.
+    /// up on it. A change to the switch or a trigger since it was selected
+    /// drops it unsaid.
     pub fn tick(&mut self, call: &mut UbCall<'_>, elapsed_seconds: f64) {
         let Some(mut pending) = self.pending else {
             return;
         };
+        if Switches::read(call) != pending.switches {
+            self.pending = None;
+            return;
+        }
         let Some(object) = call.host.object(pending.object_id) else {
             self.pending = None;
             return;
