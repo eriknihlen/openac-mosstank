@@ -11,8 +11,10 @@
 //! together, then moves one item at a time to the best pack of its list
 //! that has room, until nothing is left to move. An item whose rule turns
 //! on an appraisal is appraised first, one request at a time through the
-//! shared appraisal slot. An item that will not move for ten seconds is
-//! left alone for the rest of the run.
+//! shared appraisal slot; one whose appraisal does not come (three
+//! unanswered requests, or ten seconds waiting for a slot somebody else
+//! holds) is packed by what the client knows of it. An item that will not
+//! move for ten seconds is left alone for the rest of the run.
 //!
 //! The profile is a loot profile: the one named on the command line, or
 //! `<character>.AutoPack`, or `Default.AutoPack` (Mag-Tools' file names).
@@ -46,6 +48,12 @@ const IDENTIFY_TIMEOUT_SECONDS: f64 = 10.0;
 /// Failed requests one item gets before it is decided from what the client
 /// already holds.
 const MAXIMUM_IDENTIFY_ATTEMPTS_PER_ITEM: i32 = 3;
+/// How long the next item to appraise may wait for the shared appraisal
+/// slot while somebody else holds it (the looter, the counter, a question
+/// the client asked itself), counting only time in which the run could
+/// act, before it is packed by what the client already holds: as long as
+/// one request of ours is given to be answered.
+pub const APPRAISAL_SLOT_WAIT_SECONDS: f64 = IDENTIFY_TIMEOUT_SECONDS;
 /// The reference tries a rule's first ten packs.
 const MAXIMUM_PACK_CHOICES: usize = 10;
 
@@ -209,6 +217,10 @@ pub struct InventoryPacker {
     awaiting_object_id: u32,
     awaiting_seconds: f64,
     since_request: f64,
+    /// The next item to appraise while somebody else holds the slot, and
+    /// how long it has waited for it.
+    slot_wait_object_id: u32,
+    slot_wait_seconds: f64,
 }
 
 impl InventoryPacker {
@@ -305,6 +317,9 @@ impl InventoryPacker {
         if able && (self.in_flight.is_some() || !state.is_busy) {
             self.working_seconds += elapsed;
         }
+        if able {
+            self.slot_wait_seconds += elapsed;
+        }
         if let Some((_, baseline)) = self.in_flight {
             self.in_flight_seconds += elapsed;
             let answered = state.last_inventory_completion.revision != baseline;
@@ -391,7 +406,7 @@ impl InventoryPacker {
                 targets,
             });
         }
-        self.request_next_appraisal(call, &unidentified);
+        self.request_next_appraisal(call, &unidentified, &owned);
 
         let free_slots = |pack: u32| {
             if pack == character.id {
@@ -555,30 +570,71 @@ impl InventoryPacker {
     }
 
     /// Asks about the next unidentified item when the appraisal slot is
-    /// free to ask with: the looter, the counter and this run share it.
-    fn request_next_appraisal(&mut self, call: &mut UbCall<'_>, unidentified: &[u32]) {
-        if self.awaiting_object_id != 0
-            || self.since_request < IDENTIFY_REQUEST_INTERVAL_SECONDS
-            || call.services.corpse_identifier_busy()
-            || call.host.appraisal().awaiting_id != 0
-        {
+    /// free to ask with: the looter, the counter and this run share it. An
+    /// item that waits for the slot longer than
+    /// [`APPRAISAL_SLOT_WAIT_SECONDS`] while somebody else holds it is
+    /// packed by what the client already holds, and said.
+    fn request_next_appraisal(
+        &mut self,
+        call: &mut UbCall<'_>,
+        unidentified: &[u32],
+        owned: &[InventoryItem],
+    ) {
+        let Some(&next) = unidentified.first() else {
+            self.slot_wait_object_id = 0;
+            return;
+        };
+        // Our own request in flight, or our own pause between requests:
+        // the slot is ours, nobody keeps the item waiting.
+        if self.awaiting_object_id != 0 || self.since_request < IDENTIFY_REQUEST_INTERVAL_SECONDS {
+            self.slot_wait_seconds = 0.0;
             return;
         }
-        for &object_id in unidentified {
-            let result = call.host.identify(object_id);
-            if result.accepted() {
-                self.awaiting_object_id = object_id;
-                self.awaiting_seconds = 0.0;
-                self.since_request = 0.0;
-                return;
+        let mut held =
+            call.services.corpse_identifier_busy() || call.host.appraisal().awaiting_id != 0;
+        if !held {
+            for &object_id in unidentified {
+                let result = call.host.identify(object_id);
+                if result.accepted() {
+                    self.awaiting_object_id = object_id;
+                    self.awaiting_seconds = 0.0;
+                    self.since_request = 0.0;
+                    self.slot_wait_seconds = 0.0;
+                    return;
+                }
+                // Busy is the client's own backpressure and says nothing
+                // about this item; anything else is a refusal of this item
+                // and costs it one attempt.
+                if result.status == ItemStatus::Busy {
+                    held = true;
+                    break;
+                }
+                self.spend_attempt(object_id);
             }
-            // Busy is the client's own backpressure and says nothing about
-            // this item; anything else is a refusal of this item and costs
-            // it one attempt.
-            if result.status == ItemStatus::Busy {
-                return;
-            }
-            self.spend_attempt(object_id);
         }
+        if !held {
+            self.slot_wait_seconds = 0.0;
+            return;
+        }
+        if self.slot_wait_object_id != next {
+            self.slot_wait_object_id = next;
+            self.slot_wait_seconds = 0.0;
+            return;
+        }
+        if self.slot_wait_seconds < APPRAISAL_SLOT_WAIT_SECONDS {
+            return;
+        }
+        // Out of attempts: the next look decides it from what is known.
+        self.identify_attempts
+            .insert(next, MAXIMUM_IDENTIFY_ATTEMPTS_PER_ITEM);
+        self.slot_wait_object_id = 0;
+        self.slot_wait_seconds = 0.0;
+        let name = owned
+            .iter()
+            .find(|item| item.object_id == next)
+            .map_or("", |item| item.name.as_str());
+        call.write_ub(&format!(
+            "Auto Pack - Could not appraise item: {next}, {name}"
+        ));
     }
 }

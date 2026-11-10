@@ -6,7 +6,9 @@ mod common;
 
 use std::collections::HashSet;
 
-use ac_plugin_abi::items::{InventoryCommandKind, InventoryCompletion, InventoryItem};
+use ac_plugin_abi::items::{
+    AppraisalState, InventoryCommandKind, InventoryCompletion, InventoryItem,
+};
 use ac_plugin_abi::world::{ItemProperties, ObjectClass, WorldObject};
 use common::Rig;
 use mosstank_formats::utl::{LootAction, LootRule, VtankLootRequirement};
@@ -437,6 +439,45 @@ fn an_item_every_open_rule_would_pack_alike_is_not_appraised() {
 
     assert!(rig.host.identified.is_empty());
     assert_eq!(vec![(20, FIRST_PACK)], moves(&rig));
+}
+
+#[test]
+fn an_item_whose_appraisal_slot_stays_taken_is_packed_by_what_is_known() {
+    let mut rig = rig(vec![hauberk()], false);
+    save(
+        &mut rig,
+        "Tester.AutoPack",
+        vec![good_armor(1), any_armor(2)],
+    );
+    // Somebody else's question holds the appraisal slot for good.
+    rig.host.appraisal = AppraisalState {
+        revision: 1,
+        awaiting_id: 99,
+        ..AppraisalState::default()
+    };
+
+    rig.ub("autopack");
+    let mut seconds = 0.0;
+    while rig.host.meta.moves.is_empty() {
+        tick(&mut rig, 0.5);
+        seconds += 0.5;
+        assert!(seconds < 60.0, "the run waits on the slot for good");
+    }
+
+    assert!(rig.host.identified.is_empty());
+    assert!(
+        seconds >= pack::APPRAISAL_SLOT_WAIT_SECONDS,
+        "gave up after {seconds} s"
+    );
+    // Without the armor level only the second rule can match.
+    assert_eq!(vec![(20, SECOND_PACK)], moves(&rig));
+    assert_eq!(
+        vec![
+            "[UB] Auto Pack - Started.".to_owned(),
+            "[UB] Auto Pack - Could not appraise item: 20, Hauberk".to_owned(),
+        ],
+        rig.messages()
+    );
 }
 
 #[test]
