@@ -74,6 +74,8 @@ pub struct FakeAutomation {
     pub last_equip_object_id: u32,
     pub item_entries: Vec<InventoryItem>,
     pub last_used_item: u32,
+    /// What `use_item` answers; `Started` when unset.
+    pub use_item_result: Option<ItemResult>,
     pub last_applied_item: (u32, u32),
     pub apply_count: i32,
     pub last_item_completion: ItemUseCompletion,
@@ -154,6 +156,7 @@ impl Default for FakeAutomation {
             last_equip_object_id: 0,
             item_entries: Vec::new(),
             last_used_item: 0,
+            use_item_result: None,
             last_applied_item: (0, 0),
             apply_count: 0,
             last_item_completion: ItemUseCompletion::default(),
@@ -438,7 +441,9 @@ impl Automation for FakeAutomation {
 
     fn use_item(&mut self, object_id: u32) -> ItemResult {
         self.last_used_item = object_id;
-        ItemResult::of(ItemStatus::Started)
+        self.use_item_result
+            .clone()
+            .unwrap_or_else(|| ItemResult::of(ItemStatus::Started))
     }
 
     fn apply_item(&mut self, object_id: u32, target_id: u32) -> ItemResult {

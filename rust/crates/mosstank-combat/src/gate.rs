@@ -542,8 +542,11 @@ impl CombatModeGate {
                 BUGGED_COMBAT_STATE_WARNING.to_owned()
             } else {
                 format!(
-                    "Combat-state recovery with {recovery_name}: {:?}",
-                    used.status
+                    "Combat-state recovery with {recovery_name}: {:?}{}",
+                    used.status,
+                    used.notice
+                        .as_deref()
+                        .map_or_else(String::new, |why| format!(" ({why})"))
                 )
             };
             if used.status == ItemStatus::Started {

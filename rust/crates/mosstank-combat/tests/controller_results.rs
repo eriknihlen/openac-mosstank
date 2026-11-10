@@ -1383,3 +1383,99 @@ fn proc_weapon_charges_at_zero_and_requires_cast_chat_not_attack_done() {
     fight.tick(0.1);
     assert!(fight.status().contains("Waiting for a target"));
 }
+
+/// How many times the last pass gave up on a monster and chose again.
+fn times_chosen_again(fight: &Fight) -> usize {
+    fight
+        .lines
+        .borrow()
+        .iter()
+        .filter(|(_, text)| text.contains("yielded nothing"))
+        .count()
+}
+
+fn heavy_crossbow() -> EquipmentItem {
+    equipment(700, "Heavy Crossbow", 0x10)
+        .item_type(0x100)
+        .equipped(0x0010_0000)
+        .ammo(2, 1)
+        .build()
+}
+
+fn loaded_quarrels() -> EquipmentItem {
+    equipment(801, "Deadly Fire Quarrel", 0x10)
+        .combat_use(3)
+        .ammo(2, 20)
+        .valid(AMMUNITION_SLOT)
+        .equipped(AMMUNITION_SLOT)
+        .build()
+}
+
+fn loaded_arrows() -> EquipmentItem {
+    arrows(801, 20).equipped(AMMUNITION_SLOT).build()
+}
+
+/// A launcher in hand, its row ticking both Attack and Ring.
+fn launcher_with_ring_ticked(
+    launcher: EquipmentItem,
+    ammunition: EquipmentItem,
+    targets: Vec<CombatTarget>,
+) -> Fight {
+    let surface = FakeAutomation {
+        combat_snapshot: in_mode(CombatMode::Missile),
+        targets,
+        character_skills: vec![missile_skill()],
+        equipment_items: vec![launcher, ammunition],
+        item_entries: vec![inventory_item(801, "Deadly Fire Arrow", 0x100, 0, false)],
+        ..FakeAutomation::default()
+    };
+    let mut settings = weapon_row(MonsterRuleActions {
+        damage_type: MonsterDamageType::Fire,
+        ..(MonsterActionFlags::ATTACK | MonsterActionFlags::RING).with_weapon(700)
+    });
+    settings.combat_item_object_ids.insert(700);
+    settings.maximum_range = 40.0;
+    settings.use_projectile_awareness = true;
+    settings.selection_method = mosstank_settings::model::TargetSelectionMethod::RANGE;
+    Fight::with_game_info(surface, settings, ammo_game_info())
+}
+
+fn blocked_flight() -> ProjectilePathResult {
+    ProjectilePathResult {
+        status: ProjectilePathStatus::Blocked,
+        ..ProjectilePathResult::default()
+    }
+}
+
+// A launcher cannot throw a ring, so a blocked shot has nothing left to offer
+// that monster; chosen again it would fill the whole pass's retry budget.
+#[test]
+fn a_blocked_launcher_lets_go_of_a_monster_whose_row_also_ticks_ring() {
+    for (launcher, ammunition) in [
+        (fire_bow(), loaded_arrows()),
+        (heavy_crossbow(), loaded_quarrels()),
+    ] {
+        let mut fight = launcher_with_ring_ticked(launcher, ammunition, twenty_or_eight(1));
+        fight.surface.projectile_path = blocked_flight();
+
+        fight.toggle();
+        fight.tick(0.25);
+
+        assert_eq!(fight.surface.projectile_path_checks, 1);
+        assert_eq!(times_chosen_again(&fight), 1);
+        assert_eq!(fight.surface.begin_count, 0);
+    }
+}
+
+#[test]
+fn a_blocked_launcher_goes_on_to_the_next_monster_when_the_row_also_ticks_ring() {
+    let mut fight = launcher_with_ring_ticked(fire_bow(), loaded_arrows(), twenty_or_eight(2));
+    fight.surface.projectile_paths.insert(10, blocked_flight());
+
+    fight.toggle();
+    fight.tick(0.25);
+
+    assert_eq!(fight.surface.projectile_path_checks, 2);
+    assert_eq!(times_chosen_again(&fight), 1);
+    assert_eq!(fight.surface.begin_count, 1);
+}
