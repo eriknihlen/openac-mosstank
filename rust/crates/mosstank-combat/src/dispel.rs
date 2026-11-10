@@ -19,7 +19,7 @@ use mosstank_data::spell_id;
 use mosstank_settings::model::{CombatSettings, VitalSettings};
 use mosstank_settings::monster::MonsterActionFlags;
 
-use crate::debuff;
+use crate::debuff::DebuffLines;
 use crate::gate::{GateTurn, Prepare, SharedCombatModeGate};
 
 const ERADICATE_LIFE_MAGIC_SELF: u32 = spell_id::EradicateLifeMagicSelf;
@@ -455,6 +455,7 @@ fn select_awakener(
 }
 
 fn select_ally(automation: &mut dyn Automation) -> Option<FellowMember> {
+    let lines = DebuffLines::of(automation.spells());
     let character = automation.character().id;
     let mut highest_score = 0;
     let mut selected: Option<FellowMember> = None;
@@ -480,7 +481,7 @@ fn select_ally(automation: &mut dyn Automation) -> Option<FellowMember> {
             if spell.difficulty > 350 {
                 continue;
             }
-            let Some((identity, _)) = debuff::classify(&spell) else {
+            let Some((identity, _)) = lines.classify(&spell) else {
                 continue;
             };
             if identity.flag != MonsterActionFlags::VULNERABILITY
@@ -506,6 +507,7 @@ fn select_ally(automation: &mut dyn Automation) -> Option<FellowMember> {
 }
 
 fn has_vulnerability_at_or_below(automation: &mut dyn Automation, maximum_difficulty: i32) -> bool {
+    let lines = DebuffLines::of(automation.spells());
     for active in automation.active_enchantments() {
         // An enchantment that never runs out (one an item casts) is not
         // dispelled. The client reports its time left as infinite; a
@@ -519,7 +521,8 @@ fn has_vulnerability_at_or_below(automation: &mut dyn Automation, maximum_diffic
         if spell.difficulty > maximum_difficulty || spell.is_untargeted {
             continue;
         }
-        if debuff::classify(&spell)
+        if lines
+            .classify(&spell)
             .is_some_and(|(identity, _)| identity.flag == MonsterActionFlags::VULNERABILITY)
         {
             return true;

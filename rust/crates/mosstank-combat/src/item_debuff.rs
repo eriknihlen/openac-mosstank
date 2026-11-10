@@ -15,7 +15,7 @@ use mosstank_formats::gameinfo::VtankGrenadeOption;
 use mosstank_settings::model::{CombatSettings, DebuffSelectionMethod};
 use mosstank_settings::monster::MonsterRuleActions;
 
-use crate::debuff::{self, DebuffIdentity};
+use crate::debuff::{self, DebuffIdentity, DebuffLines};
 
 /// What a debuff is cast from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,6 +75,8 @@ pub struct DebuffPlanInput<'a> {
     pub settings: &'a CombatSettings,
     /// The character's skills.
     pub skills: &'a [Skill],
+    /// Which spells are which debuff.
+    pub lines: &'a DebuffLines,
     /// The spell table and spellbook.
     pub spells: &'a mut dyn SpellCatalog,
     /// What the character carries.
@@ -134,6 +136,7 @@ fn collect(
         add_if_required(
             &mut result,
             required,
+            input.lines.classify_learned(spell),
             spell,
             CombatDebuffSourceKind::LearnedSpell,
             0,
@@ -162,21 +165,14 @@ fn collect(
             add_profile_item(
                 &mut result,
                 required,
+                input.lines,
                 item,
                 input.spells,
                 is_due.as_deref_mut(),
             );
         }
         if consumable {
-            add_grenade(
-                &mut result,
-                required,
-                item,
-                input.grenades,
-                input.skills,
-                input.spells,
-                is_due.as_deref_mut(),
-            );
+            add_grenade(&mut result, required, item, input, is_due.as_deref_mut());
         }
         if result.len() == before {
             if let Some(log) = log.as_deref_mut() {
@@ -203,6 +199,7 @@ fn collect(
 fn add_profile_item(
     result: &mut Vec<CombatDebuffSource>,
     required: &HashSet<DebuffIdentity>,
+    lines: &DebuffLines,
     item: &InventoryItem,
     spells: &mut dyn SpellCatalog,
     is_due: Option<&mut IsDue<'_>>,
@@ -216,6 +213,7 @@ fn add_profile_item(
         add_if_required(
             result,
             required,
+            lines.classify(&caster_spell),
             &caster_spell,
             CombatDebuffSourceKind::CasterItem,
             item.object_id,
@@ -246,6 +244,7 @@ fn add_profile_item(
         add_if_required(
             result,
             required,
+            lines.classify(&proc_spell),
             &proc_spell,
             CombatDebuffSourceKind::ProcWeapon,
             item.object_id,
@@ -262,31 +261,30 @@ fn add_grenade(
     result: &mut Vec<CombatDebuffSource>,
     required: &HashSet<DebuffIdentity>,
     item: &InventoryItem,
-    grenades: &[VtankGrenadeOption],
-    skills: &[Skill],
-    spells: &mut dyn SpellCatalog,
+    input: &mut DebuffPlanInput<'_>,
     is_due: Option<&mut IsDue<'_>>,
 ) {
     if item.item_type & MISSILE_WEAPON == 0 || item.combat_use != 0 {
         return;
     }
-    let Some(grenade) = find_grenade(grenades, &item.name) else {
+    let Some(grenade) = find_grenade(input.grenades, &item.name) else {
         return;
     };
     #[allow(clippy::cast_sign_loss)]
     if grenade.wield_requirement_type == SKILL_WIELD_REQUIREMENT
-        && current_skill(skills, grenade.wield_requirement_attribute as u32)
+        && current_skill(input.skills, grenade.wield_requirement_attribute as u32)
             < grenade.wield_requirement_value
     {
         return;
     }
     // A row whose spell this client does not know is no grenade at all.
-    let Some(spell) = spells.try_get(grenade.spell_id) else {
+    let Some(spell) = input.spells.try_get(grenade.spell_id) else {
         return;
     };
     add_if_required(
         result,
         required,
+        input.lines.classify(&spell),
         &spell,
         CombatDebuffSourceKind::Grenade,
         item.object_id,
@@ -310,6 +308,7 @@ fn find_grenade<'g>(
 fn add_if_required(
     result: &mut Vec<CombatDebuffSource>,
     required: &HashSet<DebuffIdentity>,
+    class: Option<(DebuffIdentity, i32)>,
     spell: &SpellInfo,
     kind: CombatDebuffSourceKind,
     item_object_id: u32,
@@ -317,7 +316,7 @@ fn add_if_required(
     is_due: Option<&mut IsDue<'_>>,
     path_kind: Option<ProjectilePathKind>,
 ) {
-    let Some((identity, action_order)) = debuff::classify(spell) else {
+    let Some((identity, action_order)) = class else {
         return;
     };
     if !required.contains(&identity) {

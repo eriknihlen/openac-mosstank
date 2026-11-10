@@ -414,9 +414,10 @@ fn an_item_use_lock_holds_the_attack_rule_off_until_it_expires() {
     );
 }
 
-/// `Imperil Other VII` as the C# rig has it.
+/// `Imperil Other VII` as the C# rig has it, in the spell table's line (an
+/// Imperil is life magic).
 fn imperil(spell_id: u32) -> SpellInfo {
-    SpellInfo {
+    mosstank_combat::testing::in_debuff_line(SpellInfo {
         spell_id,
         name: "Imperil Other VII".to_owned(),
         family: 1,
@@ -432,7 +433,15 @@ fn imperil(spell_id: u32) -> SpellInfo {
         is_offensive: true,
         base_range_constant: 80.0,
         ..SpellInfo::default()
-    }
+    })
+}
+
+/// The spell table of the item tests: the debuffs as the game has them,
+/// and the item's Imperil.
+fn imperil_table(spell_id: u32) -> Vec<SpellInfo> {
+    let mut table = mosstank_combat::testing::debuff_spells();
+    table.push(imperil(spell_id));
+    table
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.cs :: AWandCastIsWatchedToItsEndThoughItsOwnSlotHoldsTheAttackOff
@@ -448,7 +457,7 @@ fn a_wand_cast_is_watched_to_its_end_though_its_own_slot_holds_the_attack_off() 
     automation.item_entries = vec![lens];
     automation.equipment = vec![equipment_item(800, "Imperil Lens", 0x8000)];
     automation.hostile_targets = vec![combat_target(30, "Drudge", 700, 2.0)];
-    automation.catalog_spells.push(imperil(90));
+    automation.catalog_spells.extend(imperil_table(90));
     automation.combat.mode = CombatMode::Magic;
     let (mut world, mut plugin) = open(automation);
     add_selected(&mut world, &mut plugin, 800);
@@ -509,7 +518,7 @@ fn a_proc_charge_is_not_released_on_a_pass_the_attack_lost() {
     automation.item_entries = vec![sword];
     automation.equipment = vec![equipment_item(801, "Imperil Sword", 0x0001)];
     automation.hostile_targets = vec![combat_target(30, "Drudge", 700, 2.0)];
-    automation.catalog_spells.push(imperil(91));
+    automation.catalog_spells.extend(imperil_table(91));
     automation.combat.mode = CombatMode::Melee;
     let (mut world, mut plugin) = open(automation);
     add_selected(&mut world, &mut plugin, 801);

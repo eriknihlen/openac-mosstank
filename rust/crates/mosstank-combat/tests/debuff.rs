@@ -1,9 +1,12 @@
 //! The debuff chain, the debuff spells and the debuff tracker.
 
 use ac_plugin_abi::magic::{CastCompletion, SpellInfo};
+use mosstank_automation::SpellTable;
 use mosstank_combat::debuff::{
-    self, CombatDebuffStep, DebuffIdentity, DebuffTracker, build_chain, has_extra_vulnerability,
+    self, CombatDebuffStep, DebuffIdentity, DebuffLines, DebuffTracker, build_chain,
+    has_extra_vulnerability,
 };
+use mosstank_combat::testing;
 use mosstank_data::damage::MonsterDamageType as D;
 use mosstank_settings::monster::{MonsterActionFlags as F, MonsterRuleActions};
 
@@ -179,11 +182,18 @@ fn completion(revision: i64, spell_id: u32, target_id: u32, weenie_error: u32) -
     }
 }
 
+/// The debuffs of the game's spell table.
+fn lines() -> DebuffLines {
+    DebuffLines::build(&SpellTable::new(testing::debuff_spells()))
+}
+
 // Source: tests/AcDream.Plugins.MossTank.Tests/DebuffSchedulerTests.cs :: ClassifierMapsEveryVtankMonsterDebuffColumn
+// (the C# told a debuff by its name and named levels the game does not
+// have; these are the game's own spells, told by their family)
 #[test]
 fn classifier_maps_every_vtank_monster_debuff_column() {
     let cases: [(&str, i32, D); 17] = [
-        ("Fester Other VII", 1 << 0, D::Auto),
+        ("Decrepitude's Grasp", 1 << 0, D::Auto),
         ("Broadside of a Barn", 1 << 1, D::Auto),
         ("Gravity Well", 1 << 2, D::Auto),
         ("Incantation of Imperil Other", 1 << 3, D::Auto),
@@ -201,31 +211,138 @@ fn classifier_maps_every_vtank_monster_debuff_column() {
         ("Destructive Curse VII", 1 << 12, D::Auto),
         ("Corrosion VII", 1 << 13, D::Auto),
     ];
+    let lines = lines();
     for (name, flag, damage) in cases {
-        let (identity, _) = debuff::classify(&spell(1, name, 8, 30.0)).expect(name);
-        assert_eq!(identity.flag, F(flag), "{name}");
-        assert_eq!(identity.damage_type, damage, "{name}");
+        let spell = testing::debuff_spell(name);
+        for (identity, order) in [
+            lines.classify(&spell).expect(name),
+            lines.classify_learned(&spell).expect(name),
+        ] {
+            assert_eq!(identity.flag, F(flag), "{name}");
+            assert_eq!(identity.damage_type, damage, "{name}");
+            assert_eq!(order, debuff::order_of(F(flag)), "{name}");
+        }
     }
 }
 
+// The seventh level of a debuff has a name of its own, and the lower
+// levels of the two debuffs known by that name have another line's look.
+#[test]
+fn a_debuff_is_its_family_whatever_the_level_is_called() {
+    let cases: [(&str, F, D); 16] = [
+        ("Gossamer Flesh", F::IMPERIL, D::Auto),
+        ("Futility", F::YIELD, D::Auto),
+        ("Decrepitude's Grasp", F::FESTER, D::Auto),
+        ("Vulnerability Other I", F::GRAVITY_WELL, D::Auto),
+        ("Vulnerability Other VI", F::GRAVITY_WELL, D::Auto),
+        (
+            "Incantation of Vulnerability Other",
+            F::GRAVITY_WELL,
+            D::Auto,
+        ),
+        ("Defenselessness Other VI", F::BROADSIDE, D::Auto),
+        (
+            "Incantation of Defenselessness Other",
+            F::BROADSIDE,
+            D::Auto,
+        ),
+        ("Olthoi's Gift", F::VULNERABILITY, D::Acid),
+        ("Swordsman's Gift", F::VULNERABILITY, D::Slash),
+        ("Tusker's Gift", F::VULNERABILITY, D::Bludgeon),
+        ("Gelidite's Gift", F::VULNERABILITY, D::Cold),
+        ("Inferno's Gift", F::VULNERABILITY, D::Fire),
+        ("Astyrrian's Gift", F::VULNERABILITY, D::Electric),
+        ("Archer's Gift", F::VULNERABILITY, D::Pierce),
+        ("Imperil Other I", F::IMPERIL, D::Auto),
+    ];
+    let lines = lines();
+    for (name, flag, damage) in cases {
+        let spell = testing::debuff_spell(name);
+        let expected = Some((id(flag, damage), debuff::order_of(flag)));
+        assert_eq!(lines.classify(&spell), expected, "{name}");
+        assert_eq!(lines.classify_learned(&spell), expected, "{name}");
+    }
+}
+
+// A debuff's family also holds its self-cast twin and spells only monsters
+// and items cast. They are that debuff where one is in force or an item
+// casts it; a character does not throw them.
+#[test]
+fn only_the_named_spells_line_is_what_a_character_throws() {
+    let cases: [(&str, F, D); 9] = [
+        // The twin: another talisman.
+        ("Imperil Self VII", F::IMPERIL, D::Auto),
+        ("Magic Yield Self VII", F::YIELD, D::Auto),
+        ("Fester Self VII", F::FESTER, D::Auto),
+        ("Vulnerability Self VII", F::GRAVITY_WELL, D::Auto),
+        ("Defenselessness Self VII", F::BROADSIDE, D::Auto),
+        ("Fire Vulnerability Self VII", F::VULNERABILITY, D::Fire),
+        // Another formula altogether.
+        ("Exposed Flesh", F::VULNERABILITY, D::Acid),
+        ("Price of Immortality", F::FESTER, D::Auto),
+        // Another school.
+        (
+            "Bael'zharons Curse of Destruction",
+            F::DESTRUCTIVE_CURSE,
+            D::Auto,
+        ),
+    ];
+    let lines = lines();
+    for (name, flag, damage) in cases {
+        let spell = testing::debuff_spell(name);
+        assert_eq!(
+            lines.classify(&spell),
+            Some((id(flag, damage), debuff::order_of(flag))),
+            "{name}"
+        );
+        assert_eq!(lines.classify_learned(&spell), None, "{name}");
+    }
+}
+
+// A spell table without a debuff's named spell has no spells of that
+// debuff, and a named spell of no family names none.
+#[test]
+fn a_debuff_the_table_does_not_name_has_no_spells() {
+    let gossamer = testing::debuff_spell("Gossamer Flesh");
+    assert_eq!(
+        DebuffLines::build(&SpellTable::new(vec![gossamer.clone()])).classify(&gossamer),
+        None
+    );
+
+    let mut unfamilied = testing::debuff_spell("Imperil Other I");
+    unfamilied.family = 0;
+    let stray = SpellInfo {
+        family: 0,
+        ..spell(7, "Stray", 1, 0.0)
+    };
+    assert_eq!(
+        DebuffLines::build(&SpellTable::new(vec![unfamilied])).classify(&stray),
+        None
+    );
+}
+
 // Source: tests/AcDream.Plugins.MossTank.Tests/DebuffSchedulerTests.cs :: NoLureIsACreatureVulnerability
+// (the game's own lures, the seventh level's names among them)
 #[test]
 fn no_lure_is_a_creature_vulnerability() {
+    let lines = lines();
     for name in [
         "Incantation of Lure Blade",
         "Acid Lure VI",
-        "Blade Lure III",
+        "Blade Lure VI",
         "Bludgeon Lure VI",
-        "Flame Lure III",
+        "Flame Lure VI",
         "Frost Lure VI",
-        "Lightning Lure III",
+        "Lightning Lure VI",
         "Piercing Lure VI",
         "Incantation of Flame Lure",
+        "Olthoi Bait",
+        "Swordsman Bait",
+        "Inferno Bait",
     ] {
-        assert!(
-            debuff::classify(&spell(1, name, 8, 30.0)).is_none(),
-            "{name}"
-        );
+        let lure = testing::debuff_spell(name);
+        assert_eq!(lines.classify(&lure), None, "{name}");
+        assert_eq!(lines.classify_learned(&lure), None, "{name}");
     }
 }
 

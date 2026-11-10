@@ -1,12 +1,13 @@
 //! Debuffs: which ones a monster's rule asks for and in what order
-//! (`CombatDebuffChain`), which spells are which debuff
-//! (`DebuffSpellCatalog`), and what has landed on whom (`DebuffTracker`).
+//! (`CombatDebuffChain`), which spells are which debuff, by their family
+//! in the spell table ([`DebuffLines`]), and what has landed on whom
+//! (`DebuffTracker`).
 
 use std::collections::{HashMap, HashSet};
 
 use ac_plugin_abi::magic::{CastCompletion, SpellInfo};
+use mosstank_automation::spells::{SpellCatalog, SpellTable};
 use mosstank_data::damage::MonsterDamageType;
-use mosstank_dotnet::text::ordinal;
 use mosstank_settings::monster::{MonsterActionFlags, MonsterRuleActions};
 
 /// One debuff: its column, and for a vulnerability its element.
@@ -164,77 +165,175 @@ pub fn required(actions: &MonsterRuleActions) -> HashSet<DebuffIdentity> {
     required
 }
 
-/// Which debuff a spell is, by its name, with its place in the chain
-/// (`DebuffSpellCatalog.TryClassify`).
-#[must_use]
-pub fn classify(spell: &SpellInfo) -> Option<(DebuffIdentity, i32)> {
-    let name = normalize(&spell.name);
-    let starts = |prefix: &str| ordinal::starts_with_ignore_case(name, prefix);
-    let mut damage = MonsterDamageType::Auto;
-    let flag = if starts("Fester Other") {
-        MonsterActionFlags::FESTER
-    } else if starts("Broadside of a Barn") {
-        MonsterActionFlags::BROADSIDE
-    } else if starts("Gravity Well") {
-        MonsterActionFlags::GRAVITY_WELL
-    } else if starts("Imperil Other") {
-        MonsterActionFlags::IMPERIL
-    } else if starts("Magic Yield Other") {
-        MonsterActionFlags::YIELD
-    } else if ordinal::contains_ignore_case(name, " Vulnerability Other")
-        || starts("Vulnerability Other")
-    {
-        // A creature vulnerability is the "<element> Vulnerability Other"
-        // family and nothing else: a Lure is an item enchantment.
-        damage = damage_from_name(name);
-        MonsterActionFlags::VULNERABILITY
-    } else if starts("Weakening Curse") {
-        MonsterActionFlags::WEAKENING_CURSE
-    } else if starts("Festering Curse") {
-        MonsterActionFlags::FESTERING_CURSE
-    } else if starts("Corruption") {
-        MonsterActionFlags::CORRUPTION
-    } else if starts("Destructive Curse") {
-        MonsterActionFlags::DESTRUCTIVE_CURSE
-    } else if starts("Corrosion") {
-        MonsterActionFlags::CORROSION
-    } else {
-        return None;
-    };
-    Some((DebuffIdentity::new(flag, damage), order_of(flag)))
+/// The spell the reference client names for each debuff: the debuff is
+/// that spell's family in the spell table. Two are named by their seventh
+/// level, the rest by their first.
+const SEEDS: [(&str, MonsterActionFlags, MonsterDamageType); 17] = [
+    (
+        "Fester Other I",
+        MonsterActionFlags::FESTER,
+        MonsterDamageType::Auto,
+    ),
+    (
+        "Broadside of a Barn",
+        MonsterActionFlags::BROADSIDE,
+        MonsterDamageType::Auto,
+    ),
+    (
+        "Gravity Well",
+        MonsterActionFlags::GRAVITY_WELL,
+        MonsterDamageType::Auto,
+    ),
+    (
+        "Imperil Other I",
+        MonsterActionFlags::IMPERIL,
+        MonsterDamageType::Auto,
+    ),
+    (
+        "Magic Yield Other I",
+        MonsterActionFlags::YIELD,
+        MonsterDamageType::Auto,
+    ),
+    (
+        "Weakening Curse I",
+        MonsterActionFlags::WEAKENING_CURSE,
+        MonsterDamageType::Auto,
+    ),
+    (
+        "Festering Curse I",
+        MonsterActionFlags::FESTERING_CURSE,
+        MonsterDamageType::Auto,
+    ),
+    (
+        "Corruption I",
+        MonsterActionFlags::CORRUPTION,
+        MonsterDamageType::Auto,
+    ),
+    (
+        "Destructive Curse I",
+        MonsterActionFlags::DESTRUCTIVE_CURSE,
+        MonsterDamageType::Auto,
+    ),
+    (
+        "Corrosion I",
+        MonsterActionFlags::CORROSION,
+        MonsterDamageType::Auto,
+    ),
+    (
+        "Acid Vulnerability Other I",
+        MonsterActionFlags::VULNERABILITY,
+        MonsterDamageType::Acid,
+    ),
+    (
+        "Bludgeoning Vulnerability Other I",
+        MonsterActionFlags::VULNERABILITY,
+        MonsterDamageType::Bludgeon,
+    ),
+    (
+        "Cold Vulnerability Other I",
+        MonsterActionFlags::VULNERABILITY,
+        MonsterDamageType::Cold,
+    ),
+    (
+        "Fire Vulnerability Other I",
+        MonsterActionFlags::VULNERABILITY,
+        MonsterDamageType::Fire,
+    ),
+    (
+        "Lightning Vulnerability Other I",
+        MonsterActionFlags::VULNERABILITY,
+        MonsterDamageType::Electric,
+    ),
+    (
+        "Piercing Vulnerability Other I",
+        MonsterActionFlags::VULNERABILITY,
+        MonsterDamageType::Pierce,
+    ),
+    (
+        "Blade Vulnerability Other I",
+        MonsterActionFlags::VULNERABILITY,
+        MonsterDamageType::Slash,
+    ),
+];
+
+/// One debuff's place in the spell table.
+#[derive(Debug, Clone, PartialEq)]
+struct DebuffLine {
+    identity: DebuffIdentity,
+    /// The named spell's school, fellowship and cast-at-nothing flags and
+    /// formula: what the levels a character learns share with it.
+    school: u32,
+    is_fellowship: bool,
+    is_untargeted: bool,
+    component_set: (u32, u32, u32, u32),
 }
 
-fn normalize(name: &str) -> &str {
-    const INCANTATION: &str = "Incantation of ";
-    if ordinal::starts_with_ignore_case(name, INCANTATION) {
-        &name[INCANTATION.len()..]
-    } else {
-        name
+/// Which spells are which debuff, read from the spell table.
+///
+/// A debuff is a family of the table, not a name: the game names the
+/// seventh level of most debuffs for itself ("Gossamer Flesh" is the
+/// seventh Imperil), and two debuffs are known by that seventh name. The
+/// family also holds the debuff's self-cast twin and the spells only
+/// monsters and items cast, so the spell a character throws is further
+/// held to the named spell's line ([`Self::classify_learned`]).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct DebuffLines {
+    by_family: HashMap<u32, DebuffLine>,
+}
+
+impl DebuffLines {
+    /// The debuffs of `table`. A debuff whose named spell the table lacks
+    /// has no spells.
+    #[must_use]
+    pub fn build(table: &SpellTable) -> Self {
+        let mut by_family = HashMap::with_capacity(SEEDS.len());
+        for (name, flag, damage_type) in SEEDS {
+            let Some(seed) = table.find_by_name(name, false) else {
+                continue;
+            };
+            // Family 0 is "no family": every spell without one would match.
+            if seed.family == 0 {
+                continue;
+            }
+            by_family.entry(seed.family).or_insert(DebuffLine {
+                identity: DebuffIdentity::new(flag, damage_type),
+                school: seed.school,
+                is_fellowship: seed.is_fellowship,
+                is_untargeted: seed.is_untargeted,
+                component_set: seed.component_set,
+            });
+        }
+        Self { by_family }
     }
-}
 
-/// The element a spell's name names.
-#[must_use]
-pub fn damage_from_name(name: &str) -> MonsterDamageType {
-    let has = |word: &str| ordinal::contains_ignore_case(name, word);
-    if has("Blade") {
-        MonsterDamageType::Slash
-    } else if has("Piercing") {
-        MonsterDamageType::Pierce
-    } else if has("Bludgeon") {
-        MonsterDamageType::Bludgeon
-    } else if has("Cold") || has("Frost") {
-        MonsterDamageType::Cold
-    } else if has("Fire") || has("Flame") {
-        MonsterDamageType::Fire
-    } else if has("Acid") {
-        MonsterDamageType::Acid
-    } else if has("Lightning") {
-        MonsterDamageType::Electric
-    } else if has("Nether") {
-        MonsterDamageType::Nether
-    } else {
-        MonsterDamageType::Auto
+    /// The debuffs of the client's spell table.
+    #[must_use]
+    pub fn of(spells: &mut dyn SpellCatalog) -> Self {
+        Self::build(&spells.table())
+    }
+
+    /// Which debuff a spell is, with its place in the chain: the debuff
+    /// whose family it is in. This is what a spell an item casts, a cast
+    /// another client reports and an enchantment in force are told by.
+    #[must_use]
+    pub fn classify(&self, spell: &SpellInfo) -> Option<(DebuffIdentity, i32)> {
+        let line = self.by_family.get(&spell.family)?;
+        Some((line.identity, order_of(line.identity.flag)))
+    }
+
+    /// [`Self::classify`] for a spell the character throws: it must also
+    /// be of the named spell's school, with its fellowship and
+    /// cast-at-nothing flags and its herb, powder, potion and talisman.
+    /// That is what keeps the self-cast twin out (it differs in the
+    /// talisman).
+    #[must_use]
+    pub fn classify_learned(&self, spell: &SpellInfo) -> Option<(DebuffIdentity, i32)> {
+        let line = self.by_family.get(&spell.family)?;
+        (spell.school == line.school
+            && spell.is_fellowship == line.is_fellowship
+            && spell.is_untargeted == line.is_untargeted
+            && spell.component_set == line.component_set)
+            .then(|| (line.identity, order_of(line.identity.flag)))
     }
 }
 

@@ -11,6 +11,8 @@
 //! - [`item_debuff`]: where a debuff can come from (`CombatItemDebuffPlanner`).
 //! - [`power`]: the automatic attack power (`AutoAttackPower`).
 //! - [`selection`]: which monster to fight (`CombatTargetSelector`).
+//! - `testing` (native builds only): the debuff spells as the spell table
+//!   has them, for the tests.
 //!
 //! The client comes in through `mosstank-automation`; settings are handed
 //! in on each call, so a profile load is seen at once.
@@ -33,6 +35,8 @@ pub mod mover;
 pub mod pets;
 pub mod power;
 pub mod selection;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod testing;
 
 pub use gate::CombatModeGate;
 

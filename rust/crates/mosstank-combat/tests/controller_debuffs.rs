@@ -196,12 +196,10 @@ fn blocked_debuff_path_drops_that_column_and_the_chain_moves_on() {
     let mut surface = magic(
         drudge(),
         vec![
-            // The first step of the chain, and the only spell here whose
-            // family declares a flight (117 is a bolt family).
-            SpellInfo {
-                family: 117,
-                ..debuff(84, "Magic Yield Other VII")
-            },
+            // The earlier step of the chain, and the only spell here whose
+            // family declares a flight (a Corruption is thrown like a
+            // bolt).
+            debuff(84, "Corruption VII"),
             // Step 7.
             debuff(83, "Imperil Other VII"),
         ],
@@ -224,7 +222,7 @@ fn blocked_debuff_path_drops_that_column_and_the_chain_moves_on() {
             settings,
             single_rule(
                 MonsterActionFlags::ATTACK
-                    | MonsterActionFlags::YIELD
+                    | MonsterActionFlags::CORRUPTION
                     | MonsterActionFlags::IMPERIL,
                 MonsterDamageType::Fire,
             ),
@@ -366,14 +364,15 @@ fn a_debuff_spell_out_of_reach_is_not_chosen() {
     assert_eq!(debuff_at_distance(20.0, 6.0), (83, 10));
 }
 
+/// `Imperil Other VII` as the C# rig has it, in the spell table's line (an
+/// Imperil is life magic).
 fn imperil_90() -> SpellInfo {
-    SpellInfo {
-        school: 31,
+    mosstank_combat::testing::in_debuff_line(SpellInfo {
         is_debuff: true,
         is_offensive: true,
         duration_seconds: 60.0,
         ..spell(90, "Imperil Other VII")
-    }
+    })
 }
 
 fn imperil_lens() -> ac_plugin_abi::items::InventoryItem {
@@ -398,7 +397,7 @@ fn an_out_of_reach_spell_leaves_the_item_as_the_debuff_source() {
         item_entries: vec![lens.clone()],
         // The learned spell would out-rank the lens on skill; only its
         // reach keeps it out of the choice.
-        character_skills: vec![skill(31, "Creature", Training::Trained, 500)],
+        character_skills: vec![skill(33, "Life Magic", Training::Trained, 500)],
         ..FakeAutomation::default()
     };
     let mut settings = debuff_only(MonsterActionFlags::IMPERIL);
@@ -420,10 +419,9 @@ fn blocked_debuff_path_still_lets_the_attack_go_out_on_stock_settings() {
     let mut surface = magic(
         drudge(),
         vec![
-            SpellInfo {
-                family: 117,
-                ..debuff(84, "Magic Yield Other VII")
-            },
+            // A Corruption is thrown like a bolt: the one debuff here with
+            // a flight to block.
+            debuff(84, "Corruption VII"),
             magic_spell(100, "Flame Bolt VII", 300),
         ],
     );
@@ -440,7 +438,7 @@ fn blocked_debuff_path_still_lets_the_attack_go_out_on_stock_settings() {
                 ..CombatSettings::default()
             },
             single_rule(
-                MonsterActionFlags::ATTACK | MonsterActionFlags::YIELD,
+                MonsterActionFlags::ATTACK | MonsterActionFlags::CORRUPTION,
                 MonsterDamageType::Fire,
             ),
         ),
@@ -1101,12 +1099,8 @@ fn a_cast_seen_before_the_macro_started_is_taken_in_when_it_starts() {
 #[test]
 fn a_learned_debuff_announces_its_attempt_with_the_skill_and_its_success_with_the_duration() {
     let mut surface = bolt_and_fire_vuln();
-    surface.character_skills = vec![skill(
-        31,
-        "Creature Enchantment",
-        Training::Specialized,
-        320,
-    )];
+    // A vulnerability is life magic.
+    surface.character_skills = vec![skill(33, "Life Magic", Training::Specialized, 320)];
     let mut fight = Fight::new(surface, fire_vulnerability_rule());
 
     fight.toggle();
@@ -1158,7 +1152,7 @@ fn a_wand_debuff_announces_its_attempt_and_its_confirmed_success() {
         targets: drudge(),
         spell_lookup: vec![imperil_90()],
         item_entries: vec![lens.clone()],
-        character_skills: vec![skill(31, "Creature Enchantment", Training::Trained, 280)],
+        character_skills: vec![skill(33, "Life Magic", Training::Trained, 280)],
         ..FakeAutomation::default()
     };
     let mut settings = debuff_only(MonsterActionFlags::IMPERIL);
@@ -1205,3 +1199,176 @@ fn with_sharing_off_nothing_is_announced() {
 }
 
 // Not applicable: tests/AcDream.Plugins.MossTank.Tests/CombatControllerTests.cs :: FailedTrustReadDoesNotConsumeAnEligiblePeerCast: the client list read cannot fail through the SDK, so there is no failed read to retry (register COMBAT-4)
+
+/// A caster with the life and creature skills the real debuffs' reach is
+/// worked out from, knowing `known`.
+fn debuffer(known: &[&str]) -> FakeAutomation {
+    let mut surface = magic(
+        drudge(),
+        known
+            .iter()
+            .map(|name| mosstank_combat::testing::debuff_spell(name))
+            .collect(),
+    );
+    surface.character_skills = vec![
+        skill(31, "Creature Enchantment", Training::Specialized, 400),
+        skill(33, "Life Magic", Training::Specialized, 400),
+    ];
+    surface
+}
+
+/// The rule that asks for one debuff: a vulnerability comes with its
+/// element's attack row.
+fn asking_for(flag: MonsterActionFlags, element: MonsterDamageType) -> CombatSettings {
+    if flag == MonsterActionFlags::VULNERABILITY {
+        row(MonsterActionFlags::ATTACK | flag, element)
+    } else {
+        let mut settings = debuff_only(flag);
+        settings.maximum_range = 40.0;
+        settings
+    }
+}
+
+/// Each debuff with the names the game gives its sixth and seventh levels
+/// and the seventh level of its self-cast twin.
+fn seventh_levels() -> [(
+    MonsterActionFlags,
+    MonsterDamageType,
+    &'static str,
+    &'static str,
+    &'static str,
+); 12] {
+    use MonsterActionFlags as F;
+    use MonsterDamageType as D;
+    [
+        (
+            F::IMPERIL,
+            D::Auto,
+            "Imperil Other VI",
+            "Gossamer Flesh",
+            "Imperil Self VII",
+        ),
+        (
+            F::YIELD,
+            D::Auto,
+            "Magic Yield Other VI",
+            "Futility",
+            "Magic Yield Self VII",
+        ),
+        (
+            F::FESTER,
+            D::Auto,
+            "Fester Other VI",
+            "Decrepitude's Grasp",
+            "Fester Self VII",
+        ),
+        (
+            F::GRAVITY_WELL,
+            D::Auto,
+            "Vulnerability Other VI",
+            "Gravity Well",
+            "Vulnerability Self VII",
+        ),
+        (
+            F::BROADSIDE,
+            D::Auto,
+            "Defenselessness Other VI",
+            "Broadside of a Barn",
+            "Defenselessness Self VII",
+        ),
+        (
+            F::VULNERABILITY,
+            D::Acid,
+            "Acid Vulnerability Other VI",
+            "Olthoi's Gift",
+            "Acid Vulnerability Self VII",
+        ),
+        (
+            F::VULNERABILITY,
+            D::Slash,
+            "Blade Vulnerability Other VI",
+            "Swordsman's Gift",
+            "Blade Vulnerability Self VII",
+        ),
+        (
+            F::VULNERABILITY,
+            D::Bludgeon,
+            "Bludgeoning Vulnerability Other VI",
+            "Tusker's Gift",
+            "Bludgeoning Vulnerability Self VII",
+        ),
+        (
+            F::VULNERABILITY,
+            D::Cold,
+            "Cold Vulnerability Other VI",
+            "Gelidite's Gift",
+            "Cold Vulnerability Self VII",
+        ),
+        (
+            F::VULNERABILITY,
+            D::Fire,
+            "Fire Vulnerability Other VI",
+            "Inferno's Gift",
+            "Fire Vulnerability Self VII",
+        ),
+        (
+            F::VULNERABILITY,
+            D::Electric,
+            "Lightning Vulnerability Other VI",
+            "Astyrrian's Gift",
+            "Lightning Vulnerability Self VII",
+        ),
+        (
+            F::VULNERABILITY,
+            D::Pierce,
+            "Piercing Vulnerability Other VI",
+            "Archer's Gift",
+            "Piercing Vulnerability Self VII",
+        ),
+    ]
+}
+
+// The game gives the seventh level of a debuff a name of its own: a
+// character who knows it throws it, not the sixth.
+#[test]
+fn the_seventh_level_of_a_debuff_goes_out_under_its_own_name() {
+    for (flag, element, sixth, seventh, twin) in seventh_levels() {
+        let mut fight = Fight::new(debuffer(&[twin, sixth, seventh]), asking_for(flag, element));
+        fight.toggle();
+        fight.tick(0.25);
+
+        let expected = mosstank_combat::testing::debuff_spell(seventh).spell_id;
+        assert_eq!(
+            fight.surface.last_targeted_cast,
+            (expected, 10),
+            "{seventh}"
+        );
+    }
+}
+
+// The lower levels of the two debuffs a rule names by their seventh level
+// are those debuffs too.
+#[test]
+fn a_debuff_named_for_its_seventh_level_goes_out_at_the_level_known() {
+    for (flag, element, sixth, _, twin) in seventh_levels() {
+        let mut fight = Fight::new(debuffer(&[twin, sixth]), asking_for(flag, element));
+        fight.toggle();
+        fight.tick(0.25);
+
+        let expected = mosstank_combat::testing::debuff_spell(sixth).spell_id;
+        assert_eq!(fight.surface.last_targeted_cast, (expected, 10), "{sixth}");
+    }
+}
+
+// The self-cast twin is in the same family and is a debuff the character
+// knows: it is never thrown at a monster.
+#[test]
+fn the_self_cast_twin_of_a_debuff_is_never_thrown_at_a_monster() {
+    for (flag, element, _, _, twin) in seventh_levels() {
+        let mut fight = Fight::new(debuffer(&[twin]), asking_for(flag, element));
+        fight.toggle();
+        fight.tick(0.25);
+
+        assert!(fight.surface.cast_spell_ids.is_empty(), "{twin}");
+    }
+}

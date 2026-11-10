@@ -753,13 +753,12 @@ fn bolt_and_arc_clearance_use_the_shapes_own_height() {
 }
 
 fn imperil_phial_surface() -> FakeAutomation {
-    let imperil = SpellInfo {
-        school: 31,
+    let imperil = mosstank_combat::testing::in_debuff_line(SpellInfo {
         is_debuff: true,
         is_offensive: true,
         duration_seconds: 60.0,
         ..spell(1323, "Imperil Other I")
-    };
+    });
     let mut phial = inventory_item(200, "Iron Phial of Imperil", 0x100, 0, false);
     phial.combat_use = 0;
     FakeAutomation {
@@ -862,13 +861,12 @@ fn the_flight_check_is_asked_for_in_the_profiles_own_shape() {
 #[test]
 fn jumping_clear_of_a_wand_cast_is_a_profile_choice() {
     for jumps in [true, false] {
-        let imperil = SpellInfo {
-            school: 31,
+        let imperil = mosstank_combat::testing::in_debuff_line(SpellInfo {
             is_debuff: true,
             is_offensive: true,
             duration_seconds: 60.0,
             ..spell(1323, "Imperil Other VI")
-        };
+        });
         let surface = FakeAutomation {
             combat_snapshot: in_mode(CombatMode::Magic),
             targets: vec![target(10, "Drudge", 5.0, 0.0)],
