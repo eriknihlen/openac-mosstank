@@ -34,7 +34,7 @@ impl NavLines {
 
 /// What the drawing depends on: the route's mode, its arrival radius,
 /// whether the player is outdoors, the point the route is heading for, and
-/// every point's kind and position.
+/// every point's kind, position and recorded object position.
 fn signature(navigation: &NavigationSettings, is_outdoor: bool, current_waypoint: i32) -> u64 {
     fn position(hasher: &mut DefaultHasher, p: &Position) {
         p.cell_id.hash(hasher);
@@ -55,6 +55,8 @@ fn signature(navigation: &NavigationSettings, is_outdoor: bool, current_waypoint
     for point in &navigation.waypoints {
         std::mem::discriminant(&point.kind).hash(&mut hasher);
         position(&mut hasher, &point.position);
+        position(&mut hasher, &point.reference_position);
+        point.legacy_reference_valid.hash(&mut hasher);
     }
     hasher.finish()
 }
