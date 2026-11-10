@@ -27,6 +27,7 @@ use ac_plugin_abi::items::{InventoryItem, ItemStatus};
 use ac_plugin_abi::world::ItemProperties;
 use mosstank_dotnet::text::ordinal;
 use mosstank_formats::utl::{LootAction, LootRule};
+use mosstank_loot::requirements;
 
 use crate::commands::{UbCall, strip_extension};
 
@@ -56,6 +57,14 @@ const MAXIMUM_IDENTIFY_ATTEMPTS_PER_ITEM: i32 = 3;
 /// act, before it is packed by what the client already holds: as long as
 /// one request of ours is given to be answered.
 pub const APPRAISAL_SLOT_WAIT_SECONDS: f64 = IDENTIFY_TIMEOUT_SECONDS;
+/// How many items one look judges against the rules at most. Judging one
+/// is dear in the plugin (a match per rule, a large profile has hundreds),
+/// so a full inventory is judged over a few looks, and after that only
+/// what changed.
+pub const JUDGEMENTS_PER_LOOK: usize = 10;
+/// How many of the profile's patterns one look compiles ahead (a compile
+/// costs the plugin about as much as judging a few items).
+const PATTERNS_PER_LOOK: usize = 4;
 /// The reference tries a rule's first ten packs.
 const MAXIMUM_PACK_CHOICES: usize = 10;
 
@@ -225,6 +234,33 @@ pub struct InventoryPacker {
     /// how long it has waited for it.
     slot_wait_object_id: u32,
     slot_wait_seconds: f64,
+    /// How many rules' patterns are compiled ahead.
+    patterns_warmed: usize,
+    /// What the rules made of each item, and the item as they judged it.
+    judged: HashMap<u32, (JudgedState, Verdict)>,
+}
+
+/// What the rules made of an item.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Verdict {
+    /// Appraise it first.
+    Appraise,
+    /// Leave it where it is.
+    Stay,
+    /// Its pack numbers, best first.
+    Packs(Vec<usize>),
+}
+
+/// The item as the rules judged it. A judgement holds while these hold: a
+/// move, a pour, an appraisal landing or the appraisal given up on judges
+/// the item again. The rules match against much more than this, but within
+/// one run of the packer the rest of an item does not change by its doing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct JudgedState {
+    container_id: u32,
+    stack_size: i32,
+    has_appraisal_data: bool,
+    out_of_attempts: bool,
 }
 
 impl InventoryPacker {
@@ -376,9 +412,17 @@ impl InventoryPacker {
             return Step::Acted;
         }
 
+        if !self.warm_patterns() {
+            return Step::Waiting;
+        }
+
         let packs = numbered_packs(&owned, character.id);
+        let owned_ids: HashSet<u32> = owned.iter().map(|item| item.object_id).collect();
+        self.judged.retain(|id, _| owned_ids.contains(id));
         let mut misplaced = Vec::new();
         let mut unidentified = Vec::new();
+        let mut judgements_left = JUDGEMENTS_PER_LOOK;
+        let mut all_judged = true;
         for item in owned.iter() {
             if self.ignored.contains(&item.object_id) || !is_carried(item) || is_container(item) {
                 continue;
@@ -388,13 +432,38 @@ impl InventoryPacker {
             let Some(known) = call.host.object(item.object_id) else {
                 continue;
             };
-            let properties = call.host.properties(item.object_id).unwrap_or_default();
-            if self.needs_appraisal(call, item, &properties, known.has_appraisal_data) {
-                unidentified.push(item.object_id);
-                continue;
-            }
-            let Some(numbers) = self.pack_choices(call, item, &properties) else {
-                continue;
+            let state = JudgedState {
+                container_id: item.container_id,
+                stack_size: item.stack_size,
+                has_appraisal_data: known.has_appraisal_data,
+                out_of_attempts: self.attempts_spent(item.object_id)
+                    >= MAXIMUM_IDENTIFY_ATTEMPTS_PER_ITEM,
+            };
+            let kept = self
+                .judged
+                .get(&item.object_id)
+                .filter(|(judged, _)| *judged == state)
+                .map(|(_, verdict)| verdict.clone());
+            let verdict = match kept {
+                Some(verdict) => verdict,
+                None if judgements_left > 0 => {
+                    judgements_left -= 1;
+                    let verdict = self.judge(call, item, known.has_appraisal_data);
+                    self.judged.insert(item.object_id, (state, verdict.clone()));
+                    verdict
+                }
+                None => {
+                    all_judged = false;
+                    continue;
+                }
+            };
+            let numbers = match verdict {
+                Verdict::Appraise => {
+                    unidentified.push(item.object_id);
+                    continue;
+                }
+                Verdict::Stay => continue,
+                Verdict::Packs(numbers) => numbers,
             };
             let targets: Vec<u32> = numbers
                 .iter()
@@ -411,20 +480,30 @@ impl InventoryPacker {
             });
         }
         self.request_next_appraisal(call, &unidentified, &owned);
+        // Which item gets a free slot turns on every item's packs, so
+        // nothing moves until the last item is judged.
+        if !all_judged {
+            return Step::Waiting;
+        }
 
+        // What each side pack holds, counted once for the look.
+        let mut held: HashMap<u32, i32> = HashMap::new();
+        for item in owned.iter() {
+            if is_carried(item) && !is_container(item) {
+                *held.entry(item.container_id).or_default() += 1;
+            }
+        }
+        let capacity: HashMap<u32, i32> = owned
+            .iter()
+            .filter(|item| item.items_capacity > 0)
+            .map(|item| (item.object_id, item.items_capacity))
+            .collect();
         let free_slots = |pack: u32| {
             if pack == character.id {
                 return character.main_pack_free_slots;
             }
-            let capacity = owned
-                .iter()
-                .find(|item| item.object_id == pack)
-                .map_or(0, |item| item.items_capacity);
-            let held = owned
-                .iter()
-                .filter(|item| item.container_id == pack && is_carried(item) && !is_container(item))
-                .count();
-            capacity - i32::try_from(held).unwrap_or(i32::MAX)
+            capacity.get(&pack).copied().unwrap_or_default()
+                - held.get(&pack).copied().unwrap_or_default()
         };
         if let Some((source, pack, amount)) = plan_move(&misplaced, &free_slots) {
             if self.may_work_on(call, source, &owned) {
@@ -438,6 +517,35 @@ impl InventoryPacker {
         } else {
             Step::Waiting
         }
+    }
+
+    /// Compiles the profile's patterns ahead, [`PATTERNS_PER_LOOK`] a look,
+    /// so the first look that judges items does not compile them all in
+    /// one frame. True once every rule's are compiled.
+    fn warm_patterns(&mut self) -> bool {
+        let mut compiled = 0;
+        while compiled < PATTERNS_PER_LOOK && self.patterns_warmed < self.rules.len() {
+            for requirement in &self.rules[self.patterns_warmed].vtank_requirements {
+                compiled += requirements::warm_patterns(requirement);
+            }
+            self.patterns_warmed += 1;
+        }
+        self.patterns_warmed >= self.rules.len()
+    }
+
+    /// What the rules make of an item now.
+    fn judge(
+        &self,
+        call: &mut UbCall<'_>,
+        item: &InventoryItem,
+        has_appraisal_data: bool,
+    ) -> Verdict {
+        let properties = call.host.properties(item.object_id).unwrap_or_default();
+        if self.needs_appraisal(call, item, &properties, has_appraisal_data) {
+            return Verdict::Appraise;
+        }
+        self.pack_choices(call, item, &properties)
+            .map_or(Verdict::Stay, Verdict::Packs)
     }
 
     /// The pack numbers the first rule that matches gives the item; `None`

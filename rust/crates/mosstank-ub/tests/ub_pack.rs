@@ -565,6 +565,29 @@ fn worn_and_wielded_items_packs_and_foci_stay_where_they_are() {
 }
 
 #[test]
+fn a_full_inventory_is_judged_over_several_looks_before_anything_moves() {
+    let count = u32::try_from(pack::JUDGEMENTS_PER_LOOK).expect("a few") + 2;
+    let notes = (0..count)
+        .map(|index| loose(100 + index, "Trade Note", PLAYER))
+        .collect();
+    let mut rig = rig(notes, true);
+    save(
+        &mut rig,
+        "Tester.AutoPack",
+        vec![keep_up_to("Notes", "name ~= trade", 1)],
+    );
+
+    rig.ub("autopack");
+    // The first look judges as many as it may, and moves nothing yet.
+    assert!(tick(&mut rig, 0.0));
+    assert!(rig.host.meta.moves.is_empty());
+
+    // The second judges the rest; a judged item is not judged again.
+    assert!(tick(&mut rig, 0.1));
+    assert_eq!(1, rig.host.meta.moves.len());
+}
+
+#[test]
 fn an_item_that_will_not_move_is_left_alone_after_ten_seconds() {
     let mut rig = rig(vec![loose(20, "Trade Note", PLAYER)], true);
     save(
