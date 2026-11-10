@@ -566,6 +566,8 @@ pub(crate) struct TankServices<'s, 'c> {
     /// The UB tab, for running those lines with the engine lent; `None`
     /// inside a call of the UB tab's own, which holds it.
     pub(crate) ub_parts: Option<&'s mut super::ub::UbParts>,
+    /// The Mag tab, lent with the UB tab for the same lines.
+    pub(crate) mag_parts: Option<&'s mut mosstank_mag::MagParts>,
 }
 
 impl TankServices<'_, '_> {
@@ -682,7 +684,8 @@ impl MetaServices for TankServices<'_, '_> {
         if self.requests.is_empty() {
             return;
         }
-        let Some(ub) = self.ub_parts.as_deref_mut() else {
+        let (Some(ub), Some(mag)) = (self.ub_parts.as_deref_mut(), self.mag_parts.as_deref_mut())
+        else {
             return;
         };
         let requests = std::mem::take(&mut self.requests);
@@ -694,6 +697,7 @@ impl MetaServices for TankServices<'_, '_> {
                 core: &mut core,
                 meta: engine,
                 ub,
+                mag,
             };
             // The UB rows the call wrote reach their owners first, so the
             // copies read again below lose none of them (register UB-5).
@@ -1006,6 +1010,7 @@ impl TankCx<'_> {
                 readout_should_show: self.ub.hud.should_show(),
                 requests: Vec::new(),
                 ub_parts: Some(&mut *self.ub),
+                mag_parts: Some(&mut *self.mag),
             };
             let result = f(self.meta, &mut proxy, &mut services);
             (result, services.requests)

@@ -1,4 +1,4 @@
-//! The thirteen windows as the client holds them: registered with the
+//! The fifteen windows as the client holds them: registered with the
 //! descriptors `MossTankPlugin.Initialize` gives, every value binding pushed
 //! with a value of its kind, and every handler answered by the shell.
 
@@ -8,7 +8,7 @@ use ac_plugin_abi::Event;
 use ac_plugin_abi::LogLevel;
 use ac_plugin_abi::ui::{ActionValue, TypedBindingKind, UiAction, UiEvent, UiValue};
 use common::World;
-use mosstank::panel::{WINDOWS, is_handler, schema};
+use mosstank::panel::{INVENTORY_ICON_SURFACE_ID, WINDOWS, is_handler, schema};
 
 fn fresh() -> (World, mosstank::MossTank) {
     let mut world = World::with_character("Window Tester");
@@ -35,7 +35,9 @@ fn kind_of(value: &UiValue) -> TypedBindingKind {
 // Source: src/AcDream.Plugins.MossTank/MossTankPlugin.cs :: Initialize (the
 // twelve AddPanel calls: ids, captions, the main window hidden on the shelf
 // with its icon, the remote hidden off the shelf, the rest off the shelf),
-// and the Comps HUD's Edit items window off the shelf beside them.
+// the Comps HUD's Edit items window off the shelf beside them, the Mag
+// tab's Inventory window hidden on the shelf with its own icon, and its
+// filters window hidden off the shelf.
 #[test]
 fn every_window_registers_with_its_descriptor() {
     let (world, _plugin) = fresh();
@@ -61,6 +63,18 @@ fn every_window_registers_with_its_descriptor() {
         );
         assert_eq!(
             panel.descriptor.show_in_side_panel, window.on_shelf,
+            "{}",
+            window.id
+        );
+        assert_eq!(
+            panel.descriptor.icon_surface_id,
+            window.icon.map_or(0, |icon| icon.0),
+            "{}",
+            window.id
+        );
+        assert_eq!(
+            panel.descriptor.icon_text.as_deref(),
+            window.icon.map(|icon| icon.1),
             "{}",
             window.id
         );
@@ -248,6 +262,112 @@ fn the_tinker_tab_shows_and_hides_with_the_rest() {
     assert!(!is(&mut world, &mut plugin, "OptionsVisible"));
     act(&mut world, &mut plugin, "ShowOptions");
     assert!(!is(&mut world, &mut plugin, "TinkerVisible"));
+}
+
+// The Mag tab: Mag-Tools' tracker pages (Views/mainView.xml: Combat, Mana,
+// Inv. Items), Combat first.
+#[test]
+fn the_mag_tab_shows_its_page_and_its_three_sub_pages() {
+    let (mut world, mut plugin) = fresh();
+    let is = |world: &mut World, plugin: &mut mosstank::MossTank, name: &str| {
+        value(world, plugin, name) == Some(UiValue::Bool(true))
+    };
+    assert!(is(&mut world, &mut plugin, "MagTabEnabled"));
+    assert!(!is(&mut world, &mut plugin, "MagVisible"));
+    act(&mut world, &mut plugin, "ShowMag");
+    assert!(is(&mut world, &mut plugin, "MagSelected"));
+    assert!(is(&mut world, &mut plugin, "MagVisible"));
+    assert!(!is(&mut world, &mut plugin, "TinkerVisible"));
+    assert!(
+        is(&mut world, &mut plugin, "MagCombatVisible"),
+        "Combat is the first sub-page"
+    );
+    assert!(is(&mut world, &mut plugin, "MagCombatSelected"));
+    act(&mut world, &mut plugin, "ShowMagMana");
+    assert!(is(&mut world, &mut plugin, "MagManaVisible"));
+    assert!(is(&mut world, &mut plugin, "MagManaSelected"));
+    assert!(!is(&mut world, &mut plugin, "MagCombatVisible"));
+    act(&mut world, &mut plugin, "ShowMagInvItems");
+    assert!(is(&mut world, &mut plugin, "MagInvItemsVisible"));
+    assert!(!is(&mut world, &mut plugin, "MagManaVisible"));
+    act(&mut world, &mut plugin, "ShowOptions");
+    assert!(!is(&mut world, &mut plugin, "MagVisible"));
+    act(&mut world, &mut plugin, "ShowMag");
+    assert!(
+        is(&mut world, &mut plugin, "MagInvItemsVisible"),
+        "the sub-page is kept"
+    );
+}
+
+// The Inventory window (the Mag tab's inventory search): on the dock with
+// its own icon, the game's Pack icon, closed until opened.
+#[test]
+fn the_inventory_window_sits_on_the_dock_with_its_own_icon() {
+    let (world, _plugin) = fresh();
+    let inventory = world
+        .fake
+        .ui
+        .panels()
+        .find(|panel| panel.descriptor.window_id == "inventory")
+        .expect("the inventory window registers");
+    assert!(inventory.descriptor.show_in_side_panel, "on the dock");
+    assert_eq!(
+        inventory.descriptor.icon_surface_id,
+        INVENTORY_ICON_SURFACE_ID
+    );
+    assert_eq!(INVENTORY_ICON_SURFACE_ID, 0x0600_1BAF);
+    assert_eq!(inventory.descriptor.icon_text.as_deref(), Some("IN"));
+    assert!(!inventory.descriptor.start_visible);
+}
+
+// The Mag tab's button opens it.
+#[test]
+fn the_mag_tabs_button_opens_the_inventory_window() {
+    let (mut world, mut plugin) = fresh();
+    let shown = |world: &World| {
+        world
+            .fake
+            .ui
+            .panels()
+            .find(|panel| panel.descriptor.window_id == "inventory")
+            .unwrap()
+            .requested_visible
+    };
+    assert!(!shown(&world));
+    act(&mut world, &mut plugin, "OpenMagInventory");
+    assert!(shown(&world));
+}
+
+// The Inventory window's Filters... button opens the filters window (which
+// starts hidden and has no dock button of its own) and, pressed again,
+// closes it; the window's own Close hides it.
+#[test]
+fn the_inventory_windows_filters_button_opens_the_filters_window() {
+    let (mut world, mut plugin) = fresh();
+    let filters = |world: &World| {
+        world
+            .fake
+            .ui
+            .panels()
+            .find(|panel| panel.descriptor.window_id == "inventory-filters")
+            .map(|panel| {
+                (
+                    panel.descriptor.start_visible,
+                    panel.descriptor.show_in_side_panel,
+                    panel.requested_visible,
+                )
+            })
+            .expect("the filters window registers")
+    };
+    assert_eq!(filters(&world), (false, false, false));
+    act(&mut world, &mut plugin, "ToggleMagInventoryFilters");
+    assert!(filters(&world).2);
+    act(&mut world, &mut plugin, "ToggleMagInventoryFilters");
+    assert!(!filters(&world).2);
+    act(&mut world, &mut plugin, "ToggleMagInventoryFilters");
+    assert!(filters(&world).2);
+    act(&mut world, &mut plugin, "CloseMagInventoryFilters");
+    assert!(!filters(&world).2);
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/MossTankMarkupContractTests.cs :: LootEditorHasNoLeftoverBackButton

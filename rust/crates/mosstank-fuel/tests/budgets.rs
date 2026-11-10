@@ -48,6 +48,7 @@ use common::World;
 use common::automation::FakeAutomation;
 use heavy::Created;
 use mosstank_fuel::{CallFuel, Client, DEFAULT_MEMORY_MIB, Plugin};
+use mosstank_stores::storage::PluginStorage as _;
 use openac_plugin::Transport;
 
 /// The share of a call's allowed fuel a measured call may use.
@@ -1206,6 +1207,1584 @@ fn the_owners_login_fits() {
     assert_within_margin(&cases, &report);
 }
 
+/// The inventory logger on the heavy character, every item fully
+/// appraised: the login's records are made and written (with no log yet,
+/// then again with the last session's log to read and merge), and logging
+/// off writes the whole log in one call.
+#[test]
+#[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
+fn the_inventory_log_fits() {
+    let wasm = std::fs::read(wasm_path()).expect("the release mosstank.wasm (build it first)");
+    let key = "Mag-Tools/Coldeve/Mossy Hunter.inventory.json";
+    let mut session = new_session();
+    let mut cases = Cases::default();
+    for round in ["no log yet", "with the last log"] {
+        let (mut plugin, _) = Plugin::load(&wasm, DEFAULT_MEMORY_MIB).expect("load");
+        plugin.enable(&start_info(), &mut session).expect("enable");
+        enter_world(&mut session);
+        let properties = heavy::appraised_properties(&heavy::inventory());
+        session.world.automation().properties.extend(properties);
+        // The first session appraised everything; the next one logs in
+        // with nothing appraised yet, so every record is the last log's
+        // appraisal merged with the live item.
+        let appraised = round == "no log yet";
+        for object in &mut session.world.automation().world_objects {
+            if object.is_owned {
+                object.has_appraisal_data = appraised;
+            }
+        }
+        session
+            .world
+            .set_reply::<calls::ItemsInventoryComplete>(&true);
+        tick(&mut plugin, &mut session);
+        let before = session.world.plugin_data.get(key).map(str::to_owned);
+        let login = send(&mut plugin, &mut session, &Event::LoginComplete);
+        cases.add("inventory log: login complete", login);
+        for _ in 0..60 {
+            let fuel = tick(&mut plugin, &mut session);
+            cases.add(&format!("inventory log: tick ({round})"), fuel);
+        }
+        let written = session.world.plugin_data.get(key).map(str::to_owned);
+        assert!(
+            written.is_some() && written != before,
+            "{round}: no log written"
+        );
+        if round == "with the last log" {
+            // Every item changed in the tick of the logoff: all recorded
+            // again before the write.
+            every_owned_item_moved(&mut plugin, &mut session, &mut cases, "inventory log");
+        }
+        let logoff = send(&mut plugin, &mut session, &Event::Logoff);
+        cases.add(&format!("inventory log: logoff ({round})"), logoff);
+        plugin.disable(&mut session).expect("disable");
+    }
+    let log = session.world.plugin_data.get(key).expect("the log");
+    let items = log.matches("\n{\"id\":").count();
+    let kept_appraisals = log.matches("\"has_id_data\":true").count();
+    let cases = cases.all();
+    let mut report = report(&cases);
+    let _ = writeln!(report, "log: {} KB, {items} items", log.len() / 1024);
+    println!("{report}");
+    assert_eq!(items, heavy::INVENTORY_ITEMS, "{report}");
+    assert_eq!(kept_appraisals, heavy::INVENTORY_ITEMS, "{report}");
+    assert_no_file_rewritten(&session, &report);
+    assert_within_margin(&cases, &report);
+}
+
+/// Every owned item moves (a pack sorted), each change its own event,
+/// with no tick between: the inventory log has them all to record again.
+fn every_owned_item_moved(
+    plugin: &mut Plugin,
+    session: &mut Session,
+    cases: &mut Cases,
+    case: &str,
+) {
+    let owned: Vec<_> = session
+        .world
+        .automation()
+        .world_objects
+        .iter()
+        .filter(|object| object.is_owned)
+        .cloned()
+        .collect();
+    for (revision, object) in owned.iter().enumerate() {
+        let moved = Event::ObjectChanged(ObjectChange {
+            object_id: object.object_id,
+            kind: ObjectChangeKind::Moved,
+            revision: 50_000 + revision as i64,
+            changed_fields: ObjectChangeKind::Moved.fields(),
+            current: Some(object.clone()),
+        });
+        let fuel = send(plugin, session, &moved);
+        cases.add(&format!("{case}: item moved"), fuel);
+    }
+}
+/// The text the Inventory window shows in its binding `name` (the client's
+/// own value type, read through its debug form: `Text("...")`).
+fn inventory_text(session: &Session, name: &str) -> String {
+    session
+        .world
+        .fake
+        .ui
+        .panels()
+        .find(|panel| panel.descriptor.window_id == "inventory")
+        .and_then(|panel| panel.values.get(name))
+        .map(|value| {
+            let debug = format!("{value:?}");
+            debug
+                .strip_prefix("Text(\"")
+                .and_then(|text| text.strip_suffix("\")"))
+                .map_or_else(|| debug.clone(), str::to_owned)
+        })
+        .unwrap_or_default()
+}
+
+fn inventory_status(session: &Session) -> String {
+    inventory_text(session, "MagInventoryStatus")
+}
+
+/// The heavy character enters the world, every item appraised, and its
+/// inventory is logged.
+fn log_in_heavy(plugin: &mut Plugin, session: &mut Session) {
+    enter_world(session);
+    let properties = heavy::appraised_properties(&heavy::inventory());
+    session.world.automation().properties.extend(properties);
+    session
+        .world
+        .set_reply::<calls::ItemsInventoryComplete>(&true);
+    tick(plugin, session);
+    send(plugin, session, &Event::LoginComplete);
+    for _ in 0..60 {
+        tick(plugin, session);
+    }
+}
+
+/// The Inventory window on the heavy character with three other characters'
+/// saved logs of as many items (6,000 items in all): opened, its files read
+/// and every item's text made, then a search typed a key at a time, and a
+/// row clicked.
+#[test]
+#[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
+fn the_inventory_search_fits() {
+    use ac_plugin_abi::ui::ActionValue;
+    let wasm = std::fs::read(wasm_path()).expect("the release mosstank.wasm (build it first)");
+    let mut session = new_session();
+    let mut cases = Cases::default();
+
+    // A first session logs the heavy character; three alts' logs are copies.
+    let (mut plugin, _) = Plugin::load(&wasm, DEFAULT_MEMORY_MIB).expect("load");
+    plugin.enable(&start_info(), &mut session).expect("enable");
+    log_in_heavy(&mut plugin, &mut session);
+    send(&mut plugin, &mut session, &Event::Logoff);
+    plugin.disable(&mut session).expect("disable");
+    let log = session
+        .world
+        .plugin_data
+        .get("Mag-Tools/Coldeve/Mossy Hunter.inventory.json")
+        .expect("the heavy character's log")
+        .to_owned();
+    for alt in 1..=3 {
+        let name = format!("Alt {alt}");
+        let text = log.replacen(
+            "\"character\":\"Mossy Hunter\"",
+            &format!("\"character\":\"{name}\""),
+            1,
+        );
+        session
+            .world
+            .plugin_data
+            .insert(&format!("Mag-Tools/Coldeve/{name}.inventory.json"), &text);
+    }
+
+    // The next session: the window opened once the login's log is written.
+    let (mut plugin, _) = Plugin::load(&wasm, DEFAULT_MEMORY_MIB).expect("load");
+    plugin.enable(&start_info(), &mut session).expect("enable");
+    log_in_heavy(&mut plugin, &mut session);
+    let open = ui_action(&session, "OpenMagInventory", ActionValue::None);
+    let fuel = send(&mut plugin, &mut session, &open);
+    cases.add("inventory search: open the window", fuel);
+    let total = heavy::INVENTORY_ITEMS * 4;
+    let all = format!("{total} items");
+    let mut ticks = 0;
+    while inventory_status(&session) != all {
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("inventory search: tick (reading)", fuel);
+        ticks += 1;
+        assert!(ticks < 2000, "never read: {}", inventory_status(&session));
+    }
+    let read_ticks = ticks;
+
+    // A search typed a key at a time, each key matched against every text,
+    // then patterns only .NET's syntax has (look-arounds), one that is
+    // quadratic in the text, one whose engine builds large tables, two that
+    // backtrack without end (each text stopped at the step limit, and said
+    // so), and a look-behind again; then a row clicked.
+    let realistic = [
+        "S",
+        "Sw",
+        "Swo",
+        "Pack|Sack",
+        "(?<!x)Pack",
+        "(?=.*Sword)(?=.*Fire)",
+        "e.{25}x",
+    ];
+    let pathological = [r"(\w+\s?)+\1", r"(?:\w+\s?)+Q(?!z)"];
+    // Patterns that compile huge: refused, and quickly.
+    let too_large = [r"\w{1000}", r"\w{0,50}Ring", r"(?<!\w{0,400})Ring"];
+    // Refused natively (64-bit), but under the size limit in the 32-bit
+    // module, where it compiles and is searched with.
+    let near_the_limit = [r"(\w+) (\w+) (\w+)"];
+    // A long plain pattern pasted in.
+    let pasted = "Superb Gold Ring of the Frozen North ".repeat(6)[..200].to_owned();
+    let pasted = [pasted.as_str()];
+    let mut matching_ticks = 0;
+    for pattern in realistic
+        .iter()
+        .chain(&pasted)
+        .chain(&pathological)
+        .chain(&too_large)
+        .chain(&near_the_limit)
+        .chain(&["(?<!x)Pack"])
+    {
+        let pattern = *pattern;
+        let typed = ui_action(
+            &session,
+            "SetMagInventorySearchText",
+            ActionValue::Text(pattern.to_owned()),
+        );
+        let fuel = send(&mut plugin, &mut session, &typed);
+        cases.add(&format!("inventory search: typed {pattern}"), fuel);
+        let mut ticks = 0;
+        while inventory_status(&session).starts_with("Searching") || ticks < 10 {
+            let fuel = tick(&mut plugin, &mut session);
+            cases.add(&format!("inventory search: matching {pattern}"), fuel);
+            ticks += 1;
+            assert!(ticks < 1000, "{pattern}: {}", inventory_status(&session));
+        }
+        matching_ticks = matching_ticks.max(ticks);
+        let status = inventory_status(&session);
+        if too_large.contains(&pattern) {
+            assert_eq!(status, "pattern too large", "{pattern}");
+        } else if pathological.contains(&pattern) {
+            assert!(
+                status.contains("too costly to search"),
+                "{pattern}: {status}"
+            );
+        } else {
+            assert!(
+                status.ends_with(" items") || status == "1 item",
+                "{pattern}: {status}"
+            );
+        }
+    }
+    let click = ui_action(&session, "SelectMagInventoryRow", ActionValue::Int(0));
+    let fuel = send(&mut plugin, &mut session, &click);
+    cases.add("inventory search: a row clicked", fuel);
+    let info = inventory_text(&session, "MagInventoryInfo");
+    assert!(info.starts_with("Pack"), "{info}");
+
+    let cases = cases.all();
+    let mut report = report(&cases);
+    let _ = writeln!(
+        report,
+        "{total} items read in {read_ticks} ticks; a key's matching took up to {matching_ticks} ticks"
+    );
+    println!("{report}");
+    assert_no_file_rewritten(&session, &report);
+    assert_within_margin(&cases, &report);
+}
+
+/// One click or entry on the plugin's windows, measured as `case`.
+fn act(
+    plugin: &mut Plugin,
+    session: &mut Session,
+    cases: &mut Cases,
+    case: &str,
+    handler: &str,
+    value: ac_plugin_abi::ui::ActionValue,
+) {
+    let action = ui_action(session, handler, value);
+    let fuel = send(plugin, session, &action);
+    cases.add(case, fuel);
+}
+
+/// Ticks until the Inventory window's rows are worked out again for the
+/// filter (its 0.4 s wait, then the rows tested a tick's worth at a time),
+/// each tick measured as `case`; the ticks taken.
+fn settle_inventory(
+    plugin: &mut Plugin,
+    session: &mut Session,
+    cases: &mut Cases,
+    case: &str,
+) -> usize {
+    let mut ticks = 0;
+    while inventory_status(session).starts_with("Searching") || ticks < 40 {
+        let fuel = tick(plugin, session);
+        cases.add(case, fuel);
+        ticks += 1;
+        assert!(ticks < 1000, "{case}: {}", inventory_status(session));
+    }
+    ticks
+}
+
+/// The Inventory window on the heavy character with three other
+/// characters' saved logs (6,000 items in all, the saved ones with a set,
+/// an armor level and two ratings), the filters window shown and every
+/// filter set through it (the Item tab's choices and slots, cantrips at
+/// mixed tiers and a spell text, every rating and the crit damage tiers, a
+/// set, the requirements, a character left out), then one filter changed.
+/// A header click sorts in the client (the list's `sort` and `sortkeys`,
+/// no `onsort`): it never calls the plugin, so it has no case here.
+#[test]
+#[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
+fn the_inventory_filters_fit() {
+    use ac_plugin_abi::ui::ActionValue;
+    let wasm = std::fs::read(wasm_path()).expect("the release mosstank.wasm (build it first)");
+    let mut session = new_session();
+    let mut cases = Cases::default();
+
+    // A first session logs the heavy character; three alts' logs are
+    // copies whose appraised items carry a set and some ratings.
+    let (mut plugin, _) = Plugin::load(&wasm, DEFAULT_MEMORY_MIB).expect("load");
+    plugin.enable(&start_info(), &mut session).expect("enable");
+    log_in_heavy(&mut plugin, &mut session);
+    send(&mut plugin, &mut session, &Event::Logoff);
+    plugin.disable(&mut session).expect("disable");
+    let log = session
+        .world
+        .plugin_data
+        .get("Mag-Tools/Coldeve/Mossy Hunter.inventory.json")
+        .expect("the heavy character's log")
+        .to_owned();
+    let appraised = "\"ints\":{\"1\":";
+    assert!(log.contains(appraised), "the log's appraised items");
+    for alt in 1..=3 {
+        let name = format!("Alt {alt}");
+        let text = log
+            .replacen(
+                "\"character\":\"Mossy Hunter\"",
+                &format!("\"character\":\"{name}\""),
+                1,
+            )
+            .replace(
+                appraised,
+                &format!(
+                    "\"ints\":{{\"265\":{},\"28\":300,\"374\":2,\"315\":3,\"1\":",
+                    12 + alt
+                ),
+            );
+        session
+            .world
+            .plugin_data
+            .insert(&format!("Mag-Tools/Coldeve/{name}.inventory.json"), &text);
+    }
+
+    // The next session: the Inventory window opened and every item read.
+    let (mut plugin, _) = Plugin::load(&wasm, DEFAULT_MEMORY_MIB).expect("load");
+    plugin.enable(&start_info(), &mut session).expect("enable");
+    log_in_heavy(&mut plugin, &mut session);
+    let open = ui_action(&session, "OpenMagInventory", ActionValue::None);
+    send(&mut plugin, &mut session, &open);
+    let total = heavy::INVENTORY_ITEMS * 4;
+    let all = format!("{total} items");
+    let mut ticks = 0;
+    while inventory_status(&session) != all {
+        tick(&mut plugin, &mut session);
+        ticks += 1;
+        assert!(ticks < 2000, "never read: {}", inventory_status(&session));
+    }
+
+    // The filters window, every filter set through it.
+    let p = &mut plugin;
+    let s = &mut session;
+    let c = &mut cases;
+    let on = || ActionValue::Int(1);
+    let text = |t: &str| ActionValue::Text(t.to_owned());
+    act(
+        p,
+        s,
+        c,
+        "filters: open the window",
+        "ToggleMagInventoryFilters",
+        ActionValue::None,
+    );
+    let set = "filters: a filter set";
+    let tab = "filters: a tab shown";
+    act(p, s, c, tab, "ShowMagFiltersItem", ActionValue::None);
+    act(p, s, c, set, "SetMagFilterEquipped", ActionValue::Int(2));
+    act(p, s, c, set, "SetMagFilterBonded", on());
+    act(p, s, c, set, "SetMagFilterAttuned", on());
+    act(p, s, c, set, "SetMagFilterRare", on());
+    act(p, s, c, set, "SetMagFilterType", ActionValue::Int(1));
+    for slot in ["Hands", "Ring", "Neck"] {
+        act(p, s, c, set, &format!("SetMagFilterSlot{slot}"), on());
+    }
+    act(p, s, c, tab, "ShowMagFiltersCantrips", ActionValue::None);
+    act(p, s, c, set, "SetMagFilterCantripFind", text("a"));
+    act(p, s, c, set, "SetMagFilterCantripFind", text(""));
+    // Three cantrips (row 0 is the Attributes heading).
+    for row in [1, 5, 40] {
+        act(
+            p,
+            s,
+            c,
+            set,
+            "ToggleMagFilterCantrip",
+            ActionValue::Int(row),
+        );
+    }
+    // Mixed tiers: one cycled once, one twice, one left Legendary.
+    for row in [5, 40, 40] {
+        act(
+            p,
+            s,
+            c,
+            set,
+            "CycleMagFilterCantripTier",
+            ActionValue::Int(row),
+        );
+    }
+    act(p, s, c, set, "SetMagFilterSpellContains", text("strength"));
+    act(p, s, c, tab, "ShowMagFiltersRatings", ActionValue::None);
+    for rating in [
+        "DamageRating",
+        "CritDamage",
+        "HealBoost",
+        "Vitality",
+        "ArmorLevel",
+        "DamageResist",
+        "CritResist",
+        "CritDamageResist",
+        "HealingResist",
+        "NetherResist",
+        "DotResist",
+        "LifeResist",
+        "SneakAttack",
+        "Recklessness",
+        "Deception",
+        "PkDamage",
+        "PkDamageResist",
+        "GearPkDamage",
+        "GearPkResist",
+        "Tinks",
+    ] {
+        act(
+            p,
+            s,
+            c,
+            set,
+            &format!("SetMagFilterRating{rating}"),
+            text("1"),
+        );
+    }
+    act(p, s, c, set, "SetMagFilterCd2", ActionValue::Int(0));
+    act(p, s, c, tab, "ShowMagFiltersSet", ActionValue::None);
+    act(p, s, c, set, "SetMagFilterSetFind", text("set"));
+    act(p, s, c, set, "SetMagFilterSetFind", text(""));
+    // Row 0 is Any set; 1 the set with the most items.
+    act(p, s, c, set, "SelectMagFilterSetRow", ActionValue::Int(1));
+    act(p, s, c, tab, "ShowMagFiltersReqs", ActionValue::None);
+    for (req, value) in [
+        ("MaxWield", "275"),
+        ("MinValue", "100"),
+        ("MinWorkmanship", "1"),
+        ("MaxBurden", "500"),
+    ] {
+        act(p, s, c, set, &format!("SetMagFilterReq{req}"), text(value));
+    }
+    act(p, s, c, tab, "ShowMagFiltersCharacters", ActionValue::None);
+    act(
+        p,
+        s,
+        c,
+        set,
+        "ToggleMagFilterCharacter",
+        ActionValue::Int(3),
+    );
+    let summary = inventory_text(s, "MagInventoryFilterSummary");
+    for part in [
+        "Not equipped",
+        "Bonded",
+        "Armor",
+        "Hands",
+        "Crit damage ≥ 1",
+        "Wield ≤ 275",
+    ] {
+        assert!(summary.contains(part), "{part}: {summary}");
+    }
+    assert!(summary.contains("'s Set"), "a set chosen: {summary}");
+    let every_ticks = settle_inventory(p, s, c, "filters: tick (every filter)");
+    // Attuned and Rare cleared (no item is either), then Bonded below.
+    act(p, s, c, tab, "ShowMagFiltersItem", ActionValue::None);
+    act(p, s, c, set, "SetMagFilterAttuned", ActionValue::Int(0));
+    act(p, s, c, set, "SetMagFilterRare", ActionValue::Int(0));
+    settle_inventory(p, s, c, "filters: tick (every filter)");
+
+    // One filter changed: the Bonded box cleared, so the armor reaches the
+    // appraisal's filters; the Cantrips tab shown while the rows are
+    // tested.
+    act(p, s, c, tab, "ShowMagFiltersCantrips", ActionValue::None);
+    act(
+        p,
+        s,
+        c,
+        "filters: one filter changed",
+        "SetMagFilterBonded",
+        ActionValue::Int(0),
+    );
+    let changed_ticks = settle_inventory(p, s, c, "filters: tick (one filter changed)");
+    let status = inventory_status(s);
+    assert!(
+        status.ends_with(" items")
+            || status.ends_with(" item")
+            || status.contains("not identified"),
+        "{status}"
+    );
+
+    let cases = cases.all();
+    let mut report = report(&cases);
+    let _ = writeln!(
+        report,
+        "{total} items; every filter settled in {every_ticks} ticks, one change in {changed_ticks}; {status}"
+    );
+    println!("{report}");
+    assert_no_file_rewritten(&session, &report);
+    assert_within_margin(&cases, &report);
+}
+
+/// The OD ladders the Weapon OD fuel case loads: 31 of 10 rules each,
+/// shaped like real ones (`(H) Axe (OD +10)` ... `(M) Xbow (OD +1)`):
+/// mastery (353), object class, a name gate on every other melee ladder,
+/// the damage step (buffed median damage for melee, buffed missile damage
+/// for missile), wield skill (159). 28 melee ladders (masteries 1 to 7,
+/// each with the four melee skills) and 3 missile ones. The heavy
+/// character's weapons are given mastery 2 and skill 45, so a melee weapon
+/// reads the damage step of every mastery-2 ladder (the skill is read
+/// last); only the light one is reachable (`40 + N + raise`: OD 8 with
+/// `raise` 0, 7 with 1), the others ask more than any weapon has.
+fn od_ladders(raise: i32) -> String {
+    use mosstank_formats::utl::{self, LootAction, LootRule, VtankLootRequirement};
+    fn requirement(kind: i32, lines: &[&str]) -> VtankLootRequirement {
+        VtankLootRequirement {
+            kind,
+            payload: lines.iter().map(|line| format!("{line}\r\n")).collect(),
+        }
+    }
+    /// One ladder: `damage` is the damage requirement and its base (step
+    /// N asks base + N).
+    fn ladder(
+        rules: &mut Vec<LootRule>,
+        name: &str,
+        (mastery, class, skill): (i32, i32, i32),
+        gate: Option<&str>,
+        (damage_kind, base): (i32, i32),
+    ) {
+        for n in (1..=10).rev() {
+            let mut rule = LootRule::named(&format!("{name} (OD +{n})"), "*");
+            rule.action = LootAction::Keep;
+            let mut requirements = vec![
+                requirement(12, &[&mastery.to_string(), "353"]),
+                requirement(7, &[&class.to_string()]),
+            ];
+            if let Some(gate) = gate {
+                requirements.push(requirement(1, &[gate, "1"]));
+            }
+            requirements.push(requirement(damage_kind, &[&(base + n).to_string()]));
+            requirements.push(requirement(12, &[&skill.to_string(), "159"]));
+            rule.vtank_requirements = requirements;
+            rule.has_imported_requirements = true;
+            rules.push(rule);
+        }
+    }
+    let mut rules = Vec::new();
+    let skills = [("H", 44), ("L", 45), ("F", 46), ("2H", 41)];
+    for mastery in 1..=7 {
+        for (index, (prefix, skill)) in skills.iter().enumerate() {
+            let reachable = mastery == 2 && *skill == 45;
+            let base = if reachable { 40 + raise } else { 500 };
+            let gate = (index % 2 == 1).then_some("^.*(Tachi|Sword|Dagger|Axe).*$");
+            ladder(
+                &mut rules,
+                &format!("({prefix}) Mastery {mastery}"),
+                (mastery, 1, *skill),
+                gate,
+                (2000, base),
+            );
+        }
+    }
+    for (name, mastery) in [("(M) Bow", 8), ("(M) Xbow", 9), ("(M) TW", 10)] {
+        ladder(&mut rules, name, (mastery, 9, 47), None, (2001, 500));
+    }
+    assert_eq!(rules.len(), 310);
+    utl::serialize_rules(&rules)
+}
+
+/// A list the Inventory window shows in its binding `name`, through the
+/// client's debug form of the value.
+fn inventory_list_debug(session: &Session, name: &str) -> String {
+    session
+        .world
+        .fake
+        .ui
+        .panels()
+        .find(|panel| panel.descriptor.window_id == "inventory")
+        .and_then(|panel| panel.values.get(name))
+        .map(|value| format!("{value:?}"))
+        .unwrap_or_default()
+}
+
+/// Ticks until the Inventory window starts reading every row again (it
+/// looks at the loot profile once a second), then until it has read and
+/// searched them all (at least 40 ticks in all), each tick measured as
+/// `case`.
+fn settle_reading(plugin: &mut Plugin, session: &mut Session, cases: &mut Cases, case: &str) {
+    let mut ticks = 0;
+    let mut reading = false;
+    loop {
+        let status = inventory_status(session);
+        reading |= status.starts_with("Reading");
+        let busy = status.starts_with("Searching") || status.starts_with("Reading");
+        if reading && !busy && ticks >= 40 {
+            break;
+        }
+        let fuel = tick(plugin, session);
+        cases.add(case, fuel);
+        ticks += 1;
+        assert!(reading || ticks < 200, "{case}: never read again: {status}");
+        assert!(ticks < 2000, "{case}: {}", inventory_status(session));
+    }
+}
+
+/// The Weapon OD: a loot profile of 310 OD rules (31 ladders of 10) loaded,
+/// then the Inventory window opened on the heavy character with three
+/// other characters' saved logs (6,000 items, their weapons of mastery 2
+/// and skill 45): every row read, its OD worked out; the Weapon OD filter
+/// set and changed; the profile's OD rules changed, so every row is read
+/// again.
+#[test]
+#[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
+fn the_weapon_od_fits() {
+    use ac_plugin_abi::ui::ActionValue;
+    let wasm = std::fs::read(wasm_path()).expect("the release mosstank.wasm (build it first)");
+    let mut session = new_session();
+    let mut cases = Cases::default();
+
+    // A first session logs the heavy character; three alts' logs are
+    // copies whose appraised items carry the mastery and skill.
+    let (mut plugin, _) = Plugin::load(&wasm, DEFAULT_MEMORY_MIB).expect("load");
+    plugin.enable(&start_info(), &mut session).expect("enable");
+    log_in_heavy(&mut plugin, &mut session);
+    send(&mut plugin, &mut session, &Event::Logoff);
+    plugin.disable(&mut session).expect("disable");
+    let log = session
+        .world
+        .plugin_data
+        .get("Mag-Tools/Coldeve/Mossy Hunter.inventory.json")
+        .expect("the heavy character's log")
+        .to_owned();
+    let appraised = "\"ints\":{\"1\":";
+    assert!(log.contains(appraised), "the log's appraised items");
+    for alt in 1..=3 {
+        let name = format!("Alt {alt}");
+        let text = log
+            .replacen(
+                "\"character\":\"Mossy Hunter\"",
+                &format!("\"character\":\"{name}\""),
+                1,
+            )
+            .replace(appraised, "\"ints\":{\"353\":2,\"159\":45,\"1\":");
+        session
+            .world
+            .plugin_data
+            .insert(&format!("Mag-Tools/Coldeve/{name}.inventory.json"), &text);
+    }
+
+    // The next session: the ladders loaded, the live weapons of mastery 2
+    // and skill 45 too.
+    let (mut plugin, _) = Plugin::load(&wasm, DEFAULT_MEMORY_MIB).expect("load");
+    plugin.enable(&start_info(), &mut session).expect("enable");
+    log_in_heavy(&mut plugin, &mut session);
+    for properties in session.world.automation().properties.values_mut() {
+        properties.ints.extend([(353, 2), (159, 45)]);
+    }
+    session
+        .world
+        .profiles
+        .insert("mosstank/loot/od-ladders.utl", &od_ladders(0));
+    let fuel = send(
+        &mut plugin,
+        &mut session,
+        &command("vt", "loot load od-ladders"),
+    );
+    cases.add("OD: the profile loaded", fuel);
+    for _ in 0..300 {
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("OD: tick after the profile's load", fuel);
+    }
+
+    // The window opened: every row read, its OD worked out.
+    let open = ui_action(&session, "OpenMagInventory", ActionValue::None);
+    let fuel = send(&mut plugin, &mut session, &open);
+    cases.add("OD: open the window", fuel);
+    let total = heavy::INVENTORY_ITEMS * 4;
+    let all = format!("{total} items");
+    let mut read_ticks = 0;
+    while inventory_status(&session) != all {
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("OD: tick (reading, each OD worked out)", fuel);
+        read_ticks += 1;
+        assert!(
+            read_ticks < 2000,
+            "never read: {}",
+            inventory_status(&session)
+        );
+    }
+    let ods = inventory_list_debug(&session, "MagInventoryRowOds");
+    assert!(ods.contains("\"8\""), "the light ladder's OD 8: {ods}");
+
+    // The Weapon OD filter set, then changed.
+    let p = &mut plugin;
+    let s = &mut session;
+    let c = &mut cases;
+    let text = |t: &str| ActionValue::Text(t.to_owned());
+    act(
+        p,
+        s,
+        c,
+        "OD: open the filters",
+        "ToggleMagInventoryFilters",
+        ActionValue::None,
+    );
+    act(
+        p,
+        s,
+        c,
+        "OD: a tab shown",
+        "ShowMagFiltersRatings",
+        ActionValue::None,
+    );
+    act(p, s, c, "OD: the filter set", "SetMagFilterOd", text("8"));
+    let filter_ticks = settle_inventory(p, s, c, "OD: tick (the filter set)");
+    let at_8 = inventory_status(s);
+    assert!(!at_8.starts_with("0 items"), "{at_8}");
+    act(
+        p,
+        s,
+        c,
+        "OD: the filter changed",
+        "SetMagFilterOd",
+        text("9"),
+    );
+    let changed_ticks = settle_inventory(p, s, c, "OD: tick (the filter changed)");
+    let at_9 = inventory_status(s);
+    assert!(at_9.starts_with("0 items"), "{at_9}");
+
+    // The profile's OD rules changed (the light ladder asks one more):
+    // every row read again, its OD worked out again.
+    s.world
+        .profiles
+        .insert("mosstank/loot/od-ladders.utl", &od_ladders(1));
+    let fuel = send(p, s, &command("vt", "loot load od-ladders"));
+    c.add("OD: the profile changed", fuel);
+    act(
+        p,
+        s,
+        c,
+        "OD: the filter changed",
+        "SetMagFilterOd",
+        text("7"),
+    );
+    settle_reading(p, s, c, "OD: tick (read again, profile changed)");
+    let at_7 = inventory_status(s);
+    assert_eq!(at_7, at_8, "OD 7 now where OD 8 was");
+
+    let cases = cases.all();
+    let mut report = report(&cases);
+    let _ = writeln!(
+        report,
+        "{total} items read in {read_ticks} ticks; the filter settled in {filter_ticks} ticks, \
+         its change in {changed_ticks}; at OD 8: {at_8}; after the profile's change, at OD 7: \
+         {at_7}"
+    );
+    println!("{report}");
+    assert_no_file_rewritten(&session, &report);
+    assert_within_margin(&cases, &report);
+}
+
+/// The pieces of gear the heavy character wears for the Mana page.
+const WORN_MANA_ITEMS: usize = 20;
+
+/// The heavy character puts on [`WORN_MANA_ITEMS`] of its carried gear
+/// (each with mana and six spells), every spell of them cast on it by the
+/// item (no end) beside its timed enchantments. The worn items' ids and
+/// names.
+fn wear_gear(session: &mut Session) -> Vec<(u32, String)> {
+    let automation = session.world.automation();
+    let mut worn = Vec::new();
+    for item in &mut automation.item_entries {
+        if worn.len() == WORN_MANA_ITEMS {
+            break;
+        }
+        if item.valid_locations == 0 || item.item_maximum_mana == 0 {
+            continue;
+        }
+        item.equipped_location = item.valid_locations;
+        item.wielder_id = heavy::CHARACTER_ID;
+        item.container_id = 0;
+        worn.push((item.object_id, item.name.clone()));
+    }
+    // Each burns a mana every 40 s.
+    for (object_id, _) in &worn {
+        let properties = automation.properties.entry(*object_id).or_default();
+        properties.floats.retain(|(id, _)| *id != 5);
+        properties.floats.push((5, -0.025));
+    }
+    let mut casts = Vec::new();
+    for object in &mut automation.world_objects {
+        if worn.iter().any(|(id, _)| *id == object.object_id) {
+            object.wielder_id = heavy::CHARACTER_ID;
+            object.container_id = 0;
+            object.has_appraisal_data = true;
+            casts.extend(object.spell_ids.iter().copied());
+        }
+    }
+    let mut every = heavy::enchantments(&session.table);
+    every.extend(casts.into_iter().filter_map(|spell_id| {
+        session
+            .table
+            .iter()
+            .find(|spell| spell.spell_id == spell_id)
+            .map(|spell| ac_plugin_abi::character::ActiveEnchantment {
+                spell_id,
+                family: spell.family,
+                tier: spell.tier,
+                seconds_remaining: f64::INFINITY,
+            })
+    }));
+    session
+        .world
+        .set_reply::<calls::CharacterAllEnchantments>(&every);
+    worn
+}
+
+/// The main window's list `name` (read through its debug form).
+fn main_list_len(session: &Session, name: &str) -> usize {
+    session
+        .world
+        .fake
+        .ui
+        .panels()
+        .find(|panel| panel.descriptor.window_id == "main")
+        .and_then(|panel| panel.values.get(name))
+        .map_or(0, |value| format!("{value:?}").matches('"').count() / 2)
+}
+
+/// One line of a fight (three in four) amid the town's chat, heard now.
+fn fight_or_town_line(
+    plugin: &mut Plugin,
+    session: &mut Session,
+    line: usize,
+    me: &str,
+) -> CallFuel {
+    let log = session.world.chat_log.get_or_insert_with(Vec::new);
+    let sequence = log.last().map_or(1, |line| line.sequence + 1);
+    let event = if line % 4 == 3 {
+        heavy::chat_line(sequence, session.world.fake.clock.utc_unix_ms)
+    } else {
+        heavy::fight_line(sequence, session.world.fake.clock.utc_unix_ms, me)
+    };
+    log.push(event.clone());
+    send(plugin, session, &Event::ChatReceived(event))
+}
+
+/// The combat tracker on the heavy character with a long life's persistent
+/// stats of `monsters` monsters: its patterns compiled a few a tick, the
+/// stats file read in at the login, a burst of
+/// [`heavy::BURST_CHAT_LINES`] fight lines in one tick amid the town's
+/// chat, and the logoff that writes the persistent stats and exports the
+/// current ones. `catching_up`: the login completes at once and a fight's
+/// worth of lines is heard while the patterns compile, so the lines that
+/// waited are read while the file is read in. `shown`: the Combat tab
+/// whose handler is named is shown from before the login on (its lists
+/// built as the file is read in, and drawn through the burst).
+fn combat_session(monsters: usize, catching_up: bool, shown: Option<&str>) {
+    use ac_plugin_abi::ui::ActionValue;
+    let wasm = std::fs::read(wasm_path()).expect("the release mosstank.wasm (build it first)");
+    let me = "Mossy Hunter";
+    let key = "Mag-Tools/Coldeve/Mossy Hunter.CombatTracker.xml";
+    let mut session = new_session();
+    let saved = heavy::persistent_combat_stats(me, monsters);
+    session.world.plugin_data.insert(key, &saved);
+    let mut cases = Cases::default();
+    let (mut plugin, _) = Plugin::load(&wasm, DEFAULT_MEMORY_MIB).expect("load");
+    plugin.enable(&start_info(), &mut session).expect("enable");
+    let set = command("ub", "opt set Mag.CombatTracker.ExportOnLogOff true");
+    send(&mut plugin, &mut session, &set);
+    enter_world(&mut session);
+    session
+        .world
+        .set_reply::<calls::ItemsInventoryComplete>(&true);
+    if let Some(tab) = shown {
+        for handler in ["ShowMag", "ShowMagCombat", tab] {
+            let action = ui_action(&session, handler, ActionValue::None);
+            let fuel = send(&mut plugin, &mut session, &action);
+            cases.add("combat: page shown", fuel);
+        }
+    }
+    if catching_up {
+        tick(&mut plugin, &mut session);
+        let login = send(&mut plugin, &mut session, &Event::LoginComplete);
+        cases.add("combat: login complete", login);
+        for line in 0..2 * heavy::BURST_CHAT_LINES {
+            let fuel = fight_or_town_line(&mut plugin, &mut session, line, me);
+            cases.add("combat: chat line (patterns compiling)", fuel);
+        }
+        for _ in 0..300 {
+            let fuel = tick(&mut plugin, &mut session);
+            cases.add(
+                "combat: tick (compiling, lines waiting, file read in)",
+                fuel,
+            );
+        }
+    } else {
+        // The town's chat while the patterns compile: it waits for them.
+        for _ in 0..20 {
+            chat(
+                &mut plugin,
+                &mut session,
+                &mut cases,
+                "combat: chat line (patterns compiling)",
+            );
+            let fuel = tick(&mut plugin, &mut session);
+            cases.add("combat: tick (patterns compiling, login)", fuel);
+        }
+        let login = send(&mut plugin, &mut session, &Event::LoginComplete);
+        cases.add("combat: login complete", login);
+        for _ in 0..200 {
+            let fuel = tick(&mut plugin, &mut session);
+            cases.add("combat: tick (persistent stats read in)", fuel);
+        }
+    }
+
+    for line in 0..heavy::BURST_CHAT_LINES {
+        let fuel = fight_or_town_line(&mut plugin, &mut session, line, me);
+        cases.add("combat: chat line (burst)", fuel);
+    }
+    for _ in 0..5 {
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("combat: tick (after the burst)", fuel);
+    }
+    if shown.is_some() {
+        // A row clicked, the next tick drawn with its details.
+        let click = ui_action(&session, "SelectMagCombatRow", ActionValue::Int(2));
+        let fuel = send(&mut plugin, &mut session, &click);
+        cases.add("combat: monster row clicked", fuel);
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("combat: tick (after the burst)", fuel);
+    }
+    let drawn = main_list_len(&session, "MagCombatNames");
+    let warnings = session
+        .world
+        .chat()
+        .iter()
+        .filter(|text| text.contains("Unable to parse damage element"))
+        .count();
+
+    let logoff = send(&mut plugin, &mut session, &Event::Logoff);
+    cases.add("combat: logoff (both files written)", logoff);
+    let written = session
+        .world
+        .plugin_data
+        .get(key)
+        .unwrap_or_default()
+        .to_owned();
+    let exports = session
+        .world
+        .plugin_data
+        .list("Mag-Tools/Coldeve/")
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|name| name.contains(".CombatTracker.2"))
+        .count();
+    let cases = cases.all();
+    let mut report = report(&cases);
+    let _ = writeln!(
+        report,
+        "persistent stats: {monsters} monsters, {} KB read, {} KB written; {warnings} warnings posted",
+        saved.len() / 1024,
+        written.len() / 1024
+    );
+    println!("{report}");
+    // The file read in, the fight added to it, written back.
+    let last_monster = format!("TargetName=\"Drudge Skulker {}\"", monsters / 10 - 1);
+    assert!(written.contains(&last_monster), "{report}");
+    assert!(written.len() > saved.len(), "{report}");
+    assert_eq!(exports, 1, "{report}");
+    assert!(warnings > 0, "{report}");
+    // The tab's list drawn: the header, All, a row a monster.
+    match shown {
+        Some("ShowMagCombatPersistent") => assert_eq!(drawn, monsters + 2, "{report}"),
+        Some(_) => assert!(drawn > 2, "{report}"),
+        None => {}
+    }
+    assert_no_file_rewritten(&session, &report);
+    assert_within_margin(&cases, &report);
+}
+
+/// [`combat_session`] with [`heavy::PERSISTENT_MONSTERS`] monsters.
+#[test]
+#[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
+fn the_combat_tracker_fits() {
+    combat_session(heavy::PERSISTENT_MONSTERS, false, None);
+}
+
+/// [`combat_session`] with three times as many monsters: the logoff only
+/// joins the stats' text and writes it.
+#[test]
+#[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
+fn the_combat_tracker_with_three_thousand_monsters_fits() {
+    combat_session(3 * heavy::PERSISTENT_MONSTERS, false, None);
+}
+
+/// [`combat_session`] catching up: the lines that waited for the patterns
+/// read while the persistent file is read in.
+#[test]
+#[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
+fn the_combat_tracker_catching_up_fits() {
+    combat_session(heavy::PERSISTENT_MONSTERS, true, None);
+}
+
+/// [`combat_session`] with three thousand monsters and the Persistent
+/// Stats tab shown from before the login: its lists built as the file is
+/// read in, drawn through the burst, a row clicked.
+#[test]
+#[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
+fn the_combat_page_shown_with_three_thousand_monsters_fits() {
+    combat_session(
+        3 * heavy::PERSISTENT_MONSTERS,
+        false,
+        Some("ShowMagCombatPersistent"),
+    );
+}
+
+/// [`combat_session`] with the Current Session Stats tab shown through
+/// the burst.
+#[test]
+#[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
+fn the_combat_page_shown_during_the_burst_fits() {
+    combat_session(
+        heavy::PERSISTENT_MONSTERS,
+        false,
+        Some("ShowMagCombatCurrent"),
+    );
+}
+
+/// The Mana page and its overlay on the heavy character wearing twenty
+/// pieces of gear with mana: the login (each piece tracked and asked for),
+/// the overlay drawn and painted again every tick, dragged, then beside
+/// the page as the burn ticks, every piece appraised, a burst of town chat
+/// with the system lines that cue an appraisal, and a piece taken off and
+/// put back on.
+#[test]
+#[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
+fn the_mana_page_fits() {
+    use ac_plugin_abi::items::EquipmentObservation;
+    use ac_plugin_abi::ui::ActionValue;
+    let wasm = std::fs::read(wasm_path()).expect("the release mosstank.wasm (build it first)");
+    let mut session = new_session();
+    let mut cases = Cases::default();
+    let (mut plugin, _) = Plugin::load(&wasm, DEFAULT_MEMORY_MIB).expect("load");
+    plugin.enable(&start_info(), &mut session).expect("enable");
+    enter_world(&mut session);
+    let properties = heavy::appraised_properties(&heavy::inventory());
+    session.world.automation().properties.extend(properties);
+    let worn = wear_gear(&mut session);
+    assert_eq!(worn.len(), WORN_MANA_ITEMS);
+    session
+        .world
+        .set_reply::<calls::ItemsInventoryComplete>(&true);
+    tick(&mut plugin, &mut session);
+    let login = send(&mut plugin, &mut session, &Event::LoginComplete);
+    cases.add("mana page: login complete", login);
+    for _ in 0..60 {
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("mana page: tick (page hidden)", fuel);
+    }
+
+    // Every piece appraised once (an unappraised one has burned all its
+    // mana and stays at 0), then the overlay ticked on: drawn alone, every
+    // tick a burn later (each row's mana changes, so each tick paints),
+    // dragged, then beside the page for the rest of the run.
+    let worn_objects: Vec<_> = session
+        .world
+        .automation()
+        .world_objects
+        .iter()
+        .filter(|object| worn.iter().any(|(id, _)| *id == object.object_id))
+        .cloned()
+        .collect();
+    for (revision, object) in worn_objects.iter().enumerate() {
+        let appraised = Event::ObjectChanged(ObjectChange {
+            object_id: object.object_id,
+            kind: ObjectChangeKind::IdentReceived,
+            revision: 5_000 + revision as i64,
+            changed_fields: ObjectChangeKind::IdentReceived.fields(),
+            current: Some(object.clone()),
+        });
+        let fuel = send(&mut plugin, &mut session, &appraised);
+        cases.add("mana page: worn item appraised", fuel);
+    }
+    let overlay_on = ui_action(&session, "SetMagManaShowOverlay", ActionValue::Int(1));
+    let fuel = send(&mut plugin, &mut session, &overlay_on);
+    cases.add("mana overlay: ticked on", fuel);
+    for _ in 0..60 {
+        session.world.fake.clock.monotonic_ms += 40_000;
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("mana overlay: tick (repainted)", fuel);
+    }
+    let overlay = |session: &Session| {
+        session
+            .world
+            .fake
+            .ui
+            .canvases()
+            .filter(|canvas| canvas.descriptor.canvas_id == mosstank_mag::mana_overlay::CANVAS_ID)
+            .last()
+            .map(|canvas| {
+                (
+                    canvas.id,
+                    canvas.visible,
+                    canvas.descriptor.height,
+                    canvas.offset,
+                )
+            })
+            .expect("the overlay's canvas")
+    };
+    let painted = |session: &Session| {
+        session
+            .world
+            .fake
+            .ui
+            .canvases()
+            .filter(|canvas| canvas.descriptor.canvas_id == mosstank_mag::mana_overlay::CANVAS_ID)
+            .last()
+            .map(|canvas| format!("{:?}", canvas.paint))
+            .unwrap_or_default()
+    };
+    let before = painted(&session);
+    session.world.fake.clock.monotonic_ms += 40_000;
+    let fuel = tick(&mut plugin, &mut session);
+    cases.add("mana overlay: tick (repainted)", fuel);
+    assert_ne!(painted(&session), before, "a burn later, painted again");
+    let (canvas, visible, height, from) = overlay(&session);
+    assert!(visible, "the overlay is drawn");
+    assert_eq!(
+        height,
+        mosstank_mag::mana_overlay::height_for(WORN_MANA_ITEMS),
+        "a row per worn item"
+    );
+    let press = |kind: u8, x: f32, y: f32| {
+        Event::Ui(ac_plugin_abi::ui::UiEvent::Pointer(
+            ac_plugin_abi::ui::PointerEvent {
+                canvas,
+                kind,
+                x,
+                y,
+                button: 1,
+                modifiers: 0,
+                wheel_delta: 0,
+            },
+        ))
+    };
+    use ac_plugin_abi::ui::PointerEvent as P;
+    let fuel = send(&mut plugin, &mut session, &press(P::DOWN, 40.0, 5.0));
+    cases.add("mana overlay: drag", fuel);
+    for _ in 0..20 {
+        let fuel = send(&mut plugin, &mut session, &press(P::MOVE, 43.0, 7.0));
+        cases.add("mana overlay: drag", fuel);
+    }
+    let fuel = send(&mut plugin, &mut session, &press(P::UP, 40.0, 5.0));
+    cases.add("mana overlay: drag", fuel);
+    let (_, _, _, to) = overlay(&session);
+    assert_eq!((to.0 - from.0, to.1 - from.1), (60.0, 40.0), "dragged");
+    for _ in 0..10 {
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("mana overlay: tick (repainted)", fuel);
+    }
+
+    for handler in ["ShowMag", "ShowMagMana"] {
+        let shown = ui_action(&session, handler, ActionValue::None);
+        let fuel = send(&mut plugin, &mut session, &shown);
+        cases.add("mana page: shown", fuel);
+    }
+    for _ in 0..60 {
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("mana page: tick (page shown)", fuel);
+    }
+    assert_eq!(
+        main_list_len(&session, "MagManaNames"),
+        WORN_MANA_ITEMS,
+        "the rows drawn"
+    );
+
+    let objects: Vec<_> = session
+        .world
+        .automation()
+        .world_objects
+        .iter()
+        .filter(|object| worn.iter().any(|(id, _)| *id == object.object_id))
+        .cloned()
+        .collect();
+    for (revision, object) in objects.iter().enumerate() {
+        let appraised = Event::ObjectChanged(ObjectChange {
+            object_id: object.object_id,
+            kind: ObjectChangeKind::IdentReceived,
+            revision: 10_000 + revision as i64,
+            changed_fields: ObjectChangeKind::IdentReceived.fields(),
+            current: Some(object.clone()),
+        });
+        let fuel = send(&mut plugin, &mut session, &appraised);
+        cases.add("mana page: worn item appraised", fuel);
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("mana page: tick (page shown)", fuel);
+    }
+
+    for line in 0..heavy::BURST_CHAT_LINES {
+        if line % 8 == 3 {
+            let name = &worn[line % worn.len()].1;
+            let log = session.world.chat_log.get_or_insert_with(Vec::new);
+            let sequence = log.last().map_or(1, |line| line.sequence + 1);
+            let mut low = heavy::chat_line(sequence, session.world.fake.clock.utc_unix_ms);
+            low.kind = 4;
+            low.text = format!("Your {name} is low on Mana.");
+            log.push(low.clone());
+            let fuel = send(&mut plugin, &mut session, &Event::ChatReceived(low));
+            cases.add("mana page: chat line", fuel);
+        } else {
+            chat(
+                &mut plugin,
+                &mut session,
+                &mut cases,
+                "mana page: chat line",
+            );
+        }
+        if line % 4 == 0 {
+            let fuel = tick(&mut plugin, &mut session);
+            cases.add("mana page: tick (page shown)", fuel);
+        }
+    }
+
+    let (piece, _) = worn[0].clone();
+    for is_removal in [true, false] {
+        let placed = Event::EquipmentPlacement(EquipmentObservation {
+            object_id: piece,
+            equipped_location: 0x0004_0000,
+            is_removal,
+            is_initial_placement: false,
+        });
+        let fuel = send(&mut plugin, &mut session, &placed);
+        cases.add("mana page: placement", fuel);
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("mana page: tick (page shown)", fuel);
+    }
+    assert_eq!(main_list_len(&session, "MagManaNames"), WORN_MANA_ITEMS);
+
+    let cases = cases.all();
+    let report = report(&cases);
+    println!("{report}");
+    assert_no_file_rewritten(&session, &report);
+    assert_within_margin(&cases, &report);
+}
+
+/// How many items the Comps HUD case lists.
+const COMPS_HUD_ITEMS: i32 = 12;
+
+/// The Comps HUD on the heavy character: shown, twelve carried items ticked
+/// on in Edit items, recounted every tick (each recount takes the whole
+/// inventory), the pointer over it (repainted with its buttons) and off it,
+/// and a drag.
+#[test]
+#[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
+fn the_comps_hud_fits() {
+    use ac_plugin_abi::ui::{ActionValue, PointerEvent as P, UiEvent};
+    let wasm = std::fs::read(wasm_path()).expect("the release mosstank.wasm (build it first)");
+    let mut session = new_session();
+    let mut cases = Cases::default();
+    let (mut plugin, _) = Plugin::load(&wasm, DEFAULT_MEMORY_MIB).expect("load");
+    plugin.enable(&start_info(), &mut session).expect("enable");
+    log_in_heavy(&mut plugin, &mut session);
+
+    let fuel = send(&mut plugin, &mut session, &command("vt", "compshud on"));
+    cases.add("comps hud: shown", fuel);
+    let shown = ui_action(&session, "ShowCompsHudEditor", ActionValue::None);
+    let fuel = send(&mut plugin, &mut session, &shown);
+    cases.add("comps hud: edit items", fuel);
+    for row in 0..COMPS_HUD_ITEMS {
+        let toggled = ui_action(&session, "ToggleCompsHudCarriedAt", ActionValue::Int(row));
+        let fuel = send(&mut plugin, &mut session, &toggled);
+        cases.add("comps hud: edit items", fuel);
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("comps hud: tick (recounted)", fuel);
+    }
+    let hidden = ui_action(&session, "HideCompsHudEditor", ActionValue::None);
+    send(&mut plugin, &mut session, &hidden);
+    for _ in 0..60 {
+        session.world.fake.clock.monotonic_ms += 600;
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("comps hud: tick (recounted)", fuel);
+    }
+    let strip = |session: &Session| {
+        session
+            .world
+            .fake
+            .ui
+            .canvases()
+            .filter(|canvas| canvas.descriptor.canvas_id == "comps-hud")
+            .last()
+            .map(|canvas| {
+                (
+                    canvas.id,
+                    canvas.descriptor.height,
+                    canvas.offset,
+                    format!("{:?}", canvas.paint),
+                )
+            })
+            .expect("the HUD's canvas")
+    };
+    let (canvas, height, from, painted) = strip(&session);
+    assert!(
+        height >= COMPS_HUD_ITEMS * 16,
+        "a row per item: {height} pixels"
+    );
+    assert!(!painted.contains("Line"), "no buttons yet");
+    let pointer = |kind: u8, button: u8, x: f32, y: f32| {
+        Event::Ui(UiEvent::Pointer(P {
+            canvas,
+            kind,
+            x,
+            y,
+            button,
+            modifiers: 0,
+            wheel_delta: 0,
+        }))
+    };
+    for _ in 0..10 {
+        let fuel = send(&mut plugin, &mut session, &pointer(P::HOVER, 0, 10.0, 20.0));
+        cases.add("comps hud: hover", fuel);
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("comps hud: tick (hovered)", fuel);
+        assert!(strip(&session).3.contains("Line"), "the buttons show");
+        let fuel = send(&mut plugin, &mut session, &pointer(P::LEAVE, 0, 0.0, 0.0));
+        cases.add("comps hud: hover", fuel);
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("comps hud: tick (hovered)", fuel);
+        assert!(!strip(&session).3.contains("Line"), "and go");
+    }
+    let fuel = send(&mut plugin, &mut session, &pointer(P::DOWN, 1, 10.0, 20.0));
+    cases.add("comps hud: drag", fuel);
+    for _ in 0..20 {
+        let fuel = send(&mut plugin, &mut session, &pointer(P::MOVE, 1, 13.0, 22.0));
+        cases.add("comps hud: drag", fuel);
+    }
+    let fuel = send(&mut plugin, &mut session, &pointer(P::UP, 1, 10.0, 20.0));
+    cases.add("comps hud: drag", fuel);
+    let (_, _, to, _) = strip(&session);
+    assert_eq!((to.0 - from.0, to.1 - from.1), (60.0, 40.0), "dragged");
+    for _ in 0..10 {
+        session.world.fake.clock.monotonic_ms += 600;
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("comps hud: tick (recounted)", fuel);
+    }
+
+    let cases = cases.all();
+    let report = report(&cases);
+    println!("{report}");
+    assert_within_margin(&cases, &report);
+}
+
+/// The things about a heavy character of the Inv. Items page's classes it
+/// has none of (a row each, count 0): mana stones, kits, scarabs and
+/// essence on the ground.
+fn unowned_consumables() -> Vec<ac_plugin_abi::world::WorldObject> {
+    use ac_plugin_abi::world::{ObjectClass, WorldObject};
+    let kinds = [
+        ("Major Mana Stone", ObjectClass::ManaStone),
+        ("Minor Mana Stone", ObjectClass::ManaStone),
+        ("Healing Kit", ObjectClass::HealingKit),
+        ("Treated Healing Kit", ObjectClass::HealingKit),
+        ("Lead Scarab", ObjectClass::SpellComponent),
+        ("Corrupted Essence", ObjectClass::Misc),
+    ];
+    (0..60u32)
+        .map(|index| {
+            let (name, class) = kinds[index as usize % kinds.len()];
+            WorldObject {
+                object_id: 0x5100_0000 + index,
+                name: name.to_owned(),
+                object_class: class,
+                stack_size: 1,
+                icon_id: 0x0600_3000,
+                ..WorldObject::default()
+            }
+        })
+        .collect()
+}
+
+/// A created-object event for `object`.
+fn created(revision: i64, object: &ac_plugin_abi::world::WorldObject) -> Event {
+    Event::ObjectChanged(ObjectChange {
+        object_id: object.object_id,
+        kind: ObjectChangeKind::Created,
+        revision,
+        changed_fields: ObjectChangeKind::Created.fields(),
+        current: Some(object.clone()),
+    })
+}
+
+/// The Inv. Items page on the heavy character, shown through the login
+/// burst: the login's walk of the owned list early in it, the rest of the
+/// pack (its salvage, scarabs, tapers, kits, stones, notes and money among
+/// the rest) and the town arriving after it, things on the ground of the
+/// classes it tracks, a corpse opened, the 1 s refresh after the burst,
+/// then stacks changing and used up.
+#[test]
+#[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
+#[allow(clippy::too_many_lines)]
+fn the_inv_items_page_fits() {
+    use ac_plugin_abi::ui::ActionValue;
+    use ac_plugin_abi::world::{ObjectClass, WorldObject};
+    let wasm = std::fs::read(wasm_path()).expect("the release mosstank.wasm (build it first)");
+    let mut session = new_session();
+    let mut cases = Cases::default();
+    let (mut plugin, _) = Plugin::load(&wasm, DEFAULT_MEMORY_MIB).expect("load");
+    plugin.enable(&start_info(), &mut session).expect("enable");
+    for handler in ["ShowMag", "ShowMagInvItems"] {
+        let shown = ui_action(&session, handler, ActionValue::None);
+        let fuel = send(&mut plugin, &mut session, &shown);
+        cases.add("inv items: shown", fuel);
+    }
+
+    let inventory = heavy::inventory();
+    let surroundings = heavy::surroundings();
+    let mut automation = character_automation(&session.table);
+    automation.properties = heavy::player_properties(&surroundings);
+    session.world.fake.character = Some(common::character("Mossy Hunter"));
+    session.world.automation = Some(automation);
+    session.world.chat_log = Some(Vec::new());
+    session.world.loot = Some(common::FrameLootSurface::default());
+    session
+        .world
+        .set_reply::<calls::ItemsInventoryComplete>(&true);
+    let mut revision = 0i64;
+    let unowned = unowned_consumables();
+    for (index, thing) in inventory.iter().chain(&surroundings).enumerate() {
+        create(&mut session, thing);
+        revision += 1;
+        let fuel = send(
+            &mut plugin,
+            &mut session,
+            &object_change(ObjectChangeKind::Created, revision, thing),
+        );
+        cases.add("inv items: burst object created", fuel);
+        if index == 100 {
+            let fuel = send(&mut plugin, &mut session, &Event::LoginComplete);
+            cases.add("inv items: login complete", fuel);
+        }
+        if index % 25 == 3 {
+            let object = &unowned[(index / 25) % unowned.len()];
+            session
+                .world
+                .automation()
+                .world_objects
+                .push(object.clone());
+            revision += 1;
+            let fuel = send(&mut plugin, &mut session, &created(revision, object));
+            cases.add("inv items: burst object created", fuel);
+        }
+        if index % (heavy::BURST_OBJECTS / heavy::BURST_CHAT_LINES) == 7 {
+            chat(
+                &mut plugin,
+                &mut session,
+                &mut cases,
+                "inv items: chat line",
+            );
+        }
+        if index % 15 == 14 {
+            let fuel = tick(&mut plugin, &mut session);
+            cases.add("inv items: burst tick", fuel);
+        }
+    }
+
+    // A corpse opened: its contents arrive.
+    let corpse = surroundings
+        .iter()
+        .find(|thing| thing.object.object_class == ObjectClass::Corpse)
+        .expect("a corpse")
+        .object
+        .object_id;
+    session.world.loot().current = corpse;
+    for item in heavy::corpse_contents(corpse) {
+        revision += 1;
+        let object = WorldObject {
+            object_id: item.object_id,
+            name: item.name.clone(),
+            object_class: item.object_class,
+            container_id: corpse,
+            stack_size: item.stack_size,
+            ..WorldObject::default()
+        };
+        let fuel = send(&mut plugin, &mut session, &created(revision, &object));
+        cases.add("inv items: corpse item created", fuel);
+    }
+    // The 1 s refresh, three seconds of it.
+    for _ in 0..200 {
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("inv items: tick (page shown)", fuel);
+    }
+    // The fixed rows, the pack's seven tracked names, the ground's six.
+    let rows = main_list_len(&session, "MagInvItemsNames");
+    assert_eq!(rows, 7 + 7 + 6, "the rows drawn");
+
+    // Stacks change (used from, picked up), and some are used up.
+    let tracked: Vec<Created> = inventory
+        .iter()
+        .filter(|thing| {
+            matches!(
+                thing.object.object_class,
+                ObjectClass::SpellComponent
+                    | ObjectClass::ManaStone
+                    | ObjectClass::HealingKit
+                    | ObjectClass::TradeNote
+                    | ObjectClass::Salvage
+                    | ObjectClass::Money
+            )
+        })
+        .cloned()
+        .collect();
+    assert!(tracked.len() > 300);
+    for (index, thing) in tracked.iter().take(300).enumerate() {
+        revision += 1;
+        let fuel = send(
+            &mut plugin,
+            &mut session,
+            &object_change(ObjectChangeKind::Updated, revision, thing),
+        );
+        cases.add("inv items: tracked object updated", fuel);
+        if index % 3 == 2 {
+            let fuel = tick(&mut plugin, &mut session);
+            cases.add("inv items: tick (page shown)", fuel);
+        }
+    }
+    for thing in tracked.iter().rev().take(30) {
+        let id = thing.object.object_id;
+        let automation = session.world.automation();
+        automation.item_entries.retain(|item| item.object_id != id);
+        automation
+            .world_objects
+            .retain(|object| object.object_id != id);
+        revision += 1;
+        let fuel = send(
+            &mut plugin,
+            &mut session,
+            &object_change(ObjectChangeKind::Released, revision, thing),
+        );
+        cases.add("inv items: tracked object released", fuel);
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("inv items: tick (page shown)", fuel);
+    }
+    assert_eq!(
+        main_list_len(&session, "MagInvItemsNames"),
+        rows,
+        "rows stay"
+    );
+
+    let cases = cases.all();
+    let report = report(&cases);
+    println!("{report}");
+    assert_no_file_rewritten(&session, &report);
+    assert_within_margin(&cases, &report);
+}
+
 #[test]
 #[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
 #[allow(clippy::too_many_lines)]
@@ -1533,9 +3112,11 @@ fn every_call_fits_the_hosts_budgets_with_room_to_spare() {
         ("event: window attached", Event::WindowAttached(true)),
         (
             "event: selection changed",
+            // A click: the left-click identify queues its appraisal too.
             Event::SelectionChanged(ac_plugin_abi::world::SelectionChange {
                 previous: None,
                 selected: Some(player.object.object_id),
+                source: ac_plugin_abi::world::selection_source::MOUSE,
             }),
         ),
         (
@@ -1824,4 +3405,164 @@ fn print_profile(case: &Case) {
         let next = trace.get(*index).map_or("<end>", |(name, _)| name.as_ref());
         println!("    {used:>12} after #{index} {after} before {next}");
     }
+}
+
+/// The ticks the launcher's login commands may wait for the character's
+/// profile set and the frames MossTank's own work takes, whatever the Mag
+/// features have to do.
+const LOGIN_COMMAND_TICKS: usize = 20;
+
+/// Everything at once: the owner's heavy character logs in with a
+/// 1,500-item inventory log, a 1,000-monster persistent combat file and
+/// twenty worn mana items, more than two hundred objects nearby, the Inv.
+/// Items page shown and the Inventory window open on three alts' 1,500-item
+/// logs; the launcher's login commands wait for the profile set and start
+/// the macro on the login meta; a 200-line chat burst comes; then the
+/// plugin is disabled in the world (the log and the stats written). Every
+/// call under half its budget, the login commands run within
+/// [`LOGIN_COMMAND_TICKS`] ticks, and the Mag work done meanwhile.
+#[test]
+#[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
+#[allow(clippy::too_many_lines)]
+fn the_heavy_login_with_every_mag_feature_fits() {
+    use ac_plugin_abi::ui::ActionValue;
+    let wasm = std::fs::read(wasm_path()).expect("the release mosstank.wasm (build it first)");
+    let folder = profiles::folder();
+    let mut session = folder_session(&folder);
+    let meta = login_meta(&folder, &mut session);
+    let character = character_bound_to(&folder, &meta);
+    let log_key = format!("Mag-Tools/Coldeve/{character}.inventory.json");
+    let stats_key = format!("Mag-Tools/Coldeve/{character}.CombatTracker.xml");
+
+    // A first session logs the character's inventory.
+    {
+        let mut first = new_session();
+        let (mut plugin, _) = Plugin::load(&wasm, DEFAULT_MEMORY_MIB).expect("load");
+        plugin.enable(&start_info(), &mut first).expect("enable");
+        enter_world_as(&mut first, &character);
+        let properties = heavy::appraised_properties(&heavy::inventory());
+        first.world.automation().properties.extend(properties);
+        first
+            .world
+            .set_reply::<calls::ItemsInventoryComplete>(&true);
+        tick(&mut plugin, &mut first);
+        send(&mut plugin, &mut first, &Event::LoginComplete);
+        let mut ticks = 0;
+        while first.world.plugin_data.get(&log_key).is_none() {
+            tick(&mut plugin, &mut first);
+            ticks += 1;
+            assert!(ticks < 1000, "the first session's log never written");
+        }
+        send(&mut plugin, &mut first, &Event::Logoff);
+        plugin.disable(&mut first).expect("disable");
+        let log = first.world.plugin_data.get(&log_key).expect("the log");
+        session.world.plugin_data.insert(&log_key, log);
+        for alt in 1..=3 {
+            let name = format!("Alt {alt}");
+            let text = log.replacen(
+                &format!("\"character\":\"{character}\""),
+                &format!("\"character\":\"{name}\""),
+                1,
+            );
+            session
+                .world
+                .plugin_data
+                .insert(&format!("Mag-Tools/Coldeve/{name}.inventory.json"), &text);
+        }
+    }
+    let saved_stats = heavy::persistent_combat_stats(&character, heavy::PERSISTENT_MONSTERS);
+    session.world.plugin_data.insert(&stats_key, &saved_stats);
+    let saved_log = session.world.plugin_data.get(&log_key).unwrap().to_owned();
+
+    let mut cases = Cases::default();
+    let (mut plugin, _) = Plugin::load(&wasm, DEFAULT_MEMORY_MIB).expect("load");
+    let enabled = plugin.enable(&start_info(), &mut session).expect("enable");
+    cases.add("all: start (the profile folder)", enabled);
+    for handler in ["ShowMag", "ShowMagInvItems", "OpenMagInventory"] {
+        let action = ui_action(&session, handler, ActionValue::None);
+        let fuel = send(&mut plugin, &mut session, &action);
+        cases.add("all: page shown, window opened", fuel);
+    }
+    enter_world_as(&mut session, &character);
+    let properties = heavy::appraised_properties(&heavy::inventory());
+    session.world.automation().properties.extend(properties);
+    let worn = wear_gear(&mut session);
+    assert_eq!(worn.len(), WORN_MANA_ITEMS);
+    session
+        .world
+        .set_reply::<calls::ItemsInventoryComplete>(&true);
+    let login = send(&mut plugin, &mut session, &Event::LoginComplete);
+    cases.add("all: login complete", login);
+    let fuel = tick(&mut plugin, &mut session);
+    cases.add("all: tick (the profile set loading)", fuel);
+    for (verb, arguments) in login_commands(&meta) {
+        let fuel = send(&mut plugin, &mut session, &command(verb, &arguments));
+        cases.add("all: a login command (the set loading)", fuel);
+    }
+    let ran = |session: &Session| {
+        session
+            .world
+            .requests::<calls::ChatSubmit>()
+            .iter()
+            .any(|line| line.contains("I just logged in"))
+    };
+    let mut command_ticks = None;
+    let total = heavy::INVENTORY_ITEMS * 4;
+    let all = format!("{total} items");
+    let mut read_ticks = None;
+    for count in 0..1500 {
+        if command_ticks.is_none() && ran(&session) {
+            command_ticks = Some(count);
+        }
+        if read_ticks.is_none() && inventory_status(&session) == all {
+            read_ticks = Some(count);
+        }
+        if count == 300 {
+            for line in 0..heavy::BURST_CHAT_LINES {
+                let fuel = fight_or_town_line(&mut plugin, &mut session, line, &character);
+                cases.add("all: chat line (burst)", fuel);
+            }
+        } else if count % 4 == 0 {
+            chat(&mut plugin, &mut session, &mut cases, "all: chat line");
+        }
+        let fuel = tick(&mut plugin, &mut session);
+        cases.add("all: tick (the macro running)", fuel);
+        if read_ticks.is_some() && count > 600 {
+            break;
+        }
+    }
+    let inv_items_rows = main_list_len(&session, "MagInvItemsNames");
+    every_owned_item_moved(&mut plugin, &mut session, &mut cases, "all");
+    let disabled = plugin.disable(&mut session).expect("disable");
+    cases.add("all: disabled in the world", disabled);
+    let written_log = session.world.plugin_data.get(&log_key).unwrap_or_default();
+    let written_stats = session
+        .world
+        .plugin_data
+        .get(&stats_key)
+        .unwrap_or_default()
+        .to_owned();
+    let log_rewritten = written_log != saved_log;
+    let items = written_log.matches("\n{\"id\":").count();
+
+    let cases = cases.all();
+    let mut report = report(&cases);
+    let _ = writeln!(
+        report,
+        "profile folder: {}; character: {character}; meta: {meta}; login commands ran after {command_ticks:?} ticks; {total} items read after {read_ticks:?} ticks; Inv. Items rows {inv_items_rows}",
+        folder.source
+    );
+    println!("{report}");
+    let command_ticks = command_ticks.expect("the login commands ran");
+    assert!(command_ticks <= LOGIN_COMMAND_TICKS, "{report}");
+    assert!(read_ticks.is_some(), "the Inventory window read: {report}");
+    assert!(inv_items_rows > 7, "{report}");
+    assert!(log_rewritten, "the log written at disable: {report}");
+    assert_eq!(items, heavy::INVENTORY_ITEMS, "{report}");
+    assert!(
+        written_stats.len() > saved_stats.len(),
+        "the stats read in, the fight added, written at disable: {report}"
+    );
+    assert_no_file_rewritten(&session, &report);
+    assert_within_margin(&cases, &report);
 }

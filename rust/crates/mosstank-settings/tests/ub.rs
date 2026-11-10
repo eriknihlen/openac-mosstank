@@ -145,6 +145,7 @@ fn every_category_is_one_of_the_in_scope_tools() {
             "Jumper",
             "LandscapeMaps",
             "Looter",
+            "Mag",
             "Nametags",
             "NetworkUI",
             "Networking",
@@ -199,7 +200,7 @@ fn every_row_is_written_to_the_tier_its_scope_declares_and_to_no_other() {
             .filter(|r| r.scope() == scope)
             .count()
     };
-    assert_eq!(count(UbSettingScope::Global), 6);
+    assert_eq!(count(UbSettingScope::Global), 17);
     assert_eq!(count(UbSettingScope::Profile), 171);
     assert_eq!(count(UbSettingScope::Character), 10);
 }
@@ -392,9 +393,9 @@ fn require_refuses_an_unknown_name() {
 #[test]
 fn categories_come_back_in_order_with_their_rows() {
     let catalog = catalog();
-    assert_eq!(catalog.categories().len(), 17);
+    assert_eq!(catalog.categories().len(), 18);
     assert_eq!(catalog.categories()[0], "Aliases");
-    assert_eq!(catalog.settings().len(), 187);
+    assert_eq!(catalog.settings().len(), 198);
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/UbSettingValueTests.cs :: EachShapeKeepsItsOwnKindAndPayload
@@ -854,7 +855,7 @@ const EXCLUDED: [(&str, &str); 31] = [
     ),
 ];
 
-const ADDED_HERE: [(&str, &str); 4] = [
+const ADDED_HERE: [(&str, &str); 15] = [
     (
         "Networking.ReceiveCommands",
         "Per-character local command reception, enabled by default.",
@@ -870,6 +871,51 @@ const ADDED_HERE: [(&str, &str); 4] = [
     (
         "Sharing.CastTag",
         "Which of the other clients' casts to take in, by the tag their client was started with. The original takes every connected client's casts; the tags already exist on the peer record here, so a character can listen to its own group alone.",
+    ),
+    // The Mag tab's settings: Mag-Tools' own, not UtilityBelt's.
+    (
+        "Mag.ItemInfoOnIdent.Enabled",
+        "Mag-Tools' item info on ident, brought over with the Mag tab.",
+    ),
+    (
+        "Mag.ItemInfoOnIdent.ShowBuffedValues",
+        "Mag-Tools' buffed values in the item info line, brought over with the Mag tab.",
+    ),
+    (
+        "Mag.ItemInfoOnIdent.ShowValueAndBurden",
+        "Mag-Tools' value and burden in the item info line, brought over with the Mag tab.",
+    ),
+    (
+        "Mag.ItemInfoOnIdent.LeftClickIdent",
+        "Mag-Tools' identify on a left click, brought over with the Mag tab.",
+    ),
+    (
+        "Mag.CombatTracker.Persistent",
+        "Mag-Tools' persistent combat stats, brought over with the Mag tab.",
+    ),
+    (
+        "Mag.CombatTracker.ExportOnLogOff",
+        "Mag-Tools' combat stats export on log off, brought over with the Mag tab.",
+    ),
+    (
+        "Mag.CombatTracker.SortAlphabetically",
+        "Mag-Tools' alphabetical monster list, brought over with the Mag tab.",
+    ),
+    (
+        "Mag.InventoryManagement.InventoryLogger",
+        "Mag-Tools' inventory logger, brought over with the Mag tab; on by default here because the Inventory window's search reads its files.",
+    ),
+    (
+        "Mag.ManaManagement.ShowOverlay",
+        "The mana overlay, the Mana page's rows drawn on the game; MossTank's own, Mag-Tools has none.",
+    ),
+    (
+        "Mag.ManaManagement.OverlayX",
+        "Where the mana overlay was dragged to, across; MossTank's own.",
+    ),
+    (
+        "Mag.ManaManagement.OverlayY",
+        "Where the mana overlay was dragged to, down; MossTank's own.",
     ),
 ];
 
@@ -950,6 +996,19 @@ const FLAT_DEFAULTS: &[(&str, &str)] = &[
     ("Looter.AttemptsBeforeBlacklisting", "500"),
     ("Looter.DelaySpeed", "1000"),
     ("Looter.OverallSpeed", "100"),
+    // Mag-Tools' SettingsManager.cs defaults; the inventory logger and the
+    // left-click identify are on here.
+    ("Mag.ItemInfoOnIdent.Enabled", "True"),
+    ("Mag.ItemInfoOnIdent.ShowBuffedValues", "True"),
+    ("Mag.ItemInfoOnIdent.ShowValueAndBurden", "False"),
+    ("Mag.ItemInfoOnIdent.LeftClickIdent", "True"),
+    ("Mag.CombatTracker.Persistent", "True"),
+    ("Mag.CombatTracker.ExportOnLogOff", "False"),
+    ("Mag.CombatTracker.SortAlphabetically", "False"),
+    ("Mag.InventoryManagement.InventoryLogger", "True"),
+    ("Mag.ManaManagement.ShowOverlay", "False"),
+    ("Mag.ManaManagement.OverlayX", "420"),
+    ("Mag.ManaManagement.OverlayY", "150"),
 ];
 
 const NAMETAG_DEFAULTS: [(&str, &str); 7] = [

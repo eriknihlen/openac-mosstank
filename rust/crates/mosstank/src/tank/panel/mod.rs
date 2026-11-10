@@ -12,6 +12,8 @@ mod chrome;
 mod comps_hud;
 mod items;
 pub(crate) mod listings;
+mod mag;
+mod mag_filters;
 mod meta_tab;
 pub(crate) mod monsters;
 mod profiles_tab;
@@ -43,6 +45,7 @@ pub(crate) enum TankTab {
     Ub,
     UbSettings,
     Tinker,
+    Mag,
 }
 
 /// What only the windows keep (the C# panel's private fields).
@@ -236,6 +239,8 @@ impl TankCx<'_> {
             .or_else(|| advanced::value(self, name))
             .or_else(|| ub_pages::value(self, name))
             .or_else(|| tinker::value(self, name))
+            .or_else(|| mag::value(self, name))
+            .or_else(|| mag_filters::value(self, name))
             .or_else(|| comps_hud::value(self, name))
     }
 
@@ -250,6 +255,8 @@ impl TankCx<'_> {
             || advanced::act(self, name, arg)
             || ub_pages::act(self, name, arg)
             || tinker::act(self, name, arg)
+            || mag::act(self, name, arg)
+            || mag_filters::act(self, name, arg)
             || comps_hud::act(self, name, arg)
     }
 

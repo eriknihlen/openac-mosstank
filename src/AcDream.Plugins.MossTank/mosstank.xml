@@ -46,6 +46,8 @@
        selected="{UbSettingsSelected}" enabled="{UbSettingsTabEnabled}" onclick="{ShowUbSettings}" />
   <tab x="590" y="22" w="48" h="18" text="Tinker"
        selected="{TinkerSelected}" enabled="{TinkerTabEnabled}" onclick="{ShowTinker}" />
+  <tab x="638" y="22" w="40" h="18" text="Mag"
+       selected="{MagSelected}" enabled="{MagTabEnabled}" onclick="{ShowMag}" />
 
   <group x="8" y="42" w="976" h="229" visible="{OptionsVisible}" anchor="left top right bottom">
     <label x="8" y="8" w="80" h="16" text="Monster Range:" color="theme:text|#FFE8DEC3" />
@@ -762,6 +764,162 @@
 
     <label x="4" y="208" w="968" h="16" text="{TinkerNotice}" color="theme:muted|#FFC7B98F"
            anchor="left bottom right" />
+  </group>
+
+  <!-- The Mag tab: Mag-Tools' tracker pages (its Views/mainView.xml), each
+       a sub-tab, the item info line's two options, and the button that
+       opens the Inventory window. -->
+  <group x="8" y="42" w="976" h="229" visible="{MagVisible}"
+         anchor="left top right bottom">
+    <tab x="4" y="0" w="56" h="18" text="Combat"
+         selected="{MagCombatSelected}" onclick="{ShowMagCombat}" />
+    <tab x="60" y="0" w="44" h="18" text="Mana"
+         selected="{MagManaSelected}" onclick="{ShowMagMana}" />
+    <tab x="104" y="0" w="70" h="18" text="Inv. Items"
+         selected="{MagInvItemsSelected}" onclick="{ShowMagInvItems}" />
+    <checkbox x="190" y="0" w="165" h="18" text="Show item info on ident"
+              checked="{MagItemInfoOnIdent}" onchange="{SetMagItemInfoOnIdent}"
+              color="theme:text|#FFE8DEC3"
+              tooltip="When an item you selected is appraised, its info line in chat, with the loaded loot profile's verdict." />
+    <checkbox x="365" y="0" w="170" h="18" text="Ident items on left click"
+              checked="{MagLeftClickIdent}" onchange="{SetMagLeftClickIdent}"
+              color="theme:text|#FFE8DEC3"
+              tooltip="Selecting an item with the mouse asks for its appraisal, so its info line prints without appraising it by hand (needs the item info line on)." />
+    <button x="876" y="0" w="96" h="18" text="Inventory..." anchor="right top"
+            onclick="{OpenMagInventory}"
+            tooltip="Open the Inventory window: search every logged character's items." />
+
+    <!-- Combat: Mag-Tools' combat tracker, its three tabs. Each stats tab
+         has its monster list (the header row, the All row, a row a name;
+         * marks the one shown) and the detail list of that row, at
+         Mag-Tools' column widths and alignments, but for three the
+         client's font clipped: Dmg Rcvd 61 (55), the damage kinds 51
+         (40), the attack labels 53 (45), each its widest text's width in
+         that font and 3 px either side. Side by side, monster
+         list left: the page is wider and lower than Mag-Tools' 320 x 400,
+         where they were stacked. -->
+    <group x="0" y="22" w="976" h="207" visible="{MagCombatVisible}"
+           anchor="left top right bottom">
+      <tab x="4" y="0" w="136" h="18" text="Current Session Stats"
+           selected="{MagCombatCurrentSelected}" onclick="{ShowMagCombatCurrent}" />
+      <tab x="140" y="0" w="104" h="18" text="Persistent Stats"
+           selected="{MagCombatPersistentSelected}" onclick="{ShowMagCombatPersistent}" />
+      <tab x="244" y="0" w="60" h="18" text="Options"
+           selected="{MagCombatOptionsSelected}" onclick="{ShowMagCombatOptions}" />
+      <group x="0" y="20" w="976" h="187" visible="{MagCombatStatsVisible}"
+             anchor="left top right bottom">
+        <list x="4" y="2" w="320" h="183" rowheight="16" anchor="left top bottom"
+              selected="{SelectedMagCombatRow}" onchange="{SelectMagCombatRow}"
+              tooltip="Everyone you fought: your killing blows on them, the damage they gave you and you gave them. Click a row for its details (All: everyone).">
+          <column type="text" width="5" items="{MagCombatMarks}"
+                  onclick="{SelectMagCombatRow}" />
+          <column type="text" width="111" items="{MagCombatNames}"
+                  onclick="{SelectMagCombatRow}" />
+          <column type="text" width="37" align="right" items="{MagCombatKills}"
+                  onclick="{SelectMagCombatRow}" />
+          <column type="text" width="61" align="right" items="{MagCombatReceived}"
+                  onclick="{SelectMagCombatRow}" />
+          <column type="text" width="77" align="right" items="{MagCombatGiven}"
+                  onclick="{SelectMagCombatRow}" />
+        </list>
+        <list x="328" y="2" w="320" h="183" rowheight="16" anchor="left top bottom"
+              selected="{SelectedMagCombatDetailRow}" onchange="{SelectMagCombatDetailRow}"
+              tooltip="The row marked *: the damage you received by kind and element (left); your attacks and their hit share, your evades and resists, surges, average and largest hits, crits (right).">
+          <column type="text" width="51" items="{MagCombatDetailNames}"
+                  onclick="{SelectMagCombatDetailRow}" />
+          <column type="text" width="52" align="right" items="{MagCombatDetailMelee}"
+                  onclick="{SelectMagCombatDetailRow}" />
+          <column type="text" width="52" align="right" items="{MagCombatDetailMagic}"
+                  onclick="{SelectMagCombatDetailRow}" />
+          <column type="text" width="53" items="{MagCombatDetailLabels}"
+                  onclick="{SelectMagCombatDetailRow}" />
+          <column type="text" width="96" align="right" items="{MagCombatDetailValues}"
+                  onclick="{SelectMagCombatDetailRow}" />
+        </list>
+      </group>
+      <group x="0" y="20" w="976" h="187" visible="{MagCombatOptionsVisible}"
+             anchor="left top right bottom">
+        <button x="10" y="10" w="120" h="20" text="Clear Current Stats"
+                onclick="{ClearMagCombatCurrent}"
+                tooltip="Forget this session's combat stats." />
+        <button x="10" y="40" w="120" h="20" text="Export Current Stats"
+                onclick="{ExportMagCombatCurrent}"
+                tooltip="Write this session's combat stats to a file named for the date and time." />
+        <button x="150" y="10" w="120" h="20" text="Clear Persistent Stats"
+                onclick="{ClearMagCombatPersistent}"
+                tooltip="Forget the combat stats kept across sessions and delete their file." />
+        <checkbox x="10" y="80" w="185" h="18" text="Export Current Stats On LogOff"
+                  checked="{MagCombatExportOnLogOff}" onchange="{SetMagCombatExportOnLogOff}"
+                  color="theme:text|#FFE8DEC3"
+                  tooltip="Write this session's combat stats to a file when you log off." />
+        <checkbox x="10" y="100" w="140" h="18" text="Keep Persistent Stats"
+                  checked="{MagCombatPersistent}" onchange="{SetMagCombatPersistent}"
+                  color="theme:text|#FFE8DEC3"
+                  tooltip="Keep the combat stats across sessions, in a file read at the login and written every 10 minutes and at the logoff." />
+        <checkbox x="10" y="140" w="140" h="18" text="Sort Alphabetically"
+                  checked="{MagCombatSortAlphabetically}" onchange="{SetMagCombatSortAlphabetically}"
+                  color="theme:text|#FFE8DEC3"
+                  tooltip="Sort the monster lists by name (when a row is added)." />
+      </group>
+    </group>
+    <!-- Mana: Mag-Tools' ManaList (its item icon, name, state icon, mana
+         and time left columns, at their widths, but the name 148 (125)
+         and the mana 78 (72), wide enough in the client's font for the
+         widest worn item seen live and a five-figure pair) and the two totals under
+         it. No Recharge box: MossTank's own mana recharger does that. -->
+    <group x="0" y="22" w="976" h="207" visible="{MagManaVisible}"
+           anchor="left top right bottom">
+      <list x="4" y="2" w="320" h="180" rowheight="17" anchor="left top bottom"
+            selected="{SelectedMagManaRow}" onchange="{SelectMagManaRow}"
+            tooltip="The items you wear: mana now and at full, how long it lasts, and whether their spells are up (green: up, red: not up).">
+        <column type="icon" width="16" iconkind="item" values="{MagManaIcons}"
+                onclick="{SelectMagManaRow}" />
+        <column type="text" width="148" items="{MagManaNames}"
+                onclick="{SelectMagManaRow}" />
+        <column type="icon" width="16" iconkind="did" values="{MagManaStates}"
+                onclick="{SelectMagManaRow}" />
+        <column type="text" width="78" items="{MagManaAmounts}"
+                onclick="{SelectMagManaRow}" />
+        <column type="text" width="44" items="{MagManaTimes}"
+                onclick="{SelectMagManaRow}" />
+      </list>
+      <label x="9" y="186" w="120" h="18" text="{MagManaNeeded}" color="theme:text|#FFE8DEC3"
+             anchor="left bottom"
+             tooltip="The mana every worn item lacks, Aetheria, cloaks and ammunition too." />
+      <label x="204" y="186" w="160" h="18" text="{MagManaUnretained}"
+             color="theme:text|#FFE8DEC3" anchor="left bottom"
+             tooltip="The appraised worn items that are not retained (ammunition not counted)." />
+      <checkbox x="336" y="2" w="160" h="18" text="Show mana overlay"
+                checked="{MagManaShowOverlay}" onchange="{SetMagManaShowOverlay}"
+                color="theme:text|#FFE8DEC3"
+                tooltip="These rows drawn on the game. Drag them anywhere; the × at their top right, shown with the pointer over them, unticks this." />
+    </group>
+    <!-- Inv. Items: Mag-Tools' InventoryTrackerList (its six columns at
+         their widths, but four widened for the client's font: name 100
+         (55), count 36 (35), 5 minutes 72 (65), hour 69 (65), and the list
+         349 (320) so the last keeps its 40 beside the scrollbar): the profit block in MMD an hour, then the
+         consumables' counts, use an hour and hours left. The number
+         columns are right-aligned; Mag-Tools left the profit rows' two
+         values left-aligned, a column here has one alignment. -->
+    <group x="0" y="22" w="976" h="207" visible="{MagInvItemsVisible}"
+           anchor="left top right bottom">
+      <list x="4" y="2" w="349" h="203" rowheight="17" anchor="left top bottom"
+            selected="{SelectedMagInvItemsRow}" onchange="{SelectMagInvItemsRow}"
+            tooltip="Comps, peas, salvage and the net value gained, in MMD an hour; then the consumables carried, used an hour (negative: used up) and the hours they last.">
+        <column type="icon" width="16" iconkind="did" values="{MagInvItemsIcons}"
+                onclick="{SelectMagInvItemsRow}" />
+        <column type="text" width="100" items="{MagInvItemsNames}"
+                onclick="{SelectMagInvItemsRow}" />
+        <column type="text" width="36" align="right" items="{MagInvItemsCounts}"
+                onclick="{SelectMagInvItemsRow}" />
+        <column type="text" width="72" align="right" items="{MagInvItemsFiveMinutes}"
+                onclick="{SelectMagInvItemsRow}" />
+        <column type="text" width="69" align="right" items="{MagInvItemsHour}"
+                onclick="{SelectMagInvItemsRow}" />
+        <column type="text" width="40" align="right" items="{MagInvItemsHours}"
+                onclick="{SelectMagInvItemsRow}" />
+      </list>
+    </group>
   </group>
 
 </panel>

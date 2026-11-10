@@ -1565,6 +1565,17 @@ Plugin.PortalAttempts|Int|Profile|Plugin|"3"|"3"|"Plugin.PortalAttempts (Profile
 Sharing.Vitals|Bool|Character|Sharing|"False"|"False"|"VTank.VitalSharing (State) = False"|"Tell your other characters on this machine how you are doing and what you have cast, and take in what they cast."|
 Networking.ReceiveCommands|Bool|Character|Networking|"True"|"True"|"Networking.ReceiveCommands (State) = True"|"Receive broadcast commands from trusted local clients in the same world."|
 Sharing.CastTag|String|Character|Sharing|""|""|"Sharing.CastTag (State) = "|"Only take in casts from characters whose client carries this tag; blank takes them all."|
+Mag.ItemInfoOnIdent.Enabled|Bool|Global|Mag|"True"|"True"|"Mag.ItemInfoOnIdent.Enabled (Profile) = True"|"Show Item Info On Ident."|
+Mag.ItemInfoOnIdent.ShowBuffedValues|Bool|Global|Mag|"True"|"True"|"Mag.ItemInfoOnIdent.ShowBuffedValues (Profile) = True"|"Show Item Info Buffed* Values."|
+Mag.ItemInfoOnIdent.ShowValueAndBurden|Bool|Global|Mag|"False"|"False"|"Mag.ItemInfoOnIdent.ShowValueAndBurden (Profile) = False"|"Show Value and Burden."|
+Mag.ItemInfoOnIdent.LeftClickIdent|Bool|Global|Mag|"True"|"True"|"Mag.ItemInfoOnIdent.LeftClickIdent (Profile) = True"|"Ident Items on Left Click."|
+Mag.CombatTracker.Persistent|Bool|Global|Mag|"True"|"True"|"Mag.CombatTracker.Persistent (Profile) = True"|"Keep Stats Persistent."|
+Mag.CombatTracker.ExportOnLogOff|Bool|Global|Mag|"False"|"False"|"Mag.CombatTracker.ExportOnLogOff (Profile) = False"|"Export Stats on LogOff."|
+Mag.CombatTracker.SortAlphabetically|Bool|Global|Mag|"False"|"False"|"Mag.CombatTracker.SortAlphabetically (Profile) = False"|"Sort Alphabetically."|
+Mag.InventoryManagement.InventoryLogger|Bool|Global|Mag|"True"|"True"|"Mag.InventoryManagement.InventoryLogger (Profile) = True"|"Inventory Logger Enabled."|
+Mag.ManaManagement.ShowOverlay|Bool|Global|Mag|"False"|"False"|"Mag.ManaManagement.ShowOverlay (Profile) = False"|"Show the mana overlay."|
+Mag.ManaManagement.OverlayX|Int|Global|Mag|"420"|"420"|"Mag.ManaManagement.OverlayX (Profile) = 420"|"Where the mana overlay stands, pixels from the screen's left."|
+Mag.ManaManagement.OverlayY|Int|Global|Mag|"150"|"150"|"Mag.ManaManagement.OverlayY (Profile) = 150"|"Where the mana overlay stands, pixels from the screen's top."|
 VTank.PatchExpressionEngine|Bool|Profile|VTank|"True"|"True"|"VTank.PatchExpressionEngine (Profile) = True"|"The extended expression functions; always on here."|
 InventoryManager.TreatStackAsSingleItem|Bool|Profile|InventoryManager|"False"|"False"|"InventoryManager.TreatStackAsSingleItem (Profile) = False"|"Count a stack as one item when handing over; always off here."|
 Plugin.SettingsProfile|String|Character|Plugin|"default"|"default"|"Plugin.SettingsProfile (State) = default"|"The named settings profile this character has open."|
@@ -1584,7 +1595,7 @@ ItemInfo.ShowRetailComparison|Bool|Profile|ItemInfo|"False"|"False"|"ItemInfo.Sh
 ItemInfo.ShowRetailMax|Bool|Profile|ItemInfo|"False"|"False"|"ItemInfo.ShowRetailMax (Profile) = False"|"Kept for macros; the retail maximums are not worked out here."|
 Plugin.VideoPatch|Bool|Profile|Plugin|"False"|"False"|"Plugin.VideoPatch (Profile) = False"|"Kept for macros; the world is always drawn."|
 Plugin.VideoPatchFocus|Bool|Profile|Plugin|"False"|"False"|"Plugin.VideoPatchFocus (Profile) = False"|"Kept for macros; the world is always drawn."|
-categories Aliases,AutoTinker,AutoVendor,AutoXp,DungeonMaps,EquipmentManager,GameEvents,ItemGiver,ItemInfo,Jumper,LandscapeMaps,Looter,Nametags,NetworkUI,Networking,Plugin,Sharing
+categories Aliases,AutoTinker,AutoVendor,AutoXp,DungeonMaps,EquipmentManager,GameEvents,ItemGiver,ItemInfo,Jumper,LandscapeMaps,Looter,Mag,Nametags,NetworkUI,Networking,Plugin,Sharing
 alias VTank.VitalSharing -> Sharing.Vitals
 alias InventoryManager.IGThink -> ItemGiver.Think
 alias InventoryManager.IGFailure -> ItemGiver.FailureLimit

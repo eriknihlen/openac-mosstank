@@ -105,6 +105,17 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+## Mag-Tools
+
+The Mag tab (its combat tracker, mana list and Inv. Items tracker), the
+item-info line printed when an item is identified, the inventory logger and
+the Inventory window's search port features of **Mag-Tools** by Mag-nus
+(https://github.com/Mag-nus/Mag-Plugins, at commit `43ee2ec`), with its
+strings and layouts. The repository carries an LGPL-2.1 licence file; its
+author gave permission (2026-09-23) to use any of the code in his
+repositories with or without attribution or licensing requirements. It is
+credited here anyway.
+
 ## VTank
 
 MossTank reads and writes VTank's profile formats and answers its command

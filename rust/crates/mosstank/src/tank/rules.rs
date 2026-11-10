@@ -43,6 +43,8 @@ pub struct TankCx<'a> {
     pub meta: &'a mut MetaEngine,
     /// The UB tab.
     pub ub: &'a mut super::ub::UbParts,
+    /// The Mag tab and the Inventory window.
+    pub mag: &'a mut mosstank_mag::MagParts,
 }
 
 /// The family of [`TankCx`] states.

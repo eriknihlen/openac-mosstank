@@ -473,11 +473,9 @@ impl UbParts {
         let hud = mosstank_ub::hud::NetworkHudController::new(
             &mosstank_ub::hud::CatalogHudSettings(&mut catalog),
         );
-        let mut comps = mosstank_ub::comps_hud::ComponentHudController::new(
+        let comps = mosstank_ub::comps_hud::ComponentHudController::new(
             client.stores().storage(Root::Plugin),
         );
-        // The theme as it stands; each change comes as an event.
-        comps.set_theme(&client.ui_theme());
         // Handed over while the tab is built (`PublishNetworkTags(onLoad)`).
         let mut tags = mosstank_ub::network::TagPublisher::new();
         tags.publish(
@@ -850,6 +848,7 @@ impl TankCx<'_> {
                     readout_should_show: self.ub.hud.should_show(),
                     requests: Vec::new(),
                     ub_parts: None,
+                    mag_parts: None,
                 },
             };
             let mut services = ShellUbServices {

@@ -24,6 +24,7 @@ mosstank-nav.workspace = true
 mosstank-vendor.workspace = true
 mosstank-loot.workspace = true
 mosstank-ub.workspace = true
+mosstank-mag.workspace = true
 mosstank-buffs.workspace = true
 mosstank-combat.workspace = true
 mosstank-settings.workspace = true

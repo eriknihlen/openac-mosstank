@@ -138,7 +138,8 @@ impl TankCx<'_> {
     /// What a costly value is worked out from, as one number: the same
     /// number, the same value. The pickers by their folder's listing and
     /// their store; the meta grid by its profile's revision; the loot rows
-    /// by theirs. `None` for a binding worked out at every push.
+    /// by theirs; the Inventory window by its own. `None` for a binding
+    /// worked out at every push.
     pub(crate) fn value_key(&self, name: &str) -> Option<ValueKey> {
         let core = &*self.core;
         let listings = &core.panel.listings;
@@ -182,6 +183,44 @@ impl TankCx<'_> {
             | "MetaActionColumn"
             | "MetaCurrentStateNames" => kept(key(self.meta.profile_revision(), ())),
             "LootRuleRows" => kept(key(core.panel.loot_rule_rows_revision, ())),
+            // The Inventory window: its rows change only with its revision
+            // (its status line, cheap, is worked out at every push).
+            "MagInventoryFilterSummary" => {
+                kept(key(self.mag.inventory_search.filter_revision(), ()))
+            }
+            // The filters window's Set and Characters lists: the search's
+            // rows, the find box and the filter.
+            "MagFilterSetNames" | "MagFilterSetCounts" => kept(key(
+                self.mag.inventory_search.revision(),
+                self.mag.filter_window.set_find(),
+            )),
+            "SelectedMagFilterSetRow" => kept(key(
+                self.mag.inventory_search.revision(),
+                (
+                    self.mag.filter_window.set_find(),
+                    self.mag.inventory_search.filter_revision(),
+                ),
+            )),
+            "MagFilterCharacterNames" => kept(key(self.mag.inventory_search.revision(), ())),
+            "MagFilterCharacterChecks" => kept(key(
+                self.mag.inventory_search.revision(),
+                self.mag.inventory_search.filter_revision(),
+            )),
+            "MagInventoryClasses"
+            | "MagInventoryRowIcons"
+            | "MagInventoryRowCharacters"
+            | "MagInventoryRowNames"
+            | "MagInventoryRowCounts"
+            | "MagInventoryRowSlots"
+            | "MagInventoryRowWields"
+            | "MagInventoryRowWieldKeys"
+            | "MagInventoryRowOds"
+            | "MagInventoryRowOdKeys"
+            | "MagInventoryRowValues"
+            | "MagInventoryRowValueKeys"
+            | "MagInventoryRowPlaces"
+            | "SelectedMagInventoryRow"
+            | "MagInventoryInfo" => kept(key(self.mag.inventory_search.revision(), ())),
             _ => return None,
         })
     }

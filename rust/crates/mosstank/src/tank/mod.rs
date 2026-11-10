@@ -19,6 +19,7 @@ mod commands;
 mod diagnostics;
 mod display;
 mod frame;
+pub(crate) mod mag;
 mod meta_windows;
 mod nav_lines;
 pub(crate) mod options;
@@ -267,10 +268,6 @@ pub struct Core {
     pub(crate) fellowship: FellowshipManager,
     /// The vendor run and the `/ub vendor` commands (`VendorTradeController`).
     pub(crate) vendor_trade: mosstank_vendor::VendorTradeController,
-    /// Whether the scheduler runs, as of the start of the call and each
-    /// start or stop since (`_scheduler.IsRunning`, which the vendor run
-    /// reads to stand down from opening vendors while the route owns that).
-    pub(crate) scheduler_running: bool,
     pub(crate) idle_peace: rules::SharedIdlePeace,
 
     pub(crate) status: String,
@@ -360,6 +357,7 @@ pub struct Tank {
     pub(crate) meta: MetaEngine,
     pub(crate) core: Core,
     pub(crate) ub: ub::UbParts,
+    pub(crate) mag: mosstank_mag::MagParts,
 }
 
 /// How much profile text the start reads and parses before the rest of a
@@ -807,7 +805,6 @@ impl Tank {
             navigation,
             fellowship: FellowshipManager::new(),
             vendor_trade,
-            scheduler_running: false,
             idle_peace: Rc::new(RefCell::new(IdlePeaceRule::default())),
             status: "Idle.".to_owned(),
             profile_lifecycle_notice: "Macro settings are stored by character.".to_owned(),
@@ -868,6 +865,7 @@ impl Tank {
         core.folders.prepare_start_on(client.stores());
 
         let mut ub = ub::UbParts::new(client);
+        let mut mag = mosstank_mag::MagParts::default();
         // The UB store's binding lays out the character's own folders
         // (`InitializeUbSettings`).
         {
@@ -911,6 +909,7 @@ impl Tank {
                 core: &mut core,
                 meta: &mut meta,
                 ub: &mut ub,
+                mag: &mut mag,
             };
             // The aliases hold what is typed from the start (`InitializeAliases`).
             cx.attach_aliases();
@@ -926,6 +925,7 @@ impl Tank {
             meta,
             core,
             ub,
+            mag,
         };
         tank.apply_pending_meta_interval();
         tank
@@ -942,9 +942,15 @@ impl Tank {
                 core: &mut self.core,
                 meta: &mut self.meta,
                 ub: &mut self.ub,
+                mag: &mut self.mag,
             },
             &mut self.scheduler,
         )
+    }
+
+    /// The Mag tab's and the Inventory window's state.
+    pub fn mag(&mut self) -> &mut mosstank_mag::MagParts {
+        &mut self.mag
     }
 
     /// The status line.
@@ -1182,6 +1188,32 @@ impl Tank {
                 .warm_rule_patterns(LOOT_PATTERNS_PER_TICK)
     }
 
+    /// The Mag features' background work, a tick's worth, on a tick
+    /// MossTank's own work left light: never while the character's profile
+    /// set loads or commands wait for it, nor out of the world. Whether it
+    /// did a tick's worth.
+    pub fn mag_background_tick(&mut self, client: &mut dyn TankClient) -> bool {
+        if self.core.staged_load.is_some()
+            || !self.core.held_commands.is_empty()
+            || !self.core.automation_was_available
+            || !client.rules().is_available()
+        {
+            return false;
+        }
+        // The tick's own call (`on_tick`) began and ended the call: like
+        // the caches warmed, this is the tick's last work.
+        let (mut cx, _) = self.cx(client);
+        let worked = cx.mag_background_tick();
+        cx.core.write_out(cx.client);
+        worked
+    }
+
+    /// Commands wait for the character's profile set (register PROF-1).
+    #[must_use]
+    pub fn has_held_commands(&self) -> bool {
+        !self.core.held_commands.is_empty()
+    }
+
     /// Whether the last frame did a frame's worth of once-only work.
     #[must_use]
     pub fn frame_was_heavy(&self) -> bool {
@@ -1217,11 +1249,13 @@ impl Tank {
     }
 
     /// A placement the client announced: the equipment profile's run reads
-    /// its receipts (`PlacementObserved`).
+    /// its receipts (`PlacementObserved`); the mana list hears an item go on
+    /// or come off.
     pub fn on_equipment_placement(
         &mut self,
         observation: &ac_plugin_abi::items::EquipmentObservation,
     ) {
+        self.mag.mana.on_equipment(observation);
         self.ub
             .commands
             .tools_mut()
@@ -1238,6 +1272,9 @@ impl Tank {
         // The kill statistics hear the client before the meta does: the C#
         // recorder subscribes first.
         cx.core.kill_statistics_event(cx.client, event);
+        // The Mag features hear it next (the combat tracker reads the same
+        // chat lines).
+        cx.mag_event(event);
         // A window attached builds its pickers afresh (register UI-4).
         if matches!(event, Event::WindowAttached(true)) {
             cx.core.panel.listings.relist_all();
@@ -1312,8 +1349,6 @@ impl Tank {
                         .on_selection_changed(call, change.selected);
                 });
             }
-            // The Comps HUD repaints in the theme the player picked.
-            Event::ThemeChanged(theme) => cx.ub.comps.set_theme(theme),
             _ => {}
         }
         cx.core.write_out(cx.client);
@@ -1339,6 +1374,11 @@ impl Tank {
         // A profile load under way is finished: the plugin stops on a whole
         // set (register PROF-1).
         cx.finish_staged_load();
+        // Stopping in the world writes what logging off writes (the
+        // inventory log, the combat stats).
+        if cx.client.rules().is_available() {
+            cx.mag_stopped_in_world();
+        }
         cx.core.nav_lines.clear(cx.client);
         cx.core.release_peer_subscriptions(cx.client);
         cx.core.dispose_session_records(cx.client);
@@ -1613,7 +1653,6 @@ impl Tank {
     pub(crate) fn begin_call(&mut self, client: &mut dyn TankClient) {
         self.core.clock.set(&client.clock());
         self.core.passes_at_call_start = self.scheduler.pass_count();
-        self.core.scheduler_running = self.scheduler.is_running();
         // The live UB rows read what their owners hold now.
         let (mut cx, _) = self.cx(client);
         cx.refresh_live_ub_rows(false);

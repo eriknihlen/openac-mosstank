@@ -1,0 +1,386 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The Inventory filters window: the filters of the owner's MosswartOverlord
+  inventory search, opened by the Inventory window's Filters... button. Six
+  tabs; every filter set is ANDed with the others and with the Inventory
+  window's search text, and the rows follow 0.4 s after the last change.
+  The filters live for the client session.
+
+  Everything sits in one group shown while the client shows the window
+  ({MagFiltersShown}), each tab's page in its own group: the lists are
+  worked out and pushed only while their page is shown. Each page's Reset
+  clears that tab's filters only; the Inventory window's Clear clears them
+  all. It opens to the right of the Inventory window, not over its rows.
+
+  It has the client's own title bar (titlebar="true"), whose close button
+  hides it as Close does; w and h are the area under the bar. The filters
+  stay applied while it is hidden.
+-->
+<panel theme="plugin" x="1037" y="325" w="460" h="400" title="MossTank Inventory Filters"
+       visible="{WindowAvailable}" resize="none" titlebar="true">
+  <group x="0" y="0" w="460" h="400" visible="{MagFiltersShown}">
+    <button x="392" y="2" w="64" h="18" text="Close" onclick="{CloseMagInventoryFilters}"
+            tooltip="Hide the filters window; the filters stay applied." />
+    <tab x="4" y="2" w="38" h="18" text="Item"
+         selected="{MagFiltersItemSelected}" onclick="{ShowMagFiltersItem}"
+         tooltip="The item: worn or not, bonded, attuned, rare, its type and slot." />
+    <tab x="42" y="2" w="56" h="18" text="Cantrips"
+         selected="{MagFiltersCantripsSelected}" onclick="{ShowMagFiltersCantrips}"
+         tooltip="The cantrips the item must all have, each at its tier or better, and a spell name." />
+    <tab x="98" y="2" w="52" h="18" text="Ratings"
+         selected="{MagFiltersRatingsSelected}" onclick="{ShowMagFiltersRatings}"
+         tooltip="The lowest ratings and weapon OD, and the crit damage armor may have." />
+    <tab x="150" y="2" w="34" h="18" text="Set"
+         selected="{MagFiltersSetSelected}" onclick="{ShowMagFiltersSet}"
+         tooltip="The equipment set." />
+    <tab x="184" y="2" w="84" h="18" text="Reqs &amp; value"
+         selected="{MagFiltersReqsSelected}" onclick="{ShowMagFiltersReqs}"
+         tooltip="The highest wield level and burden, the lowest value and workmanship." />
+    <tab x="268" y="2" w="68" h="18" text="Characters"
+         selected="{MagFiltersCharactersSelected}" onclick="{ShowMagFiltersCharacters}"
+         tooltip="The characters searched." />
+
+    <!-- Item. -->
+    <group x="0" y="22" w="460" h="378" visible="{MagFiltersItemVisible}">
+      <label x="4" y="6" w="40" h="16" text="Worn:" color="theme:text|#FFE8DEC3" />
+      <radio x="48" y="4" w="260" h="20" items="Any|Equipped|Not equipped"
+             selected="{MagFilterEquipped}" onchange="{SetMagFilterEquipped}"
+             orientation="horizontal" style="segmented"
+             tooltip="Any item, only the ones worn or wielded, or only the others." />
+      <checkbox x="48" y="30" w="80" h="18" text="Bonded" checked="{MagFilterBonded}"
+                onchange="{SetMagFilterBonded}" color="theme:text|#FFE8DEC3" tooltip="Only bonded items." />
+      <checkbox x="136" y="30" w="80" h="18" text="Attuned" checked="{MagFilterAttuned}"
+                onchange="{SetMagFilterAttuned}" color="theme:text|#FFE8DEC3" tooltip="Only attuned items." />
+      <checkbox x="224" y="30" w="80" h="18" text="Rare" checked="{MagFilterRare}"
+                onchange="{SetMagFilterRare}" color="theme:text|#FFE8DEC3" tooltip="Only rares." />
+      <label x="4" y="58" w="40" h="16" text="Type:" color="theme:text|#FFE8DEC3" />
+      <radio x="48" y="56" w="408" h="20" items="All|Armor|Jewelry|Weapons|Clothing|Shirts|Pants"
+             selected="{MagFilterType}" onchange="{SetMagFilterType}"
+             orientation="horizontal" style="segmented"
+             tooltip="Only items of this type: armor with an armor level, jewelry, weapons and casters, clothing, shirts, pants." />
+      <group x="48" y="80" w="408" h="38" visible="{MagFilterWeaponKindsVisible}">
+        <checkbox x="0" y="0" w="100" h="18" text="Heavy" checked="{MagFilterWeaponHeavy}"
+                  onchange="{SetMagFilterWeaponHeavy}" color="theme:text|#FFE8DEC3"
+                  tooltip="Weapons of this kind (any kind checked; none: every weapon)." />
+        <checkbox x="102" y="0" w="100" h="18" text="Light" checked="{MagFilterWeaponLight}"
+                  onchange="{SetMagFilterWeaponLight}" color="theme:text|#FFE8DEC3"
+                  tooltip="Weapons of this kind (any kind checked; none: every weapon)." />
+        <checkbox x="204" y="0" w="100" h="18" text="Finesse" checked="{MagFilterWeaponFinesse}"
+                  onchange="{SetMagFilterWeaponFinesse}" color="theme:text|#FFE8DEC3"
+                  tooltip="Weapons of this kind (any kind checked; none: every weapon)." />
+        <checkbox x="306" y="0" w="100" h="18" text="Two-handed" checked="{MagFilterWeaponTwoHanded}"
+                  onchange="{SetMagFilterWeaponTwoHanded}" color="theme:text|#FFE8DEC3"
+                  tooltip="Weapons of this kind (any kind checked; none: every weapon)." />
+        <checkbox x="0" y="20" w="100" h="18" text="Missile" checked="{MagFilterWeaponMissile}"
+                  onchange="{SetMagFilterWeaponMissile}" color="theme:text|#FFE8DEC3"
+                  tooltip="Weapons of this kind (any kind checked; none: every weapon)." />
+        <checkbox x="102" y="20" w="100" h="18" text="War Magic" checked="{MagFilterWeaponWar}"
+                  onchange="{SetMagFilterWeaponWar}" color="theme:text|#FFE8DEC3"
+                  tooltip="Weapons of this kind (any kind checked; none: every weapon)." />
+        <checkbox x="204" y="20" w="100" h="18" text="Void Magic" checked="{MagFilterWeaponVoid}"
+                  onchange="{SetMagFilterWeaponVoid}" color="theme:text|#FFE8DEC3"
+                  tooltip="Weapons of this kind (any kind checked; none: every weapon)." />
+      </group>
+      <label x="4" y="128" w="40" h="16" text="Slots:" color="theme:text|#FFE8DEC3" />
+      <checkbox x="48" y="126" w="100" h="18" text="Ring" checked="{MagFilterSlotRing}"
+                onchange="{SetMagFilterSlotRing}" color="theme:text|#FFE8DEC3"
+                tooltip="Items worn here (any slot checked; none: every slot)." />
+      <checkbox x="150" y="126" w="100" h="18" text="Bracelet" checked="{MagFilterSlotBracelet}"
+                onchange="{SetMagFilterSlotBracelet}" color="theme:text|#FFE8DEC3"
+                tooltip="Items worn here (any slot checked; none: every slot)." />
+      <checkbox x="252" y="126" w="100" h="18" text="Neck" checked="{MagFilterSlotNeck}"
+                onchange="{SetMagFilterSlotNeck}" color="theme:text|#FFE8DEC3"
+                tooltip="Items worn here (any slot checked; none: every slot)." />
+      <checkbox x="354" y="126" w="100" h="18" text="Trinket" checked="{MagFilterSlotTrinket}"
+                onchange="{SetMagFilterSlotTrinket}" color="theme:text|#FFE8DEC3"
+                tooltip="Items worn here (any slot checked; none: every slot)." />
+      <checkbox x="48" y="146" w="100" h="18" text="Cloak" checked="{MagFilterSlotCloak}"
+                onchange="{SetMagFilterSlotCloak}" color="theme:text|#FFE8DEC3"
+                tooltip="Items worn here (any slot checked; none: every slot)." />
+      <checkbox x="150" y="146" w="100" h="18" text="Head" checked="{MagFilterSlotHead}"
+                onchange="{SetMagFilterSlotHead}" color="theme:text|#FFE8DEC3"
+                tooltip="Items worn here (any slot checked; none: every slot)." />
+      <checkbox x="252" y="146" w="100" h="18" text="Chest" checked="{MagFilterSlotChest}"
+                onchange="{SetMagFilterSlotChest}" color="theme:text|#FFE8DEC3"
+                tooltip="Items worn here (any slot checked; none: every slot)." />
+      <checkbox x="354" y="146" w="100" h="18" text="Abdomen" checked="{MagFilterSlotAbdomen}"
+                onchange="{SetMagFilterSlotAbdomen}" color="theme:text|#FFE8DEC3"
+                tooltip="Items worn here (any slot checked; none: every slot)." />
+      <checkbox x="48" y="166" w="100" h="18" text="Upper Arms" checked="{MagFilterSlotUpperArms}"
+                onchange="{SetMagFilterSlotUpperArms}" color="theme:text|#FFE8DEC3"
+                tooltip="Items worn here (any slot checked; none: every slot)." />
+      <checkbox x="150" y="166" w="100" h="18" text="Lower Arms" checked="{MagFilterSlotLowerArms}"
+                onchange="{SetMagFilterSlotLowerArms}" color="theme:text|#FFE8DEC3"
+                tooltip="Items worn here (any slot checked; none: every slot)." />
+      <checkbox x="252" y="166" w="100" h="18" text="Hands" checked="{MagFilterSlotHands}"
+                onchange="{SetMagFilterSlotHands}" color="theme:text|#FFE8DEC3"
+                tooltip="Items worn here (any slot checked; none: every slot)." />
+      <checkbox x="354" y="166" w="100" h="18" text="Upper Legs" checked="{MagFilterSlotUpperLegs}"
+                onchange="{SetMagFilterSlotUpperLegs}" color="theme:text|#FFE8DEC3"
+                tooltip="Items worn here (any slot checked; none: every slot)." />
+      <checkbox x="48" y="186" w="100" h="18" text="Lower Legs" checked="{MagFilterSlotLowerLegs}"
+                onchange="{SetMagFilterSlotLowerLegs}" color="theme:text|#FFE8DEC3"
+                tooltip="Items worn here (any slot checked; none: every slot)." />
+      <checkbox x="150" y="186" w="100" h="18" text="Feet" checked="{MagFilterSlotFeet}"
+                onchange="{SetMagFilterSlotFeet}" color="theme:text|#FFE8DEC3"
+                tooltip="Items worn here (any slot checked; none: every slot)." />
+      <checkbox x="252" y="186" w="100" h="18" text="Shield" checked="{MagFilterSlotShield}"
+                onchange="{SetMagFilterSlotShield}" color="theme:text|#FFE8DEC3"
+                tooltip="Items worn here (any slot checked; none: every slot)." />
+      <button x="392" y="354" w="64" h="20" text="Reset" onclick="{ResetMagFiltersTab}"
+              tooltip="Clear this tab's filters; the other tabs keep theirs." />
+    </group>
+
+    <!-- Cantrips: each row's box puts the cantrip in the filter at the
+         row's tier; a click on the tier steps it (Minor, Major, Epic,
+         Legendary, round again). A list cell cannot be a menu, so the
+         tier is a button that cycles. Each group has a heading row of its
+         own (no tier; its box does nothing). -->
+    <group x="0" y="22" w="460" h="378" visible="{MagFiltersCantripsVisible}">
+      <label x="4" y="4" w="34" h="16" text="Find:" color="theme:text|#FFE8DEC3" />
+      <group x="40" y="2" w="150" h="18" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E">
+        <field x="1" y="1" w="148" h="16" text="{MagFilterCantripFind}" onchange="{SetMagFilterCantripFind}"
+               maxlength="40" clearonsubmit="false" background="#00000000" color="theme:text|#FFE8DEC3"
+               tooltip="Only the cantrips whose name contains this, case ignored." />
+      </group>
+      <label x="200" y="4" w="110" h="16" text="Spell name contains:" color="theme:text|#FFE8DEC3" />
+      <group x="312" y="2" w="144" h="18" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E">
+        <field x="1" y="1" w="142" h="16" text="{MagFilterSpellContains}" onchange="{SetMagFilterSpellContains}"
+               maxlength="60" clearonsubmit="false" background="#00000000" color="theme:text|#FFE8DEC3"
+               tooltip="Only items with a spell whose name contains this, case ignored (any spell, any tier)." />
+      </group>
+      <list x="4" y="26" w="452" h="324" rowheight="17" header="true"
+            selected="{SelectedMagFilterCantripRow}" onchange="{SelectMagFilterCantripRow}"
+            tooltip="Check the cantrips the item must all have (a click on the name checks it too). Each is matched at its tier or better: click the tier to change it.">
+        <column type="checkbox" width="20" values="{MagFilterCantripChecks}"
+                onchange="{ToggleMagFilterCantrip}" />
+        <column type="text" width="336" header="Cantrip" items="{MagFilterCantripNames}"
+                onclick="{ToggleMagFilterCantrip}" />
+        <column type="button" width="96" header="Tier" items="{MagFilterCantripTiers}"
+                onclick="{CycleMagFilterCantripTier}" />
+      </list>
+      <label x="4" y="356" w="90" h="16" text="{MagFilterCantripCheckedText}"
+             color="theme:muted|#FFC7B98F" tooltip="How many cantrips are checked." />
+      <checkbox x="100" y="355" w="120" h="18" text="Checked only"
+                checked="{MagFilterCantripCheckedOnly}" onchange="{SetMagFilterCantripCheckedOnly}"
+                color="theme:text|#FFE8DEC3" tooltip="List only the checked cantrips." />
+      <button x="392" y="354" w="64" h="20" text="Reset" onclick="{ResetMagFiltersTab}"
+              tooltip="Clear this tab's filters; the other tabs keep theirs." />
+    </group>
+
+    <!-- Ratings: each field the lowest the item must have; blank, no
+         filter. An item without the rating does not pass. Weapon OD is
+         the loaded loot profile's highest (OD +N) rule the weapon
+         matches. -->
+    <group x="0" y="22" w="460" h="378" visible="{MagFiltersRatingsVisible}">
+      <label x="4" y="6" w="96" h="16" text="Damage rating ≥" color="theme:text|#FFE8DEC3" />
+      <group x="104" y="4" w="110" h="18" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E">
+        <field x="1" y="1" w="108" h="16" text="{MagFilterRatingDamageRating}" onchange="{SetMagFilterRatingDamageRating}"
+               maxlength="12" clearonsubmit="false" background="#00000000" color="theme:text|#FFE8DEC3"
+               tooltip="The lowest Damage rating; blank: no filter." />
+      </group>
+      <label x="4" y="28" w="96" h="16" text="Crit damage ≥" color="theme:text|#FFE8DEC3" />
+      <group x="104" y="26" w="110" h="18" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E">
+        <field x="1" y="1" w="108" h="16" text="{MagFilterRatingCritDamage}" onchange="{SetMagFilterRatingCritDamage}"
+               maxlength="12" clearonsubmit="false" background="#00000000" color="theme:text|#FFE8DEC3"
+               tooltip="The lowest Crit damage; blank: no filter." />
+      </group>
+      <label x="4" y="50" w="96" h="16" text="Heal boost ≥" color="theme:text|#FFE8DEC3" />
+      <group x="104" y="48" w="110" h="18" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E">
+        <field x="1" y="1" w="108" h="16" text="{MagFilterRatingHealBoost}" onchange="{SetMagFilterRatingHealBoost}"
+               maxlength="12" clearonsubmit="false" background="#00000000" color="theme:text|#FFE8DEC3"
+               tooltip="The lowest Heal boost; blank: no filter." />
+      </group>
+      <label x="4" y="72" w="96" h="16" text="Vitality ≥" color="theme:text|#FFE8DEC3" />
+      <group x="104" y="70" w="110" h="18" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E">
+        <field x="1" y="1" w="108" h="16" text="{MagFilterRatingVitality}" onchange="{SetMagFilterRatingVitality}"
+               maxlength="12" clearonsubmit="false" background="#00000000" color="theme:text|#FFE8DEC3"
+               tooltip="The lowest Vitality; blank: no filter." />
+      </group>
+      <label x="4" y="94" w="96" h="16" text="Armor level ≥" color="theme:text|#FFE8DEC3" />
+      <group x="104" y="92" w="110" h="18" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E">
+        <field x="1" y="1" w="108" h="16" text="{MagFilterRatingArmorLevel}" onchange="{SetMagFilterRatingArmorLevel}"
+               maxlength="12" clearonsubmit="false" background="#00000000" color="theme:text|#FFE8DEC3"
+               tooltip="The lowest Armor level; blank: no filter." />
+      </group>
+      <label x="4" y="116" w="96" h="16" text="Damage resist ≥" color="theme:text|#FFE8DEC3" />
+      <group x="104" y="114" w="110" h="18" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E">
+        <field x="1" y="1" w="108" h="16" text="{MagFilterRatingDamageResist}" onchange="{SetMagFilterRatingDamageResist}"
+               maxlength="12" clearonsubmit="false" background="#00000000" color="theme:text|#FFE8DEC3"
+               tooltip="The lowest Damage resist; blank: no filter." />
+      </group>
+      <label x="4" y="138" w="96" h="16" text="Crit resist ≥" color="theme:text|#FFE8DEC3" />
+      <group x="104" y="136" w="110" h="18" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E">
+        <field x="1" y="1" w="108" h="16" text="{MagFilterRatingCritResist}" onchange="{SetMagFilterRatingCritResist}"
+               maxlength="12" clearonsubmit="false" background="#00000000" color="theme:text|#FFE8DEC3"
+               tooltip="The lowest Crit resist; blank: no filter." />
+      </group>
+      <label x="4" y="160" w="96" h="16" text="Crit dmg resist ≥" color="theme:text|#FFE8DEC3" />
+      <group x="104" y="158" w="110" h="18" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E">
+        <field x="1" y="1" w="108" h="16" text="{MagFilterRatingCritDamageResist}" onchange="{SetMagFilterRatingCritDamageResist}"
+               maxlength="12" clearonsubmit="false" background="#00000000" color="theme:text|#FFE8DEC3"
+               tooltip="The lowest Crit dmg resist; blank: no filter." />
+      </group>
+      <label x="4" y="182" w="96" h="16" text="Healing resist ≥" color="theme:text|#FFE8DEC3" />
+      <group x="104" y="180" w="110" h="18" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E">
+        <field x="1" y="1" w="108" h="16" text="{MagFilterRatingHealingResist}" onchange="{SetMagFilterRatingHealingResist}"
+               maxlength="12" clearonsubmit="false" background="#00000000" color="theme:text|#FFE8DEC3"
+               tooltip="The lowest Healing resist; blank: no filter." />
+      </group>
+      <label x="4" y="204" w="96" h="16" text="Nether resist ≥" color="theme:text|#FFE8DEC3" />
+      <group x="104" y="202" w="110" h="18" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E">
+        <field x="1" y="1" w="108" h="16" text="{MagFilterRatingNetherResist}" onchange="{SetMagFilterRatingNetherResist}"
+               maxlength="12" clearonsubmit="false" background="#00000000" color="theme:text|#FFE8DEC3"
+               tooltip="The lowest Nether resist; blank: no filter." />
+      </group>
+      <label x="232" y="6" w="96" h="16" text="DoT resist ≥" color="theme:text|#FFE8DEC3" />
+      <group x="332" y="4" w="110" h="18" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E">
+        <field x="1" y="1" w="108" h="16" text="{MagFilterRatingDotResist}" onchange="{SetMagFilterRatingDotResist}"
+               maxlength="12" clearonsubmit="false" background="#00000000" color="theme:text|#FFE8DEC3"
+               tooltip="The lowest DoT resist; blank: no filter." />
+      </group>
+      <label x="232" y="28" w="96" h="16" text="Life resist ≥" color="theme:text|#FFE8DEC3" />
+      <group x="332" y="26" w="110" h="18" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E">
+        <field x="1" y="1" w="108" h="16" text="{MagFilterRatingLifeResist}" onchange="{SetMagFilterRatingLifeResist}"
+               maxlength="12" clearonsubmit="false" background="#00000000" color="theme:text|#FFE8DEC3"
+               tooltip="The lowest Life resist; blank: no filter." />
+      </group>
+      <label x="232" y="50" w="96" h="16" text="Sneak attack ≥" color="theme:text|#FFE8DEC3" />
+      <group x="332" y="48" w="110" h="18" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E">
+        <field x="1" y="1" w="108" h="16" text="{MagFilterRatingSneakAttack}" onchange="{SetMagFilterRatingSneakAttack}"
+               maxlength="12" clearonsubmit="false" background="#00000000" color="theme:text|#FFE8DEC3"
+               tooltip="The lowest Sneak attack; blank: no filter." />
+      </group>
+      <label x="232" y="72" w="96" h="16" text="Recklessness ≥" color="theme:text|#FFE8DEC3" />
+      <group x="332" y="70" w="110" h="18" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E">
+        <field x="1" y="1" w="108" h="16" text="{MagFilterRatingRecklessness}" onchange="{SetMagFilterRatingRecklessness}"
+               maxlength="12" clearonsubmit="false" background="#00000000" color="theme:text|#FFE8DEC3"
+               tooltip="The lowest Recklessness; blank: no filter." />
+      </group>
+      <label x="232" y="94" w="96" h="16" text="Deception ≥" color="theme:text|#FFE8DEC3" />
+      <group x="332" y="92" w="110" h="18" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E">
+        <field x="1" y="1" w="108" h="16" text="{MagFilterRatingDeception}" onchange="{SetMagFilterRatingDeception}"
+               maxlength="12" clearonsubmit="false" background="#00000000" color="theme:text|#FFE8DEC3"
+               tooltip="The lowest Deception; blank: no filter." />
+      </group>
+      <label x="232" y="116" w="96" h="16" text="PK damage ≥" color="theme:text|#FFE8DEC3" />
+      <group x="332" y="114" w="110" h="18" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E">
+        <field x="1" y="1" w="108" h="16" text="{MagFilterRatingPkDamage}" onchange="{SetMagFilterRatingPkDamage}"
+               maxlength="12" clearonsubmit="false" background="#00000000" color="theme:text|#FFE8DEC3"
+               tooltip="The lowest PK damage; blank: no filter." />
+      </group>
+      <label x="232" y="138" w="96" h="16" text="PK dmg resist ≥" color="theme:text|#FFE8DEC3" />
+      <group x="332" y="136" w="110" h="18" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E">
+        <field x="1" y="1" w="108" h="16" text="{MagFilterRatingPkDamageResist}" onchange="{SetMagFilterRatingPkDamageResist}"
+               maxlength="12" clearonsubmit="false" background="#00000000" color="theme:text|#FFE8DEC3"
+               tooltip="The lowest PK dmg resist; blank: no filter." />
+      </group>
+      <label x="232" y="160" w="96" h="16" text="Gear PK dmg ≥" color="theme:text|#FFE8DEC3" />
+      <group x="332" y="158" w="110" h="18" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E">
+        <field x="1" y="1" w="108" h="16" text="{MagFilterRatingGearPkDamage}" onchange="{SetMagFilterRatingGearPkDamage}"
+               maxlength="12" clearonsubmit="false" background="#00000000" color="theme:text|#FFE8DEC3"
+               tooltip="The lowest Gear PK dmg; blank: no filter." />
+      </group>
+      <label x="232" y="182" w="96" h="16" text="Gear PK resist ≥" color="theme:text|#FFE8DEC3" />
+      <group x="332" y="180" w="110" h="18" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E">
+        <field x="1" y="1" w="108" h="16" text="{MagFilterRatingGearPkResist}" onchange="{SetMagFilterRatingGearPkResist}"
+               maxlength="12" clearonsubmit="false" background="#00000000" color="theme:text|#FFE8DEC3"
+               tooltip="The lowest Gear PK resist; blank: no filter." />
+      </group>
+      <label x="232" y="204" w="96" h="16" text="Tinks ≥" color="theme:text|#FFE8DEC3" />
+      <group x="332" y="202" w="110" h="18" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E">
+        <field x="1" y="1" w="108" h="16" text="{MagFilterRatingTinks}" onchange="{SetMagFilterRatingTinks}"
+               maxlength="12" clearonsubmit="false" background="#00000000" color="theme:text|#FFE8DEC3"
+               tooltip="The lowest Tinks; blank: no filter." />
+      </group>
+      <label x="232" y="226" w="96" h="16" text="Weapon OD ≥" color="theme:text|#FFE8DEC3" />
+      <group x="332" y="224" w="110" h="18" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E">
+        <field x="1" y="1" w="108" h="16" text="{MagFilterOd}" onchange="{SetMagFilterOd}"
+               maxlength="12" clearonsubmit="false" background="#00000000" color="theme:text|#FFE8DEC3"
+               tooltip="The lowest weapon OD: the highest (OD +N) rule of the loaded loot profile the weapon matches; blank: no filter. A weapon no such rule matches does not pass." />
+      </group>
+      <label x="4" y="260" w="170" h="16" text="Allowed crit damage on armor:" color="theme:text|#FFE8DEC3" />
+      <checkbox x="180" y="258" w="60" h="18" text="CD0" checked="{MagFilterCd0}"
+                onchange="{SetMagFilterCd0}" color="theme:text|#FFE8DEC3"
+                tooltip="Armor pieces may have crit damage tier 0 (all or none checked: no filter)." />
+      <checkbox x="244" y="258" w="60" h="18" text="CD1" checked="{MagFilterCd1}"
+                onchange="{SetMagFilterCd1}" color="theme:text|#FFE8DEC3"
+                tooltip="Armor pieces may have crit damage tier 1 (all or none checked: no filter)." />
+      <checkbox x="308" y="258" w="60" h="18" text="CD2" checked="{MagFilterCd2}"
+                onchange="{SetMagFilterCd2}" color="theme:text|#FFE8DEC3"
+                tooltip="Armor pieces may have crit damage tier 2 (all or none checked: no filter)." />
+      <button x="392" y="354" w="64" h="20" text="Reset" onclick="{ResetMagFiltersTab}"
+              tooltip="Clear this tab's filters; the other tabs keep theirs." />
+    </group>
+
+    <!-- Set: the sets among the characters searched, with how many items
+         of each they hold. -->
+    <group x="0" y="22" w="460" h="378" visible="{MagFiltersSetVisible}">
+      <label x="4" y="4" w="34" h="16" text="Find:" color="theme:text|#FFE8DEC3" />
+      <group x="40" y="2" w="150" h="18" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E">
+        <field x="1" y="1" w="148" h="16" text="{MagFilterSetFind}" onchange="{SetMagFilterSetFind}"
+               maxlength="40" clearonsubmit="false" background="#00000000" color="theme:text|#FFE8DEC3"
+               tooltip="Only the sets whose name contains this, case ignored." />
+      </group>
+      <list x="4" y="26" w="452" h="324" rowheight="17" header="true"
+            selected="{SelectedMagFilterSetRow}" onchange="{SelectMagFilterSetRow}"
+            tooltip="Only items of the set clicked; Any set for every item.">
+        <column type="text" width="392" header="Set" items="{MagFilterSetNames}"
+                onclick="{SelectMagFilterSetRow}" />
+        <column type="text" width="60" align="right" header="Items" items="{MagFilterSetCounts}"
+                onclick="{SelectMagFilterSetRow}" />
+      </list>
+      <button x="392" y="354" w="64" h="20" text="Reset" onclick="{ResetMagFiltersTab}"
+              tooltip="Clear this tab's filters; the other tabs keep theirs." />
+    </group>
+
+    <!-- Reqs &amp; value: blank, no filter. -->
+    <group x="0" y="22" w="460" h="378" visible="{MagFiltersReqsVisible}">
+      <label x="4" y="6" w="96" h="16" text="Wield level ≤" color="theme:text|#FFE8DEC3" />
+      <group x="104" y="4" w="110" h="18" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E">
+        <field x="1" y="1" w="108" h="16" text="{MagFilterReqMaxWield}" onchange="{SetMagFilterReqMaxWield}"
+               maxlength="12" clearonsubmit="false" background="#00000000" color="theme:text|#FFE8DEC3"
+               tooltip="The highest character level an item may need to be wielded; an item that needs none passes. Blank: no filter." />
+      </group>
+      <label x="4" y="28" w="96" h="16" text="Value ≥" color="theme:text|#FFE8DEC3" />
+      <group x="104" y="26" w="110" h="18" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E">
+        <field x="1" y="1" w="108" h="16" text="{MagFilterReqMinValue}" onchange="{SetMagFilterReqMinValue}"
+               maxlength="12" clearonsubmit="false" background="#00000000" color="theme:text|#FFE8DEC3"
+               tooltip="The lowest value. Blank: no filter." />
+      </group>
+      <label x="4" y="50" w="96" h="16" text="Workmanship ≥" color="theme:text|#FFE8DEC3" />
+      <group x="104" y="48" w="110" h="18" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E">
+        <field x="1" y="1" w="108" h="16" text="{MagFilterReqMinWorkmanship}" onchange="{SetMagFilterReqMinWorkmanship}"
+               maxlength="12" clearonsubmit="false" background="#00000000" color="theme:text|#FFE8DEC3"
+               tooltip="The lowest workmanship. Blank: no filter." />
+      </group>
+      <label x="4" y="72" w="96" h="16" text="Burden ≤" color="theme:text|#FFE8DEC3" />
+      <group x="104" y="70" w="110" h="18" background="theme:field|#FF0C0906" border="theme:border|#FF8C7B4E">
+        <field x="1" y="1" w="108" h="16" text="{MagFilterReqMaxBurden}" onchange="{SetMagFilterReqMaxBurden}"
+               maxlength="12" clearonsubmit="false" background="#00000000" color="theme:text|#FFE8DEC3"
+               tooltip="The highest burden. Blank: no filter." />
+      </group>
+      <button x="392" y="354" w="64" h="20" text="Reset" onclick="{ResetMagFiltersTab}"
+              tooltip="Clear this tab's filters; the other tabs keep theirs." />
+    </group>
+
+    <!-- Characters: every character with a saved inventory on this server,
+         the logged-in one first. -->
+    <group x="0" y="22" w="460" h="378" visible="{MagFiltersCharactersVisible}">
+      <list x="4" y="4" w="452" h="344" rowheight="17"
+            selected="{SelectedMagFilterCharacterRow}" onchange="{SelectMagFilterCharacterRow}"
+            tooltip="The characters whose items are searched.">
+        <column type="checkbox" width="20" values="{MagFilterCharacterChecks}"
+                onchange="{ToggleMagFilterCharacter}" />
+        <column type="text" width="432" items="{MagFilterCharacterNames}"
+                onclick="{ToggleMagFilterCharacter}" />
+      </list>
+      <button x="4" y="354" w="64" h="20" text="All" onclick="{SelectAllMagFilterCharacters}"
+              tooltip="Search every character." />
+      <button x="72" y="354" w="64" h="20" text="None" onclick="{SelectNoMagFilterCharacters}"
+              tooltip="Search no character (then check the ones to search)." />
+      <button x="392" y="354" w="64" h="20" text="Reset" onclick="{ResetMagFiltersTab}"
+              tooltip="Clear this tab's filters; the other tabs keep theirs." />
+    </group>
+  </group>
+</panel>

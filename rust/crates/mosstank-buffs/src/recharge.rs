@@ -1158,11 +1158,15 @@ fn format_helper_trace(
     )
 }
 
+/// Whether a learned spell can be cast now: the skill for its difficulty,
+/// and its components carried, so a level whose scarab ran out gives way to
+/// the next one down instead of being refused by the server on every try.
 fn can_cast(automation: &mut dyn Automation, spell: &SpellInfo) -> bool {
-    spell.school == 0
+    let skilled = spell.school == 0
         || automation
             .try_get_skill(spell.school)
-            .is_none_or(|skill| i64::from(skill.current) >= i64::from(spell.difficulty))
+            .is_none_or(|skill| i64::from(skill.current) >= i64::from(spell.difficulty));
+    skilled && automation.has_components(spell.spell_id)
 }
 
 fn better(

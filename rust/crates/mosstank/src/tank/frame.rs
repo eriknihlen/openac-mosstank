@@ -87,11 +87,16 @@ impl Tank {
             cx.handle_session_started();
         }
         cx.update_peer_subscriptions();
+        // The Mag features' cheap work (their work a tick's worth at a time
+        // waits for the end of a tick MossTank's own work left light:
+        // `Tank::mag_background_tick`).
+        cx.mag_tick();
         // The name tags, first in the frame as the panel runs them.
-        cx.core.heavy_frame = cx.with_ub(|commands, call| {
+        let crowded = cx.with_ub(|commands, call| {
             commands.tools_mut().tick_nametags(call, elapsed_seconds);
             commands.tools_mut().nametags.scanned_last_frame() > HEAVY_SCAN_OBJECTS
         });
+        cx.core.heavy_frame |= crowded;
         cx.tick_display_tools(elapsed_seconds);
         cx.tick_dungeon_map(elapsed_seconds);
         cx.update_nav_lines();
@@ -208,7 +213,6 @@ impl Tank {
         if scheduler_active && !scheduler.is_running() {
             cx.release_transaction_suspension(scheduler);
             scheduler.start(&mut cx);
-            cx.core.scheduler_running = scheduler.is_running();
             cx.core.locks.borrow_mut().clear_all();
             // A portal use under way keeps the route held through it.
             cx.with_ub(|commands, call| commands.rearm_portal_hold(call));
@@ -217,7 +221,6 @@ impl Tank {
         } else if !scheduler_active && scheduler.is_running() {
             cx.release_transaction_suspension(scheduler);
             scheduler.stop(&mut cx);
-            cx.core.scheduler_running = scheduler.is_running();
         }
         cx.observe_cast_result(elapsed_seconds);
         cx.observe_pending_transactions(elapsed_seconds);
@@ -341,6 +344,7 @@ impl TankCx<'_> {
         self.core.nav_lines.clear(self.client);
         self.with_ub(|commands, call| commands.tools_mut().nametags.reset(call.host));
         self.reset_display_tools();
+        self.mag_session_ended();
         if self.core.combat.enabled() {
             let core = &mut *self.core;
             let mut turn = combat_turn!(self.client, core);

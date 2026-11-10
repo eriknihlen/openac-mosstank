@@ -30,9 +30,9 @@ cargo build --workspace --target wasm32-unknown-unknown --release
 
 The SDK crates (`openac-plugin`, `openac-plugin-compat`, `ac-plugin-abi`)
 come from the OpenAC repository by git, pinned to a commit in
-`Cargo.toml`: openac-rust v0.1.12, plugin API 1.8 (a canvas hears the
-pointer hovering over it from API 1.6), so MossTank needs client 0.1.11 or
-later; its fellowship rules see fellows out of sight from client 0.1.12.
+`Cargo.toml`: OpenAC `main` at a9a59935, plugin API 1.11 (who changed
+the selection; 1.10: every enchantment on the character, right-aligned
+list columns), so MossTank needs OpenAC client 0.2.3 or later.
 
 `scripts/check.ps1` (or `scripts/check.sh`) runs the full check: formatting,
 clippy, the tests, the WebAssembly build, the module's imports, and the
@@ -110,9 +110,11 @@ stay the macro's corpse looter's, and a container it is working is left to it.
 A small strip that counts the items you choose (spell components, peas,
 healing kits, anything you carry), after the comps counter of Virindi HUDs.
 Each item shows its icon (as the game draws the item you carry) and how many
-you carry, in packs or worn, counted again every 0.6 seconds. Hover over an
-item for its name, or over a button for what it does. It is drawn in your
-plugin theme (Appearance), and follows a theme change at once.
+you carry, in packs or worn, counted again every 0.6 seconds. Like the mana
+overlay it is drawn straight on the game, with no window around it: icons
+and outlined counts. With the pointer over it its three buttons show (the
+layout switch, the pencil and a ×); hover over an item for its name, or over
+a button for what it does.
 
 - **Show it**: tick **Show HUD** in the Comps HUD box on the Consumables page,
   or type `/vt compshud on`. The switch is the same for all your characters.
@@ -131,7 +133,7 @@ plugin theme (Appearance), and follows a theme change at once.
 - **Move it**: drag the strip anywhere but its buttons (it follows the pointer
   and is saved where you let go); it stops at the screen's top and left
   edges. `/vt compshud reset` puts it back at its first place. **Hide it**:
-  its cross (this unticks Show HUD).
+  its × (this unticks Show HUD).
 - Each character keeps its own list (in order, with the warn levels), layout
   and place. `/vt compshud` alone lists what it counts. A saved list that does
   not read whole is copied to `recovery/comps-hud/` in MossTank's storage and
@@ -156,3 +158,15 @@ settings page). `ItemInfo.ShowValueAndBurden` adds the value and burden;
 `ItemInfo.ShowDoorInfo` and `ItemInfo.ShowNpcInfo` describe doors and NPCs
 too. UtilityBelt's buffed weapon values, damage calculations and retail
 comparisons are not part of it (see `docs/divergences.md`, UB-13).
+
+## The Mag tab and the Inventory window
+
+The **Mag** tab holds Mag-Tools' tracker pages (Combat, Mana and Inv. Items),
+and the **Inventory** window, with its own button on the dock, searches the
+items of every character logged on this server; both port Mag-Tools by
+Mag-nus (https://github.com/Mag-nus/Mag-Plugins), used with his permission
+(see [NOTICE.md](NOTICE.md)). Its **Filters...** button opens the filters
+window (item type and slot, cantrips at a tier or better, ratings, set,
+requirements, the characters searched: the filters of the owner's
+MosswartOverlord inventory search), and a click on a column heading sorts
+the rows by it.

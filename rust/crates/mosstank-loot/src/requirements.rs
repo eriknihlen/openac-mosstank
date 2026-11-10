@@ -249,11 +249,23 @@ pub fn unsupported_key_warning<'a>(
 
 /// VTClassic's "disabled" requirement: a rule carrying it set to true never
 /// matches.
-fn is_disabled(rule: &LootRule) -> bool {
+#[must_use]
+pub fn is_disabled(rule: &LootRule) -> bool {
     rule.vtank_requirements.iter().any(|requirement| {
         requirement.kind == 9999
             && parse_bool(net_trim(lines(&requirement.payload)[0])).unwrap_or(false)
     })
+}
+
+/// The object class (its number) an object-class requirement asks for,
+/// read as the requirement reads it; none for any other requirement or one
+/// that does not read.
+#[must_use]
+pub fn required_object_class(requirement: &VtankLootRequirement) -> Option<i32> {
+    if requirement.kind != 7 {
+        return None;
+    }
+    i32_at(&lines(&requirement.payload), 0).ok()
 }
 
 /// Whether an int key arrives only with an appraisal.
@@ -809,6 +821,12 @@ fn buffed_double(key: u32, item: &InventoryItem, properties: &ItemProperties) ->
 // "absent" encoding, so the default value is the only signal there is.
 fn int_key_exists(key: u32, item: &InventoryItem, properties: &ItemProperties) -> Outcome<bool> {
     if property_int(properties, key).is_some() {
+        return Ok(true);
+    }
+    // An appraised weapon carries its max damage even when it is 0: a
+    // launcher's damage comes from its modifier and elemental bonus, and its
+    // own damage cantrip still counts on top.
+    if key == VTANK_INT_BASE + 34 && properties.weapon.is_some() {
         return Ok(true);
     }
     Ok(try_int_value(key, item, properties)?.is_some_and(|value| value != 0))

@@ -1,0 +1,1280 @@
+//! The inventory logger: its record of one item, the merge with the last
+//! save, the file, and when it saves.
+//!
+//! Source: Mag-Tools `Mag-Tools/Inventory/InventoryLogger.cs` and
+//! `Shared/MyWorldObjectCreator.cs`, `Shared/MyWorldObject.cs` at 43ee2ec
+//! (`Combine`, `AddTo`, `DumpInventoryToFile`). The file is our own JSON
+//! (owner, 2026-11-08), not Mag-Tools' XML.
+
+use ac_plugin_abi::items::{InventoryItem, ObjectHeader};
+use ac_plugin_abi::world::{ArmorProfile, ItemProperties, ObjectClass, WeaponProfile, WorldObject};
+use mosstank_mag::inventory_log::{
+    ItemRecord, LogHeader, LogReader, ReadError, VERSION, combine, merge, read, storage_key, write,
+};
+use mosstank_mag::item_info::{ItemInfoInput, item_info};
+
+const RING: u32 = 0x8000_0101;
+const SWORD: u32 = 0x8000_0102;
+const PACK: u32 = 0x8000_0103;
+const ME: u32 = 0x5000_000A;
+
+fn ring_item() -> InventoryItem {
+    InventoryItem {
+        object_id: RING,
+        weenie_class_id: 621,
+        name: "Test Ring".to_owned(),
+        item_type: 0x8,
+        container_id: ME,
+        container_slot: 3,
+        stack_size: 1,
+        object_class: ObjectClass::Jewelry,
+        icon_id: 0x0600_1000,
+        value: 7500,
+        burden: 30,
+        structure: 0,
+        material_type: 21,
+        workmanship: 6.5,
+        appraised_spell_ids: vec![2101, 0x8000_0000 | 3094, 1550],
+        header: Some(ObjectHeader {
+            weenie_header_flags: Some(0x8000_0000),
+            ..ObjectHeader::default()
+        }),
+        ..InventoryItem::default()
+    }
+}
+
+fn ring_properties() -> ItemProperties {
+    ItemProperties {
+        ints: vec![(19, 7500), (131, 21), (105, 6)],
+        int64s: vec![(4, 1_234_567_890_123)],
+        bools: vec![(69, true)],
+        floats: vec![(5, -0.025), (144, 0.03)],
+        strings: vec![
+            (1, "Test Ring".to_owned()),
+            (16, "Ünïcode \"quoted\" <b>".to_owned()),
+        ],
+        data_ids: vec![(1, 0x0200_00DE)],
+        instance_ids: vec![(2, ME)],
+        weapon: Some(WeaponProfile {
+            damage_type: 4,
+            weapon_time: 35,
+            weapon_skill: 45,
+            damage: 62,
+            damage_variance: 0.45,
+            damage_mod: 1.2,
+            weapon_length: 1.0,
+            max_velocity: 0.0,
+            weapon_offense: 1.08,
+            max_velocity_estimated: 0,
+        }),
+        armor: Some(ArmorProfile {
+            armor_level: 200,
+            slash_mod: 0.4,
+            pierce_mod: 0.6,
+            bludgeon_mod: 1.0,
+            cold_mod: 0.8,
+            fire_mod: 1.2,
+            acid_mod: 0.2,
+            nether_mod: 0.5,
+            electric_mod: 1.4,
+        }),
+        creature: None,
+    }
+}
+
+fn seen(item: &InventoryItem, appraised: bool) -> WorldObject {
+    WorldObject {
+        object_id: item.object_id,
+        name: item.name.clone(),
+        object_class: item.object_class,
+        is_owned: true,
+        has_appraisal_data: appraised,
+        ..WorldObject::default()
+    }
+}
+
+fn ring_record() -> ItemRecord {
+    let item = ring_item();
+    ItemRecord::from_live(
+        &item,
+        Some(&seen(&item, true)),
+        &ring_properties(),
+        1_762_560_000_000,
+    )
+}
+
+fn header() -> LogHeader {
+    LogHeader {
+        version: VERSION,
+        character: "Acdream".to_owned(),
+        world: "ACE".to_owned(),
+        saved_unix_ms: 1_762_560_000_000,
+    }
+}
+
+fn document(records: &[ItemRecord]) -> String {
+    let fragments: Vec<String> = records.iter().map(ItemRecord::to_json).collect();
+    write(&header(), fragments.iter().map(String::as_str))
+}
+
+#[test]
+fn a_record_keeps_what_the_item_and_its_properties_hold() {
+    let record = ring_record();
+    assert_eq!(record.id, RING);
+    assert_eq!(record.name, "Test Ring");
+    assert_eq!(record.object_class, ObjectClass::Jewelry);
+    assert_eq!(record.icon, 0x0600_1000);
+    assert_eq!(record.container_id, ME);
+    assert_eq!(record.container_slot, 3);
+    assert!(record.has_id_data);
+    assert_eq!(record.last_id_time, 1_762_560_000_000);
+    assert_eq!(record.properties, ring_properties());
+    // The appraisal's list split by the mark of a spell active on the item.
+    assert_eq!(record.spells, vec![2101, 1550]);
+    assert_eq!(record.active_spells, vec![3094]);
+}
+
+#[test]
+fn an_item_never_appraised_has_no_id_time() {
+    let item = ring_item();
+    let record = ItemRecord::from_live(
+        &item,
+        Some(&seen(&item, false)),
+        &ItemProperties::default(),
+        99,
+    );
+    assert!(!record.has_id_data);
+    assert_eq!(record.last_id_time, 0);
+    // No object known: not appraised either.
+    let record = ItemRecord::from_live(&item, None, &ItemProperties::default(), 99);
+    assert!(!record.has_id_data);
+}
+
+#[test]
+fn the_file_reads_back_as_written() {
+    let mut sword = ring_record();
+    sword.id = SWORD;
+    sword.name = "Sword".to_owned();
+    sword.object_class = ObjectClass::MeleeWeapon;
+    sword.properties = ItemProperties::default();
+    sword.spells.clear();
+    sword.active_spells.clear();
+    sword.weenie_header_flags = None;
+    let records = vec![ring_record(), sword];
+    let text = document(&records);
+    let (read_header, read_records) = read(&text).expect("the file reads");
+    assert_eq!(read_header, header());
+    assert_eq!(read_records, records);
+}
+
+#[test]
+fn the_file_has_the_planned_shape() {
+    let text = document(&[ring_record()]);
+    let value = openac_plugin_compat::json::parse(&text).expect("JSON");
+    assert_eq!(value.get("version").and_then(|v| v.as_i64()), Some(1));
+    assert_eq!(
+        value.get("character").and_then(|v| v.as_str()),
+        Some("Acdream")
+    );
+    assert_eq!(value.get("world").and_then(|v| v.as_str()), Some("ACE"));
+    assert_eq!(
+        value.get("saved_unix_ms").and_then(|v| v.as_i64()),
+        Some(1_762_560_000_000)
+    );
+    let items = value
+        .get("items")
+        .and_then(|v| v.as_array())
+        .expect("items");
+    let ring = &items[0];
+    assert_eq!(
+        ring.get("id").and_then(|v| v.as_i64()),
+        Some(i64::from(RING))
+    );
+    assert_eq!(ring.get("object_class").and_then(|v| v.as_i64()), Some(4));
+    assert_eq!(
+        ring.get("ints")
+            .and_then(|m| m.get("19"))
+            .and_then(|v| v.as_i64()),
+        Some(7500)
+    );
+    assert_eq!(
+        ring.get("floats")
+            .and_then(|m| m.get("5"))
+            .and_then(|v| v.as_f64()),
+        Some(-0.025)
+    );
+    assert_eq!(
+        ring.get("strings")
+            .and_then(|m| m.get("1"))
+            .and_then(|v| v.as_str()),
+        Some("Test Ring")
+    );
+    assert_eq!(
+        ring.get("spells")
+            .and_then(|v| v.as_array())
+            .map(<[_]>::len),
+        Some(2)
+    );
+    assert!(ring.get("weapon").is_some_and(|v| !v.is_null()));
+}
+
+#[test]
+fn the_file_reads_in_stages() {
+    let records: Vec<ItemRecord> = (0..250)
+        .map(|n| {
+            let mut record = ring_record();
+            record.id = RING + n;
+            record
+        })
+        .collect();
+    let text = document(&records);
+    let mut reader = LogReader::new(text).expect("the header");
+    assert_eq!(reader.header(), &header());
+    assert_eq!(reader.remaining(), 250);
+    let mut read_back = Vec::new();
+    while reader.remaining() > 0 {
+        read_back.extend(reader.read_items(100).expect("items"));
+    }
+    assert_eq!(read_back, records);
+}
+
+#[test]
+fn a_file_in_any_layout_reads() {
+    // Hand-edited or reformatted: the members in another order, spaces
+    // and line breaks anywhere.
+    let fragment = ring_record().to_json();
+    let text = format!(
+        "\n {{ \"items\" : [ \n {fragment} \n ] , \"world\":\"ACE\",\n\"character\" : \"Acdream\", \"saved_unix_ms\": 1762560000000, \"version\" : 1 }}\n"
+    );
+    let (read_header, records) = read(&text).expect("the file reads");
+    assert_eq!(read_header, header());
+    assert_eq!(records, vec![ring_record()]);
+}
+
+#[test]
+fn two_items_hand_joined_on_one_line_read() {
+    let records: Vec<ItemRecord> = (0..3)
+        .map(|n| {
+            let mut record = ring_record();
+            record.id = RING + n;
+            record
+        })
+        .collect();
+    let text = document(&records).replacen(",\n{", ", {", 1);
+    let (_, read_back) = read(&text).expect("the file reads");
+    assert_eq!(read_back, records);
+}
+
+#[test]
+fn an_unknown_version_is_refused() {
+    let text = document(&[ring_record()]).replacen("\"version\":1", "\"version\":2", 1);
+    assert_eq!(read(&text), Err(ReadError::UnknownVersion(Some(2))));
+    let text = document(&[]).replacen("\"version\":1,", "", 1);
+    assert_eq!(read(&text), Err(ReadError::UnknownVersion(None)));
+}
+
+#[test]
+fn a_newer_version_without_items_is_refused() {
+    // A later format may keep its items elsewhere.
+    assert_eq!(
+        read("{\"version\":2,\"records\":[]}"),
+        Err(ReadError::UnknownVersion(Some(2)))
+    );
+    assert_eq!(
+        read("{\"records\":[]}"),
+        Err(ReadError::UnknownVersion(None))
+    );
+    // Version 1 must have them.
+    assert_eq!(read("{\"version\":1}"), Err(ReadError::Corrupt));
+}
+
+#[test]
+fn a_broken_file_is_corrupt() {
+    let text = document(&[ring_record()]);
+    assert_eq!(read(&text[..text.len() / 2]), Err(ReadError::Corrupt));
+    assert_eq!(read("not json"), Err(ReadError::Corrupt));
+    // A comma after the last item, or none between two.
+    let two = document(&[ring_record(), ring_record()]);
+    let trailing = two.replacen("\n]}", ",\n]}", 1);
+    assert_eq!(read(&trailing), Err(ReadError::Corrupt));
+    let missing = two.replacen(",\n{", "\n{", 1);
+    assert_eq!(read(&missing), Err(ReadError::Corrupt));
+    // An item without its id.
+    let text = text.replacen(&format!("\"id\":{RING},"), "", 1);
+    assert_eq!(read(&text), Err(ReadError::Corrupt));
+}
+
+#[test]
+fn the_kept_record_rebuilds_the_items_info_text() {
+    let item = ring_item();
+    let properties = ring_properties();
+    let record = ring_record();
+    let (_, records) = read(&document(&[record])).expect("reads");
+    let kept_item = records[0].item();
+    let input = |item, properties| ItemInfoInput {
+        item,
+        properties,
+        show_buffed_values: true,
+        show_value_and_burden: true,
+    };
+    let mut spells = |_id: u32| None;
+    let live = item_info(&input(&item, &properties), &mut spells);
+    let kept = item_info(&input(&kept_item, records[0].properties()), &mut spells);
+    assert!(!live.is_empty());
+    assert_eq!(kept, live);
+}
+
+// --- The merge (`Combine`) ---
+
+fn record(id: u32, class: ObjectClass, appraised: bool, ints: &[(u32, i32)]) -> ItemRecord {
+    let item = InventoryItem {
+        object_id: id,
+        name: format!("Item {id}"),
+        object_class: class,
+        container_id: ME,
+        appraised_spell_ids: if appraised { vec![2101] } else { Vec::new() },
+        ..InventoryItem::default()
+    };
+    let properties = ItemProperties {
+        ints: ints.to_vec(),
+        ..ItemProperties::default()
+    };
+    let mut object = seen(&item, appraised);
+    object.object_class = class;
+    ItemRecord::from_live(
+        &item,
+        Some(&object),
+        &properties,
+        if appraised { 100 } else { 0 },
+    )
+}
+
+#[test]
+fn a_fresh_appraisal_replaces_the_record() {
+    let older = record(RING, ObjectClass::Jewelry, true, &[(19, 1), (105, 7)]);
+    let newer = record(RING, ObjectClass::Jewelry, true, &[(19, 2)]);
+    assert_eq!(combine(older, newer.clone()), newer);
+}
+
+#[test]
+fn an_unappraised_older_record_is_replaced() {
+    let older = record(RING, ObjectClass::Jewelry, false, &[(19, 1), (105, 7)]);
+    let newer = record(RING, ObjectClass::Jewelry, false, &[(19, 2)]);
+    assert_eq!(combine(older, newer.clone()), newer);
+}
+
+#[test]
+fn an_older_appraisal_keeps_its_keys_and_the_live_keys_overwrite() {
+    let mut older = record(RING, ObjectClass::Jewelry, true, &[(19, 1), (105, 7)]);
+    older.properties.weapon = Some(WeaponProfile {
+        damage: 62,
+        ..WeaponProfile::default()
+    });
+    older.last_id_time = 555;
+    let mut newer = record(RING, ObjectClass::Jewelry, false, &[(19, 2), (5, 30)]);
+    newer.container_id = PACK;
+    newer.container_slot = 9;
+    newer.stack_size = 4;
+    let merged = combine(older.clone(), newer);
+    // The live keys overwrite or are added; the appraisal's stay.
+    assert_eq!(merged.properties.ints, vec![(19, 2), (105, 7), (5, 30)]);
+    assert_eq!(merged.properties.weapon, older.properties.weapon);
+    // Where it is now, from the live item.
+    assert_eq!(merged.container_id, PACK);
+    assert_eq!(merged.container_slot, 9);
+    assert_eq!(merged.stack_size, 4);
+    // The appraisal's own fields stay the older record's.
+    assert!(merged.has_id_data);
+    assert_eq!(merged.last_id_time, 555);
+    assert_eq!(merged.spells, older.spells);
+    assert_eq!(merged.object_class, older.object_class);
+}
+
+#[test]
+fn the_merge_keeps_only_what_is_owned_now() {
+    let previous = vec![
+        record(RING, ObjectClass::Jewelry, true, &[(105, 7)]),
+        record(SWORD, ObjectClass::MeleeWeapon, true, &[(105, 8)]),
+        // Sold since.
+        record(PACK, ObjectClass::Container, true, &[]),
+    ];
+    let live = vec![
+        record(SWORD, ObjectClass::MeleeWeapon, false, &[(19, 2)]),
+        // The same id as another class: not the same item.
+        record(RING, ObjectClass::Armor, false, &[(19, 3)]),
+    ];
+    let merged = merge(&previous, live.clone());
+    assert_eq!(merged.len(), 2);
+    assert_eq!(merged[0].id, SWORD);
+    assert!(merged[0].has_id_data);
+    assert_eq!(merged[0].properties.ints, vec![(105, 8), (19, 2)]);
+    assert_eq!(merged[1], live[1]);
+}
+
+// --- The file's key ---
+
+#[test]
+fn the_key_is_per_world_and_character() {
+    assert_eq!(
+        storage_key("ACE", "Acdream"),
+        "Mag-Tools/ACE/Acdream.inventory.json"
+    );
+}
+
+#[test]
+fn a_name_ending_in_a_dot_never_makes_a_double_dot() {
+    assert_eq!(
+        storage_key("ACE", "Mr."),
+        "Mag-Tools/ACE/Mr_.inventory.json"
+    );
+    for (world, name) in [
+        ("ACE", "Mr.."),
+        ("..", "x"),
+        ("Cold.", "A.b."),
+        ("a:b", "c\\d"),
+        ("w", "a/../b"),
+        ("", ""),
+    ] {
+        let key = storage_key(world, name);
+        assert!(!key.contains(".."), "{key}");
+        assert!(!key.contains(':'), "{key}");
+        assert!(!key.contains('\\'), "{key}");
+        assert_eq!(key.matches('/').count(), 2, "{key}");
+        assert!(key.ends_with(".inventory.json"), "{key}");
+    }
+}
+
+// --- When it saves (`InventoryLogger`), staged ---
+
+mod logger {
+    use ac_plugin_abi::items::{InventoryItem, ObjectHeader};
+    use ac_plugin_abi::world::{
+        ItemProperties, ObjectChange, ObjectChangeKind, ObjectClass, WorldObject,
+    };
+    use mosstank_mag::identify::IdentifyQueue;
+    use mosstank_mag::inventory_log::{InventoryLogger, ItemRecord, LogHeader, read, write};
+    use mosstank_mag::testing::FakeMagHost;
+
+    /// The fake's character: its id, and its file.
+    const PLAYER: u32 = 1;
+    const KEY: &str = "Mag-Tools/Coldeve/Meta Tester.inventory.json";
+    const SIDE_PACK: u32 = 0x8000_0900;
+
+    struct Rig {
+        host: FakeMagHost,
+        queue: IdentifyQueue,
+        logger: InventoryLogger,
+        enabled: bool,
+    }
+
+    impl Rig {
+        fn new() -> Self {
+            Self {
+                host: FakeMagHost::new(),
+                queue: IdentifyQueue::default(),
+                logger: InventoryLogger::default(),
+                enabled: true,
+            }
+        }
+
+        /// The character owns `item`, known to the world (appraised or not).
+        fn own(&mut self, item: InventoryItem, appraised: bool, properties: ItemProperties) {
+            self.host.meta.objects.push(object(&item, appraised));
+            self.host.meta.properties.insert(item.object_id, properties);
+            self.host.meta.owned_items.push(item);
+        }
+
+        /// `count` loose things (no appraisal needed).
+        fn own_things(&mut self, count: u32) {
+            for n in 0..count {
+                let item = item(0x8000_2000 + n, "Pyreal", ObjectClass::Money, PLAYER);
+                self.own(item, false, ItemProperties::default());
+            }
+        }
+
+        fn login(&mut self) {
+            self.logger.on_login_complete();
+        }
+
+        fn tick(&mut self) -> bool {
+            self.host.now_ms += 16.0;
+            self.logger
+                .tick(&mut self.host, &mut self.queue, self.enabled)
+        }
+
+        fn ticks(&mut self, count: usize) {
+            for _ in 0..count {
+                self.tick();
+            }
+        }
+
+        fn change(&mut self, kind: ObjectChangeKind, object: Option<WorldObject>, id: u32) {
+            let change = ObjectChange {
+                object_id: id,
+                kind,
+                revision: 1,
+                changed_fields: 0,
+                current: object,
+            };
+            self.logger
+                .on_object_changed(&change, &mut self.queue, self.enabled);
+        }
+
+        fn logoff(&mut self) {
+            self.logger.on_logoff(&mut self.host, self.enabled);
+        }
+
+        fn writes(&self) -> usize {
+            self.host.storage.writes.len()
+        }
+
+        fn saved(&self) -> Vec<ItemRecord> {
+            let text = self.host.meta.storage.get(KEY).expect("the log is written");
+            read(&text).expect("the log reads").1
+        }
+
+        /// The world now holds `owned`'s appraisal, with `properties`.
+        fn appraise(&mut self, owned: &InventoryItem, properties: ItemProperties) -> WorldObject {
+            let appraised = object(owned, true);
+            if let Some(slot) = self
+                .host
+                .meta
+                .objects
+                .iter_mut()
+                .find(|o| o.object_id == owned.object_id)
+            {
+                *slot = appraised.clone();
+            }
+            self.host
+                .meta
+                .properties
+                .insert(owned.object_id, properties);
+            appraised
+        }
+    }
+
+    fn item(id: u32, name: &str, class: ObjectClass, container_id: u32) -> InventoryItem {
+        InventoryItem {
+            object_id: id,
+            name: name.to_owned(),
+            object_class: class,
+            container_id,
+            stack_size: 1,
+            // Described by the server.
+            header: Some(ObjectHeader::default()),
+            ..InventoryItem::default()
+        }
+    }
+
+    fn object(item: &InventoryItem, appraised: bool) -> WorldObject {
+        WorldObject {
+            object_id: item.object_id,
+            name: item.name.clone(),
+            object_class: item.object_class,
+            container_id: item.container_id,
+            is_owned: true,
+            has_appraisal_data: appraised,
+            last_id_time: i32::from(appraised),
+            ..WorldObject::default()
+        }
+    }
+
+    fn ints(values: &[(u32, i32)]) -> ItemProperties {
+        ItemProperties {
+            ints: values.to_vec(),
+            ..ItemProperties::default()
+        }
+    }
+
+    #[test]
+    fn the_build_takes_a_hundred_items_a_tick_and_writes_once() {
+        let mut rig = Rig::new();
+        rig.own_things(250);
+        rig.login();
+        assert!(rig.tick());
+        assert!(rig.tick());
+        assert_eq!(rig.writes(), 0);
+        assert!(rig.tick());
+        assert_eq!(rig.host.storage.writes, vec![KEY.to_owned()]);
+        assert_eq!(rig.saved().len(), 250);
+        // Listed once; each item's properties read once.
+        assert_eq!(rig.host.owned_listings, 1);
+        assert_eq!(rig.host.property_reads, 250);
+        // Nothing more to do.
+        rig.ticks(20);
+        assert_eq!(rig.writes(), 1);
+        assert!(!rig.tick());
+    }
+
+    #[test]
+    fn the_build_waits_for_the_whole_inventory() {
+        let mut rig = Rig::new();
+        rig.own_things(5);
+        rig.host.complete = false;
+        rig.login();
+        rig.ticks(5);
+        assert_eq!(rig.host.owned_listings, 0);
+        assert_eq!(rig.writes(), 0);
+        rig.host.complete = true;
+        rig.tick();
+        assert_eq!(rig.writes(), 1);
+    }
+
+    #[test]
+    fn the_build_waits_for_every_owned_item_to_be_described() {
+        // Live, the first login: the client had listed the inventory before
+        // the server described the items in it (no header yet, no name or
+        // class), and the log was written of nameless items, none asked for.
+        let mut rig = Rig::new();
+        rig.own_things(3);
+        let ring = item(0x8000_0101, "Ring", ObjectClass::Jewelry, PLAYER);
+        let listed = InventoryItem {
+            object_id: ring.object_id,
+            container_id: PLAYER,
+            header: None,
+            ..InventoryItem::default()
+        };
+        rig.own(listed, false, ItemProperties::default());
+        rig.login();
+        rig.ticks(5);
+        assert_eq!(rig.writes(), 0);
+        assert!(rig.host.posted_text().is_empty(), "no first-run lines yet");
+        assert!(rig.queue.is_empty());
+        // Described: recorded by its name, and asked for.
+        let slot = rig
+            .host
+            .meta
+            .owned_items
+            .iter_mut()
+            .find(|item| item.object_id == ring.object_id)
+            .expect("owned");
+        *slot = ring.clone();
+        rig.tick();
+        assert_eq!(rig.writes(), 1);
+        let saved = rig.saved();
+        assert_eq!(saved.len(), 4);
+        assert!(
+            saved
+                .iter()
+                .any(|record| record.id == ring.object_id && record.name == "Ring")
+        );
+        assert!(rig.queue.contains(ring.object_id));
+    }
+
+    #[test]
+    fn nothing_happens_before_login() {
+        let mut rig = Rig::new();
+        rig.own_things(5);
+        rig.ticks(5);
+        rig.logoff();
+        assert_eq!(rig.writes(), 0);
+        assert_eq!(rig.host.owned_listings, 0);
+    }
+
+    #[test]
+    fn logoff_writes_the_kept_list_once_without_reading_again() {
+        let mut rig = Rig::new();
+        rig.own_things(250);
+        rig.login();
+        rig.ticks(3);
+        let listings = rig.host.owned_listings;
+        let reads = rig.host.property_reads;
+        rig.host.utc_ms += 60_000;
+        rig.logoff();
+        assert_eq!(rig.writes(), 2);
+        assert_eq!(rig.host.owned_listings, listings);
+        assert_eq!(rig.host.property_reads, reads);
+        assert_eq!(rig.saved().len(), 250);
+        let text = rig.host.meta.storage.get(KEY).unwrap();
+        assert!(text.contains("\"saved_unix_ms\":1762560060000"));
+    }
+
+    #[test]
+    fn logoff_before_the_list_is_whole_writes_nothing() {
+        let mut rig = Rig::new();
+        rig.own_things(250);
+        rig.login();
+        rig.tick();
+        rig.logoff();
+        assert_eq!(rig.writes(), 0);
+    }
+
+    #[test]
+    fn with_the_setting_off_nothing_is_read_asked_or_written() {
+        let mut rig = Rig::new();
+        rig.enabled = false;
+        let ring = item(0x8000_0101, "Ring", ObjectClass::Jewelry, PLAYER);
+        rig.own(ring.clone(), false, ItemProperties::default());
+        rig.own_things(10);
+        rig.login();
+        rig.ticks(5);
+        let mut fresh = ring.clone();
+        fresh.object_id = 0x8000_0102;
+        rig.change(
+            ObjectChangeKind::Created,
+            Some(object(&fresh, false)),
+            fresh.object_id,
+        );
+        rig.logoff();
+        assert_eq!(rig.writes(), 0);
+        assert_eq!(rig.host.owned_listings, 0);
+        assert!(rig.queue.is_empty());
+    }
+
+    #[test]
+    fn a_new_item_needing_ident_directly_in_the_main_pack_is_queued_once() {
+        let mut rig = Rig::new();
+        rig.own_things(3);
+        rig.login();
+        rig.tick();
+        let ring = item(0x8000_0101, "Ring", ObjectClass::Jewelry, PLAYER);
+        let seen = object(&ring, false);
+        rig.change(
+            ObjectChangeKind::Created,
+            Some(seen.clone()),
+            ring.object_id,
+        );
+        rig.change(
+            ObjectChangeKind::Updated,
+            Some(seen.clone()),
+            ring.object_id,
+        );
+        assert_eq!(rig.queue.len(), 1);
+        assert!(rig.queue.contains(ring.object_id));
+        // Asked for, then heard again: not asked again.
+        rig.queue.tick(&mut rig.host, false);
+        assert!(rig.queue.is_empty());
+        rig.change(ObjectChangeKind::Updated, Some(seen), ring.object_id);
+        assert!(rig.queue.is_empty());
+        // In a side pack, not a kind that needs it, or appraised: not asked.
+        let in_pack = item(0x8000_0103, "Ring", ObjectClass::Jewelry, SIDE_PACK);
+        let gem = item(0x8000_0104, "Sapphire", ObjectClass::Gem, PLAYER);
+        let known = item(0x8000_0106, "Ring", ObjectClass::Jewelry, PLAYER);
+        for (seen, appraised) in [(&in_pack, false), (&gem, false), (&known, true)] {
+            rig.change(
+                ObjectChangeKind::Created,
+                Some(object(seen, appraised)),
+                seen.object_id,
+            );
+        }
+        assert!(rig.queue.is_empty());
+        // A gem named Aetheria needs it.
+        let aetheria = item(0x8000_0105, "Coalesced Aetheria", ObjectClass::Gem, PLAYER);
+        rig.change(
+            ObjectChangeKind::Created,
+            Some(object(&aetheria, false)),
+            aetheria.object_id,
+        );
+        assert_eq!(rig.queue.len(), 1);
+    }
+
+    #[test]
+    fn items_never_appraised_are_asked_for_and_the_log_is_written_again_when_all_are_in() {
+        let mut rig = Rig::new();
+        let sword = item(0x8000_0201, "Sword", ObjectClass::MeleeWeapon, PLAYER);
+        let essence = item(
+            0x8000_0202,
+            "Mosswart Essence",
+            ObjectClass::Misc,
+            SIDE_PACK,
+        );
+        rig.own(sword.clone(), false, ItemProperties::default());
+        rig.own(essence.clone(), false, ItemProperties::default());
+        rig.own_things(4);
+        rig.login();
+        rig.tick();
+        // No log yet: the first-run line, the requests, and the first save.
+        assert_eq!(
+            rig.host.posted_text(),
+            vec![
+                "<{Mag-Tools}>: Requesting id information for all armor/weapon inventory. This will take a few minutes..."
+                    .to_owned()
+            ]
+        );
+        assert_eq!(rig.queue.len(), 2);
+        assert_eq!(rig.writes(), 1);
+        // The appraisals come in, one by one: the log is written again when
+        // the last one is in.
+        for (n, owned) in [&sword, &essence].into_iter().enumerate() {
+            rig.queue.tick(&mut rig.host, false);
+            rig.host.now_ms += 1000.0;
+            let appraised = rig.appraise(owned, ints(&[(105, 8)]));
+            rig.change(
+                ObjectChangeKind::IdentReceived,
+                Some(appraised),
+                owned.object_id,
+            );
+            rig.tick();
+            assert_eq!(rig.writes(), 1 + n, "after appraisal {n}");
+        }
+        assert_eq!(
+            rig.host.identified,
+            vec![sword.object_id, essence.object_id]
+        );
+        let saved = rig.saved();
+        assert!(
+            saved
+                .iter()
+                .filter(|r| r.object_class != ObjectClass::Money)
+                .all(|r| r.has_id_data && r.properties.int(105) == Some(8))
+        );
+        assert_eq!(
+            rig.host.posted_text().last().map(String::as_str),
+            Some(
+                "<{Mag-Tools}>: Requesting id information for all armor/weapon inventory completed. Log file written."
+            )
+        );
+        rig.ticks(5);
+        assert_eq!(rig.writes(), 2);
+    }
+
+    #[test]
+    fn the_last_saves_appraisals_are_kept_and_not_asked_for_again() {
+        let mut rig = Rig::new();
+        let sword = item(0x8000_0201, "Sword", ObjectClass::MeleeWeapon, PLAYER);
+        let previous = ItemRecord::from_live(
+            &sword,
+            Some(&object(&sword, true)),
+            &ints(&[(105, 9), (19, 1)]),
+            1234,
+        );
+        let sold = ItemRecord::from_live(
+            &item(0x8000_0299, "Sold Sword", ObjectClass::MeleeWeapon, PLAYER),
+            None,
+            &ItemProperties::default(),
+            0,
+        );
+        let header = LogHeader {
+            version: 1,
+            character: "Meta Tester".to_owned(),
+            world: "Coldeve".to_owned(),
+            saved_unix_ms: 1,
+        };
+        let fragments = [previous.to_json(), sold.to_json()];
+        let text = write(&header, fragments.iter().map(String::as_str));
+        rig.host.meta.storage.insert(KEY, &text);
+        rig.own(sword, false, ints(&[(19, 2)]));
+        rig.login();
+        // The last log read, opened, its item read; then the records.
+        rig.ticks(3);
+        assert_eq!(rig.writes(), 0);
+        rig.tick();
+        assert!(rig.queue.is_empty());
+        assert!(rig.host.posted_text().is_empty());
+        let saved = rig.saved();
+        assert_eq!(saved.len(), 1);
+        assert!(saved[0].has_id_data);
+        assert_eq!(saved[0].last_id_time, 1234);
+        assert_eq!(saved[0].properties.ints, vec![(105, 9), (19, 2)]);
+    }
+
+    #[test]
+    fn a_log_of_an_unknown_version_is_never_overwritten() {
+        let mut rig = Rig::new();
+        let text = "{\"version\":2,\"items\":[]}";
+        rig.host.meta.storage.insert(KEY, text);
+        let sword = item(0x8000_0201, "Sword", ObjectClass::MeleeWeapon, PLAYER);
+        rig.own(sword, false, ItemProperties::default());
+        rig.own_things(3);
+        rig.login();
+        rig.ticks(5);
+        rig.logoff();
+        assert_eq!(rig.writes(), 0);
+        assert_eq!(rig.host.meta.storage.get(KEY).as_deref(), Some(text));
+        assert!(rig.queue.is_empty());
+    }
+
+    #[test]
+    fn a_corrupt_log_is_said_and_replaced() {
+        let mut rig = Rig::new();
+        rig.host
+            .meta
+            .storage
+            .insert(KEY, "{\"version\":1,\"items\":[{\"id\":");
+        rig.own_things(3);
+        rig.login();
+        rig.ticks(3);
+        assert_eq!(
+            rig.host.posted_text(),
+            vec!["<{Mag-Tools}>: Inventory file is corrupt.".to_owned()]
+        );
+        assert_eq!(rig.saved().len(), 3);
+    }
+
+    #[test]
+    fn a_change_heard_just_before_logoff_is_in_the_log() {
+        let mut rig = Rig::new();
+        let ring = item(0x8000_0101, "Ring", ObjectClass::Jewelry, PLAYER);
+        rig.own(ring.clone(), true, ItemProperties::default());
+        rig.own_things(3);
+        rig.login();
+        rig.tick();
+        // The ring goes into a side pack and a pyreal is given away, in the
+        // tick of the logoff.
+        rig.host.meta.owned_items[0].container_id = SIDE_PACK;
+        rig.change(
+            ObjectChangeKind::Moved,
+            Some(object(&ring, true)),
+            ring.object_id,
+        );
+        let gone = rig.host.meta.owned_items.remove(1).object_id;
+        rig.change(ObjectChangeKind::Released, None, gone);
+        let writes = rig.writes();
+        rig.logoff();
+        assert_eq!(rig.writes(), writes + 1, "written once");
+        let saved = rig.saved();
+        assert_eq!(saved.len(), 3);
+        assert_eq!(saved[0].container_id, SIDE_PACK);
+        assert!(saved.iter().all(|r| r.id != gone));
+    }
+
+    #[test]
+    fn more_changes_than_the_logoff_records_are_left_and_said() {
+        use mosstank_mag::inventory_log::LOGOFF_ITEMS;
+        let mut rig = Rig::new();
+        let count = u32::try_from(LOGOFF_ITEMS).unwrap() + 5;
+        rig.own_things(count);
+        rig.login();
+        rig.ticks(LOGOFF_ITEMS / 100 + 2);
+        assert!(rig.logger.is_built());
+        for at in 0..rig.host.meta.owned_items.len() {
+            rig.host.meta.owned_items[at].container_id = SIDE_PACK;
+            let id = rig.host.meta.owned_items[at].object_id;
+            let seen = object(&rig.host.meta.owned_items[at].clone(), false);
+            rig.change(ObjectChangeKind::Moved, Some(seen), id);
+        }
+        rig.logoff();
+        let saved = rig.saved();
+        let moved = saved.iter().filter(|r| r.container_id == SIDE_PACK).count();
+        assert_eq!(moved, LOGOFF_ITEMS);
+        let warned = rig.host.meta.logged(ac_plugin_abi::LogLevel::Warn);
+        assert!(
+            warned
+                .iter()
+                .any(|text| text.contains("without 5 items changed")),
+            "{warned:?}"
+        );
+    }
+
+    #[test]
+    fn the_kept_list_follows_moves_and_losses() {
+        let mut rig = Rig::new();
+        let ring = item(0x8000_0101, "Ring", ObjectClass::Jewelry, PLAYER);
+        rig.own(ring.clone(), true, ItemProperties::default());
+        rig.own_things(3);
+        rig.login();
+        rig.tick();
+        // The ring goes into a side pack; a pyreal is given away.
+        rig.host.meta.owned_items[0].container_id = SIDE_PACK;
+        rig.host.meta.owned_items[0].container_slot = 4;
+        rig.change(
+            ObjectChangeKind::Moved,
+            Some(object(&ring, true)),
+            ring.object_id,
+        );
+        let gone = rig.host.meta.owned_items.remove(1).object_id;
+        rig.change(ObjectChangeKind::Released, None, gone);
+        rig.tick();
+        rig.logoff();
+        let saved = rig.saved();
+        assert_eq!(saved.len(), 3);
+        assert_eq!(
+            (saved[0].container_id, saved[0].container_slot),
+            (SIDE_PACK, 4)
+        );
+        assert!(saved.iter().all(|r| r.id != gone));
+        // The kept list is the current inventory, for the search.
+        assert_eq!(rig.logger.records().count(), 3);
+    }
+
+    #[test]
+    fn a_log_of_an_unknown_version_without_items_is_never_overwritten() {
+        let mut rig = Rig::new();
+        let text = "{\"version\":2,\"records\":[]}";
+        rig.host.meta.storage.insert(KEY, text);
+        rig.own_things(3);
+        rig.login();
+        rig.ticks(5);
+        rig.logoff();
+        assert_eq!(rig.writes(), 0);
+        assert_eq!(rig.host.meta.storage.get(KEY).as_deref(), Some(text));
+        assert!(rig.host.posted_text().is_empty());
+    }
+
+    /// 250 pyreals, then the ring (recorded in the build's third tick).
+    fn mid_build_rig() -> (Rig, InventoryItem) {
+        let mut rig = Rig::new();
+        rig.own_things(250);
+        let ring = item(0x8000_0101, "Ring", ObjectClass::Jewelry, PLAYER);
+        rig.own(ring.clone(), true, ItemProperties::default());
+        rig.login();
+        rig.tick();
+        assert!(!rig.logger.is_built());
+        (rig, ring)
+    }
+
+    fn logged_off(mut rig: Rig) -> Vec<ItemRecord> {
+        rig.ticks(5);
+        rig.logoff();
+        rig.saved()
+    }
+
+    #[test]
+    fn an_item_moved_out_mid_build_is_not_logged() {
+        let (mut rig, ring) = mid_build_rig();
+        // Given away: the world still knows it, not as the character's.
+        rig.host
+            .meta
+            .owned_items
+            .retain(|i| i.object_id != ring.object_id);
+        let mut given = object(&ring, true);
+        given.is_owned = false;
+        given.container_id = 0x5000_0099;
+        rig.change(ObjectChangeKind::Moved, Some(given), ring.object_id);
+        let saved = logged_off(rig);
+        assert_eq!(saved.len(), 250);
+        assert!(saved.iter().all(|r| r.id != ring.object_id));
+    }
+
+    #[test]
+    fn an_item_released_mid_build_is_not_logged() {
+        let (mut rig, ring) = mid_build_rig();
+        rig.host
+            .meta
+            .owned_items
+            .retain(|i| i.object_id != ring.object_id);
+        rig.change(ObjectChangeKind::Released, None, ring.object_id);
+        let saved = logged_off(rig);
+        assert_eq!(saved.len(), 250);
+        assert!(saved.iter().all(|r| r.id != ring.object_id));
+    }
+
+    #[test]
+    fn an_item_changed_mid_build_is_logged_as_it_is_now() {
+        let mut rig = Rig::new();
+        let ring = item(0x8000_0101, "Ring", ObjectClass::Jewelry, PLAYER);
+        rig.own(ring.clone(), true, ItemProperties::default());
+        rig.own_things(250);
+        rig.login();
+        // Recorded in the first tick, moved before the build is done.
+        rig.tick();
+        rig.host.meta.owned_items[0].container_id = SIDE_PACK;
+        let mut moved = object(&ring, true);
+        moved.container_id = SIDE_PACK;
+        rig.change(ObjectChangeKind::Moved, Some(moved), ring.object_id);
+        let saved = logged_off(rig);
+        let kept = saved.iter().find(|r| r.id == ring.object_id).expect("kept");
+        assert_eq!(kept.container_id, SIDE_PACK);
+    }
+
+    #[test]
+    fn one_changed_item_is_not_a_heavy_tick() {
+        let mut rig = Rig::new();
+        let ring = item(0x8000_0101, "Ring", ObjectClass::Jewelry, PLAYER);
+        rig.own(ring.clone(), true, ItemProperties::default());
+        rig.own_things(3);
+        rig.login();
+        rig.tick();
+        rig.host.meta.owned_items[0].stack_size = 1;
+        rig.change(
+            ObjectChangeKind::Updated,
+            Some(object(&ring, true)),
+            ring.object_id,
+        );
+        let reads = rig.host.property_reads;
+        assert!(!rig.tick());
+        // Recorded again all the same.
+        assert_eq!(rig.host.property_reads, reads + 1);
+    }
+
+    #[test]
+    fn a_tick_waiting_for_the_character_is_not_heavy() {
+        let mut rig = Rig::new();
+        rig.own_things(3);
+        rig.host.meta.character = None;
+        rig.login();
+        assert!(!rig.tick());
+        assert!(!rig.tick());
+    }
+
+    #[test]
+    fn the_session_ending_forgets_everything() {
+        let mut rig = Rig::new();
+        rig.own_things(3);
+        rig.login();
+        rig.tick();
+        rig.logger.reset();
+        rig.ticks(3);
+        rig.logoff();
+        assert_eq!(rig.writes(), 1);
+        assert_eq!(rig.logger.records().count(), 0);
+    }
+}
+
+/// The slot bits come with the object's description, not the appraisal:
+/// the record keeps them for the Inventory window's Slot column and
+/// filters, and a file written before it kept them reads them as none.
+#[test]
+fn the_record_keeps_where_the_item_is_worn_and_what_it_covers() {
+    let mut item = ring_item();
+    item.valid_locations = 0x000C_0000;
+    item.coverage_mask = 0;
+    let mut coat = ring_item();
+    coat.object_id = SWORD;
+    coat.valid_locations = 512 | 1024;
+    coat.coverage_mask = 1024 | 2048;
+    let records: Vec<ItemRecord> = [item, coat]
+        .iter()
+        .map(|item| ItemRecord::from_live(item, Some(&seen(item, true)), &ring_properties(), 1))
+        .collect();
+    assert_eq!(records[0].valid_locations, 0x000C_0000);
+    assert_eq!(records[1].coverage_mask, 1024 | 2048);
+    let rebuilt = records[1].item();
+    assert_eq!(
+        (rebuilt.valid_locations, rebuilt.coverage_mask),
+        (512 | 1024, 1024 | 2048)
+    );
+    let (_, read_back) = read(&document(&records)).expect("the file reads");
+    assert_eq!(read_back, records);
+    // Written before: no such members.
+    let old = document(&records)
+        .replace("\"valid_locations\":786432,", "")
+        .replace("\"coverage_mask\":0,", "");
+    let (_, read_old) = read(&old).expect("an older file reads");
+    assert_eq!(
+        (read_old[0].valid_locations, read_old[0].coverage_mask),
+        (0, 0)
+    );
+    // A newer description's bits replace the kept appraisal's.
+    let mut newer = records[1].clone();
+    newer.has_id_data = false;
+    newer.valid_locations = 512;
+    assert_eq!(combine(records[1].clone(), newer).valid_locations, 512);
+}
+
+/// The kept record rebuilds the weapon numbers the loot rules read (the
+/// Inventory window's OD): from the appraisal's weapon profile as the
+/// client lists them, or from the properties without one.
+#[test]
+fn the_kept_record_rebuilds_the_weapon_numbers_the_loot_rules_read() {
+    let mut bow = ring_item();
+    bow.object_class = ObjectClass::MissileWeapon;
+    let profiled = ItemProperties {
+        weapon: Some(WeaponProfile {
+            damage_type: 2,
+            weapon_skill: 47,
+            damage: 18,
+            damage_variance: 0.25,
+            damage_mod: 2.7,
+            ..WeaponProfile::default()
+        }),
+        ..ItemProperties::default()
+    };
+    let mut axe = ring_item();
+    axe.object_class = ObjectClass::MeleeWeapon;
+    let plain = ItemProperties {
+        ints: vec![(44, 40), (45, 1), (48, 44)],
+        floats: vec![(22, 0.2)],
+        ..ItemProperties::default()
+    };
+    let records: Vec<ItemRecord> = [(&bow, &profiled), (&axe, &plain)]
+        .iter()
+        .map(|(item, properties)| {
+            ItemRecord::from_live(item, Some(&seen(item, true)), properties, 1)
+        })
+        .collect();
+    let (_, read_back) = read(&document(&records)).expect("the file reads");
+    let numbers = |item: InventoryItem| {
+        (
+            item.weapon_skill,
+            item.damage_type,
+            item.damage,
+            item.damage_variance,
+        )
+    };
+    assert_eq!(numbers(read_back[0].item()), (47, 2, 18, 0.25));
+    assert_eq!(numbers(read_back[1].item()), (44, 1, 40, 0.2));
+}
+
+/// The record keeps what only the item's description carried (the icon
+/// layers, effects, how it is used) and rebuilds the numbers its
+/// properties give (mana, gear ratings), as the client lists a live item;
+/// a file written before it kept the description reads it as none.
+#[test]
+fn the_kept_record_rebuilds_what_the_loot_rules_read() {
+    let mut rare = ring_item();
+    rare.icon_overlay_id = 0x0600_5B0C;
+    rare.icon_underlay_id = 0x0600_1F88;
+    rare.effects = 1;
+    rare.combat_use = 2;
+    rare.ammo_type = 4;
+    rare.use_radius = 2.5;
+    rare.items_capacity = 24;
+    rare.maximum_stack_size = 100;
+    rare.plural_name = "Test Rings".to_owned();
+    let properties = ItemProperties {
+        ints: vec![(107, 1200), (108, 1500), (370, 2), (374, 3), (171, 4)],
+        bools: vec![(91, true)],
+        ..ring_properties()
+    };
+    let record = ItemRecord::from_live(&rare, Some(&seen(&rare, true)), &properties, 1);
+    let (_, read_back) = read(&document(&[record])).expect("the file reads");
+    let kept = read_back[0].item();
+    assert_eq!(
+        (kept.icon_overlay_id, kept.icon_underlay_id, kept.effects),
+        (0x0600_5B0C, 0x0600_1F88, 1)
+    );
+    assert_eq!((kept.combat_use, kept.ammo_type), (2, 4));
+    assert!((kept.use_radius - 2.5).abs() < f32::EPSILON);
+    assert_eq!((kept.items_capacity, kept.maximum_stack_size), (24, 100));
+    assert_eq!(kept.plural_name, "Test Rings");
+    assert_eq!(
+        (kept.item_current_mana, kept.item_maximum_mana),
+        (1200, 1500)
+    );
+    assert_eq!((kept.gear_damage, kept.gear_critical_damage), (2, 3));
+    assert_eq!(kept.num_times_tinkered, 4);
+    assert!(kept.retained);
+    // Written before: no description kept; it reads, as none.
+    let plain = ItemRecord::from_live(
+        &ring_item(),
+        Some(&seen(&ring_item(), true)),
+        &ring_properties(),
+        1,
+    );
+    let text = document(&[plain]);
+    assert!(text.contains(",\"described\":{}"), "{text}");
+    let (_, old) = read(&text.replace(",\"described\":{}", "")).expect("an older file reads");
+    assert_eq!(old[0].item().icon_overlay_id, 0);
+}
+
+/// A newer, unappraised record keeps the older appraised one's description
+/// (a rare's overlay among it) unless a description came with it, as the
+/// header flags are kept.
+#[test]
+fn the_merge_keeps_the_older_description_until_a_newer_one_is_seen() {
+    let mut rare = ring_item();
+    rare.icon_overlay_id = 0x0600_5B0C;
+    let older = ItemRecord::from_live(&rare, Some(&seen(&rare, true)), &ring_properties(), 1);
+    // Listed again before its description arrived: no header, no overlay.
+    let mut listed = ring_item();
+    listed.header = None;
+    let newer = ItemRecord::from_live(
+        &listed,
+        Some(&seen(&listed, false)),
+        &ItemProperties::default(),
+        0,
+    );
+    assert_eq!(newer.weenie_header_flags, None);
+    let merged = combine(older.clone(), newer);
+    assert_eq!(merged.item().icon_overlay_id, 0x0600_5B0C);
+    assert_eq!(merged.weenie_header_flags, older.weenie_header_flags);
+    // Described again, without the overlay now: the newer description.
+    let described = ItemRecord::from_live(
+        &ring_item(),
+        Some(&seen(&ring_item(), false)),
+        &ItemProperties::default(),
+        0,
+    );
+    assert_eq!(combine(older, described).item().icon_overlay_id, 0);
+}

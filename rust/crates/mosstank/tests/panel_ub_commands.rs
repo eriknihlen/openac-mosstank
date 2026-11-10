@@ -389,6 +389,104 @@ fn a_portal_use_holds_the_route_until_portal_space_and_then_lets_it_go() {
     assert_eq!(vec![92, 92], world.requests::<calls::ItemsUse>());
 }
 
+// The owner's report (2026-11-09): a nav file's chat waypoint
+// "/ub use <vendor>" did nothing, because opening a vendor was refused while
+// the macro ran. It opens the vendor now, and the route is held still while
+// it does, as for a portal.
+#[test]
+fn a_routes_ub_use_on_a_vendor_opens_it_and_holds_the_route() {
+    use ac_plugin_abi::world::{ObjectClass, WorldObject};
+    use mosstank_formats::route::{
+        NavigationSettings, RouteMode, RouteWaypoint, RouteWaypointType,
+    };
+
+    let mut world = World::panel_character("Test Character");
+    let at = navigation_at(0.0).position;
+    world.set_reply::<calls::NavigationSnapshot>(&navigation_at(0.0));
+    let accepted = NavigationStatus::Accepted;
+    world.set_reply::<calls::NavigationSetIntent>(&accepted);
+    world.set_reply::<calls::NavigationClearIntent>(&accepted);
+    world.set_reply::<calls::NavigationFace>(&accepted);
+    world.set_reply::<calls::WorldObjects>(&vec![WorldObject {
+        object_id: 93,
+        name: "Shopkeeper".to_owned(),
+        object_class: ObjectClass::Vendor,
+        is_landscape: true,
+        position: Some(Position {
+            east_west: 5.0,
+            ..at.clone()
+        }),
+        ..WorldObject::default()
+    }]);
+    let route = NavigationSettings {
+        enabled: true,
+        mode: RouteMode::Once,
+        waypoints: vec![
+            RouteWaypoint {
+                kind: RouteWaypointType::ChatCommand,
+                position: at.clone(),
+                text: "/ub use Shopkeeper".to_owned(),
+                ..RouteWaypoint::default()
+            },
+            RouteWaypoint {
+                kind: RouteWaypointType::Point,
+                position: Position {
+                    north_south: 60.0,
+                    ..at.clone()
+                },
+                ..RouteWaypoint::default()
+            },
+        ],
+        ..NavigationSettings::default()
+    };
+    let saved = mosstank_formats::nav::save(&route).unwrap();
+    world.profiles.insert("mosstank/navs/Shop.nav", &saved);
+    let mut plugin = world.enable();
+    world.vt(&mut plugin, "nav load Shop");
+    world.vt(&mut plugin, "opt set EnableNav true");
+    world.with_tank(&mut plugin, |tank, client| {
+        tank.set_macro_running(client, true);
+    });
+
+    let submitted = |world: &World| {
+        world
+            .requests::<calls::ChatSubmit>()
+            .contains(&"/ub use Shopkeeper".to_owned())
+    };
+    for _ in 0..20 {
+        if submitted(&world) {
+            break;
+        }
+        tick(&mut world, &mut plugin, 0.05);
+    }
+    assert!(submitted(&world));
+    world.clear_chat();
+    ub(&mut world, &mut plugin, "use Shopkeeper");
+    let chat = world.chat();
+    assert!(
+        chat.contains(&"[UB] using Shopkeeper".to_owned()),
+        "{chat:?}"
+    );
+    assert!(
+        !chat.iter().any(|line| line.contains("route owns")),
+        "{chat:?}"
+    );
+    let walks_before = forward_walks(&world);
+
+    // Three seconds of frames: the vendor is used, and the route does not
+    // walk toward the point past it.
+    for frame in 0..60 {
+        tick(&mut world, &mut plugin, 0.05);
+        assert_eq!(
+            walks_before,
+            forward_walks(&world),
+            "the route walked toward the point past the vendor at frame {frame}"
+        );
+        assert!(navigation_locked(&plugin));
+    }
+    assert_eq!(vec![93], world.requests::<calls::ItemsUse>());
+}
+
 /// The character standing at the origin facing north, with the Gateway five
 /// map units east, every movement taken.
 fn beside_the_gateway() -> (World, MossTank) {
