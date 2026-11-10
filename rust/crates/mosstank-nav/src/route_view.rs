@@ -74,25 +74,25 @@ fn recorded_object(waypoint: &RouteWaypoint) -> Option<&Position> {
 
 /// Where a waypoint is drawn, or `None` when it is not a place on the
 /// route. A point, a checkpoint, a portal and a jump are where the
-/// character stands. A portal or NPC found by name and a vendor are where
-/// the object was recorded (not where the character stood when the
-/// waypoint was written): the character walks to the object to use it.
-/// One with no recorded object position is not drawn. A chat command, a
-/// pause and a recall are done where the character is: their position is
-/// wherever it was when they were added, often far from the route, and the
-/// steering never goes there.
+/// character stands. A portal or NPC found by name is where the object was
+/// recorded (not where the character stood when the waypoint was written):
+/// the character walks to the object to use it. One with no recorded
+/// object position is not drawn. A chat command, a pause and a recall are
+/// done where the character is: their position is wherever it was when
+/// they were added, often far from the route, and the steering never goes
+/// there. A vendor is walked to as well, but neither route file keeps
+/// where it stands, so it is passed over like them.
 fn drawn_place(waypoint: &RouteWaypoint) -> Option<&Position> {
     match waypoint.kind {
         RouteWaypointType::Point
         | RouteWaypointType::Checkpoint
         | RouteWaypointType::Portal
         | RouteWaypointType::Jump => Some(&waypoint.position),
-        RouteWaypointType::PortalByName
-        | RouteWaypointType::UseNpc
-        | RouteWaypointType::OpenVendor => recorded_object(waypoint),
-        RouteWaypointType::Pause | RouteWaypointType::ChatCommand | RouteWaypointType::Recall => {
-            None
-        }
+        RouteWaypointType::PortalByName | RouteWaypointType::UseNpc => recorded_object(waypoint),
+        RouteWaypointType::Pause
+        | RouteWaypointType::ChatCommand
+        | RouteWaypointType::Recall
+        | RouteWaypointType::OpenVendor => None,
     }
 }
 
