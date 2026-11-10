@@ -201,7 +201,7 @@ fn every_row_is_written_to_the_tier_its_scope_declares_and_to_no_other() {
             .count()
     };
     assert_eq!(count(UbSettingScope::Global), 17);
-    assert_eq!(count(UbSettingScope::Profile), 173);
+    assert_eq!(count(UbSettingScope::Profile), 174);
     assert_eq!(count(UbSettingScope::Character), 10);
 }
 
@@ -395,7 +395,7 @@ fn categories_come_back_in_order_with_their_rows() {
     let catalog = catalog();
     assert_eq!(catalog.categories().len(), 18);
     assert_eq!(catalog.categories()[0], "Aliases");
-    assert_eq!(catalog.settings().len(), 200);
+    assert_eq!(catalog.settings().len(), 201);
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/UbSettingValueTests.cs :: EachShapeKeepsItsOwnKindAndPayload
@@ -734,7 +734,7 @@ const NAMED_HERE: [(&str, &str); 6] = [
 
 const SAME_SWITCH: &str = "The same switch is already on the Options page and in the option catalogue; a second row would be a second copy of one value.";
 
-const EXCLUDED: [(&str, &str); 29] = [
+const EXCLUDED: [(&str, &str); 28] = [
     (
         "ItemInfo.DescribeOnLoot",
         "It describes what UtilityBelt's chest looter takes; the looter here does not describe what it takes.",
@@ -836,10 +836,6 @@ const EXCLUDED: [(&str, &str); 29] = [
     (
         "Looter.JumpHeight",
         "It is how high the jump looting jumps, and it goes with the switch above it.",
-    ),
-    (
-        "Looter.AutoSalvageAfterLooting",
-        "The salvage pass after looting is not brought over; a salvage verdict loots the item and leaves it whole.",
     ),
     (
         "Looter.TestMode",
@@ -988,6 +984,7 @@ const FLAT_DEFAULTS: &[(&str, &str)] = &[
     ("Looter.MaxOpenAttempts", "10"),
     ("Looter.MaxUnlockAttempts", "10"),
     ("Looter.AttemptsBeforeBlacklisting", "500"),
+    ("Looter.AutoSalvageAfterLooting", "False"),
     ("Looter.DelaySpeed", "1000"),
     ("Looter.OverallSpeed", "100"),
     // Mag-Tools' SettingsManager.cs defaults; the inventory logger and the
@@ -1186,9 +1183,9 @@ fn every_setting_the_in_scope_tools_declare_is_on_the_tab_or_excluded_with_a_rea
         "on the tab but not declared: {unaccounted:?}"
     );
 
-    // 214 declared, 29 excluded, our own additions: the arithmetic is stated.
-    assert_eq!(excluded.len(), 29);
-    assert_eq!(should_be_on_the_tab.len(), 185);
+    // 214 declared, 28 excluded, our own additions: the arithmetic is stated.
+    assert_eq!(excluded.len(), 28);
+    assert_eq!(should_be_on_the_tab.len(), 186);
     assert_eq!(
         should_be_on_the_tab.len() + added_here.len(),
         on_the_tab.len()

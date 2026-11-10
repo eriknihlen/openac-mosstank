@@ -655,6 +655,460 @@ fn ub_use_on_a_pack_only_opens_it() {
     assert!(!looter(&rig).is_running());
 }
 
+// ---- the salvage pass after looting ----------------------------------------
+
+const UST: u32 = 0x5000_0900;
+const AUTO_SALVAGE: &str = "Looter.AutoSalvageAfterLooting";
+
+/// An item salvage can be made from.
+fn with_material(id: u32, name: &str) -> InventoryItem {
+    InventoryItem {
+        material_type: 12,
+        ..loose(id, name)
+    }
+}
+
+/// The looter and the salvage pass on, a Ust carried, a chest holding
+/// `items`.
+fn salvage_rig(items: Vec<InventoryItem>) -> Rig {
+    let mut rig = enabled();
+    set(&mut rig, AUTO_SALVAGE, "True");
+    profile(&mut rig);
+    rig.host.meta.owned_items = vec![carried(UST, "Ust")];
+    place(&mut rig, chest(), items, true);
+    rig
+}
+
+/// A chest holding one item with no appraisal, under a rule that salvages
+/// everything and so needs none to judge it: the item is taken unappraised.
+fn unappraised_salvage_rig() -> Rig {
+    let mut rig = salvage_rig(Vec::new());
+    let mut everything = LootRule::default();
+    "Everything".clone_into(&mut everything.name);
+    everything.action = LootAction::Salvage;
+    rig.services.active_loot_rules = Some(vec![everything]);
+    place(
+        &mut rig,
+        chest(),
+        vec![with_material(11, "Steel Salvage")],
+        false,
+    );
+    rig
+}
+
+/// Takes the salvage the client was just asked for off the packs.
+fn land_salvage(rig: &mut Rig) -> Option<(u32, Vec<u32>)> {
+    let salvage = rig.host.meta.last_salvage.take()?;
+    rig.host
+        .meta
+        .owned_items
+        .retain(|item| !salvage.1.contains(&item.object_id));
+    Some(salvage)
+}
+
+/// Frames of 0.1 s with the server answering opens, closes, pickups and
+/// salvages; every salvage asked for, in order.
+fn serve_salvage(rig: &mut Rig, count: usize) -> Vec<(u32, Vec<u32>)> {
+    let mut salvages = Vec::new();
+    for _ in 0..count {
+        tick(rig, 0.1);
+        arrive(rig);
+        serve_use(rig);
+        salvages.extend(land_salvage(rig));
+    }
+    salvages
+}
+
+fn owned_ids(rig: &Rig) -> Vec<u32> {
+    rig.host
+        .meta
+        .owned_items
+        .iter()
+        .map(|item| item.object_id)
+        .collect()
+}
+
+#[test]
+fn ub_use_with_the_switch_on_salvages_only_what_a_salvage_rule_took() {
+    let mut rig = salvage_rig(vec![
+        with_material(10, "Red Gem"),
+        with_material(11, "Steel Salvage"),
+    ]);
+
+    rig.ub("use Chest");
+    let salvages = serve_salvage(&mut rig, 60);
+
+    assert_eq!(vec![10, 11], rig.host.pickups);
+    assert_eq!(vec![(UST, vec![11])], salvages);
+    assert_eq!(vec![UST, 10], owned_ids(&rig));
+    assert!(!looter(&rig).is_running());
+    let messages = rig.messages();
+    assert_eq!(3, messages.len(), "{messages:?}");
+    assert_eq!("[UB] using Chest", messages[0]);
+    assert_eq!("[UB] AutoSalvage: complete.", messages[1]);
+    assert!(
+        messages[2].ends_with(" Scanned 2 items and looted 2 items"),
+        "{messages:?}"
+    );
+}
+
+#[test]
+fn every_item_is_salvaged_one_at_a_time_after_the_chest_has_closed() {
+    let mut rig = salvage_rig(vec![
+        with_material(11, "Steel Salvage"),
+        with_material(12, "Iron Salvage"),
+    ]);
+
+    rig.ub("use Chest");
+    for _ in 0..30 {
+        tick(&mut rig, 0.1);
+        arrive(&mut rig);
+        serve_use(&mut rig);
+        if rig.host.meta.last_salvage.is_some() {
+            break;
+        }
+    }
+    assert_eq!(vec![CHEST], rig.host.closed_loot);
+    assert_eq!(0, rig.host.meta.open_container);
+    assert_eq!(Some((UST, vec![11])), land_salvage(&mut rig));
+
+    assert_eq!(vec![(UST, vec![12])], serve_salvage(&mut rig, 30));
+}
+
+#[test]
+fn the_switch_is_off_until_it_is_turned_on() {
+    let mut rig = salvage_rig(vec![with_material(11, "Steel Salvage")]);
+    set(&mut rig, AUTO_SALVAGE, "False");
+
+    rig.ub("use Chest");
+    let salvages = serve_salvage(&mut rig, 60);
+
+    assert_eq!(vec![11], rig.host.pickups);
+    assert!(salvages.is_empty());
+    assert_eq!(vec![UST, 11], owned_ids(&rig));
+}
+
+#[test]
+fn a_chest_opened_by_hand_is_looted_and_not_salvaged() {
+    let mut rig = salvage_rig(vec![with_material(11, "Steel Salvage")]);
+    open(&mut rig, CHEST);
+
+    let salvages = serve_salvage(&mut rig, 60);
+
+    assert_eq!(vec![11], rig.host.pickups);
+    assert!(salvages.is_empty());
+    assert_eq!(vec![UST, 11], owned_ids(&rig));
+}
+
+#[test]
+fn the_own_corpse_is_never_salvaged() {
+    let mut rig = salvage_rig(Vec::new());
+    place(
+        &mut rig,
+        container(CORPSE, "Corpse of Tester", ObjectClass::Corpse, 120),
+        vec![with_material(11, "Steel Salvage")],
+        true,
+    );
+
+    rig.ub("use Corpse of Tester");
+    let salvages = serve_salvage(&mut rig, 60);
+
+    assert_eq!(vec![11], rig.host.pickups);
+    assert!(salvages.is_empty());
+}
+
+#[test]
+fn a_monsters_corpse_named_by_ub_use_is_salvaged() {
+    let mut rig = salvage_rig(Vec::new());
+    place(
+        &mut rig,
+        container(CORPSE, "Corpse of Drudge Skulker", ObjectClass::Corpse, 120),
+        vec![with_material(11, "Steel Salvage")],
+        true,
+    );
+
+    rig.ub("use Corpse of Drudge Skulker");
+
+    assert_eq!(vec![(UST, vec![11])], serve_salvage(&mut rig, 60));
+}
+
+#[test]
+fn what_is_not_safe_to_destroy_is_left_whole() {
+    let mut rig = salvage_rig(vec![
+        InventoryItem {
+            retained: true,
+            ..with_material(20, "Salvage Retained")
+        },
+        with_material(21, "Salvage Inscribed"),
+        with_material(22, "Salvage Sticky"),
+        InventoryItem {
+            num_times_tinkered: 2,
+            ..with_material(23, "Salvage Tinkered")
+        },
+        InventoryItem {
+            imbued_effect: 2,
+            ..with_material(24, "Salvage Imbued")
+        },
+        loose(25, "Salvage No Material"),
+        InventoryItem {
+            object_class: ObjectClass::Salvage,
+            ..with_material(26, "Salvage Bag")
+        },
+        InventoryItem {
+            object_class: ObjectClass::Container,
+            ..with_material(27, "Salvage Pack")
+        },
+        InventoryItem {
+            object_class: ObjectClass::Foci,
+            ..with_material(28, "Salvage Foci")
+        },
+        with_material(29, "Salvage Plain"),
+        InventoryItem {
+            equipped_location: 1,
+            ..with_material(30, "Salvage Worn")
+        },
+        InventoryItem {
+            wielder_id: 1,
+            ..with_material(31, "Salvage Wielded")
+        },
+    ]);
+    rig.host.meta.properties.insert(
+        21,
+        ItemProperties {
+            strings: vec![(7, "Made for Tester".to_owned())],
+            ..ItemProperties::default()
+        },
+    );
+    rig.host.meta.properties.insert(
+        22,
+        ItemProperties {
+            ints: vec![(114, 2)],
+            ..ItemProperties::default()
+        },
+    );
+
+    rig.ub("use Chest");
+
+    assert_eq!(vec![(UST, vec![29])], serve_salvage(&mut rig, 100));
+}
+
+#[test]
+fn nothing_is_salvaged_without_a_ust_and_the_run_says_so() {
+    let mut rig = salvage_rig(vec![with_material(11, "Steel Salvage")]);
+    rig.host.meta.owned_items.clear();
+
+    rig.ub("use Chest");
+    let salvages = serve_salvage(&mut rig, 60);
+
+    assert!(salvages.is_empty());
+    assert_eq!(vec![11], owned_ids(&rig));
+    assert!(!looter(&rig).is_running());
+    let messages = rig.messages();
+    assert_eq!(4, messages.len(), "{messages:?}");
+    assert_eq!(
+        "[UB] Error: AutoSalvage: No ust in inventory, can't salvage.",
+        messages[1]
+    );
+    assert_eq!("[UB] AutoSalvage: complete.", messages[2]);
+}
+
+#[test]
+fn the_item_is_appraised_in_hand_before_it_is_judged_safe() {
+    let mut rig = unappraised_salvage_rig();
+
+    rig.ub("use Chest");
+    let salvages = serve_salvage(&mut rig, 40);
+    assert!(salvages.is_empty());
+    // Taken without one, and asked about now that it is in the pack.
+    assert_eq!(vec![UST, 11], owned_ids(&rig));
+    assert_eq!(vec![CHEST, 11], rig.host.identified);
+    assert!(looter(&rig).is_running());
+
+    // The appraisal is what shows it is retained.
+    for object in &mut rig.host.meta.objects {
+        if object.object_id == 11 {
+            object.has_appraisal_data = true;
+        }
+    }
+    for item in &mut rig.host.meta.owned_items {
+        if item.object_id == 11 {
+            item.retained = true;
+        }
+    }
+
+    assert!(serve_salvage(&mut rig, 20).is_empty());
+    assert!(!looter(&rig).is_running());
+    assert_eq!(vec![UST, 11], owned_ids(&rig));
+}
+
+#[test]
+fn an_item_that_never_answers_an_appraisal_is_left_whole() {
+    let mut rig = unappraised_salvage_rig();
+
+    rig.ub("use Chest");
+    let salvages = serve_salvage(&mut rig, 400);
+
+    assert!(salvages.is_empty());
+    assert_eq!(vec![UST, 11], owned_ids(&rig));
+    assert_eq!(vec![CHEST, 11, 11, 11], rig.host.identified);
+    assert!(!looter(&rig).is_running());
+}
+
+#[test]
+fn a_salvage_that_never_lands_is_given_up_on_and_the_run_ends() {
+    let mut rig = salvage_rig(vec![
+        with_material(11, "Steel Salvage"),
+        with_material(12, "Iron Salvage"),
+    ]);
+
+    rig.ub("use Chest");
+    let mut asked = Vec::new();
+    for _ in 0..150 {
+        tick(&mut rig, 0.1);
+        arrive(&mut rig);
+        serve_use(&mut rig);
+        asked.extend(rig.host.meta.last_salvage.take());
+    }
+
+    assert_eq!(vec![(UST, vec![11]), (UST, vec![12])], asked);
+    assert!(!looter(&rig).is_running());
+}
+
+#[test]
+fn a_busy_client_holds_the_salvage_back() {
+    let mut rig = salvage_rig(vec![with_material(11, "Steel Salvage")]);
+
+    rig.ub("use Chest");
+    // Through the looting and the closing, up to the pass.
+    for _ in 0..30 {
+        tick(&mut rig, 0.1);
+        arrive(&mut rig);
+        serve_use(&mut rig);
+        if rig.host.meta.open_container == 0 && !rig.host.closed_loot.is_empty() {
+            break;
+        }
+    }
+    rig.host.meta.item_state.is_busy = true;
+    let after = serve_salvage(&mut rig, 20);
+    assert_eq!(
+        Vec::<(u32, Vec<u32>)>::new(),
+        after,
+        "{:?}",
+        rig.host
+            .meta
+            .owned_items
+            .iter()
+            .map(|i| (i.object_id, i.retained))
+            .collect::<Vec<_>>()
+    );
+    assert!(looter(&rig).is_running());
+
+    rig.host.meta.item_state.is_busy = false;
+    assert_eq!(vec![(UST, vec![11])], serve_salvage(&mut rig, 10));
+}
+
+#[test]
+fn another_container_opening_ends_the_pass() {
+    let mut rig = salvage_rig(vec![with_material(11, "Steel Salvage")]);
+
+    rig.ub("use Chest");
+    for _ in 0..30 {
+        tick(&mut rig, 0.1);
+        arrive(&mut rig);
+        serve_use(&mut rig);
+        if rig.host.meta.open_container == 0 && !rig.host.closed_loot.is_empty() {
+            break;
+        }
+    }
+    rig.host.closed_loot.clear();
+    open(&mut rig, 0x7000_0099);
+    for _ in 0..10 {
+        tick(&mut rig, 0.1);
+    }
+
+    assert!(rig.host.meta.last_salvage.is_none());
+    assert!(!looter(&rig).is_running());
+    let messages = rig.messages();
+    assert_eq!("[UB] AutoSalvage: bailing, vendor is open.", messages[1]);
+    assert_eq!("[UB] AutoSalvage: complete.", messages[2]);
+}
+
+#[test]
+fn the_think_switch_thinks_the_end_of_the_pass() {
+    let mut rig = salvage_rig(vec![with_material(11, "Steel Salvage")]);
+    set(&mut rig, "AutoSalvage.Think", "True");
+
+    rig.ub("use Chest");
+    serve_salvage(&mut rig, 60);
+
+    assert!(
+        rig.host
+            .meta
+            .submitted
+            .contains(&"/t Tester, AutoSalvage: complete.".to_owned()),
+        "{:?}",
+        rig.host.meta.submitted
+    );
+    assert!(
+        !rig.messages()
+            .contains(&"[UB] AutoSalvage: complete.".to_owned())
+    );
+}
+
+#[test]
+fn the_pass_holds_the_macros_salvage_and_lets_go_when_it_ends() {
+    let mut rig = salvage_rig(vec![with_material(11, "Steel Salvage")]);
+
+    rig.ub("use Chest");
+    for _ in 0..60 {
+        tick(&mut rig, 0.1);
+        arrive(&mut rig);
+        serve_use(&mut rig);
+        if rig.host.meta.last_salvage.is_some() {
+            break;
+        }
+    }
+    assert!(rig.locks.borrow_mut().is_locked(ActionLockKind::Salvage));
+
+    land_salvage(&mut rig);
+    serve_salvage(&mut rig, 10);
+    assert!(!looter(&rig).is_running());
+    assert!(!rig.locks.borrow_mut().is_locked(ActionLockKind::Salvage));
+}
+
+#[test]
+fn the_key_looter_salvages_each_round_before_the_next_key() {
+    let mut rig = key_rig();
+    set(&mut rig, AUTO_SALVAGE, "True");
+    rig.host.meta.owned_items.push(carried(UST, "Ust"));
+    rig.host.meta.objects.push(WorldObject {
+        object_id: 11,
+        name: "Steel Salvage".to_owned(),
+        has_appraisal_data: true,
+        ..WorldObject::default()
+    });
+    rig.host.loot_contents = vec![with_material(11, "Steel Salvage")];
+    let mut server = KeyServer::new(0);
+
+    rig.ub("keyloot Legendary Key");
+    for _ in 0..40 {
+        tick(&mut rig, 0.1);
+        server.serve(&mut rig);
+        if rig.host.meta.last_salvage.is_some() {
+            break;
+        }
+    }
+    assert_eq!(1, rig.host.applied.len());
+
+    // While the salvage is under way no second key is tried.
+    serve(&mut rig, &mut server, 10);
+    assert_eq!(1, rig.host.applied.len());
+
+    assert_eq!(Some((UST, vec![11])), land_salvage(&mut rig));
+    serve(&mut rig, &mut server, 40);
+    assert_eq!(vec![(KEY_ONE, CHEST), (KEY_TWO, CHEST)], rig.host.applied);
+}
+
 // ---- the key looter --------------------------------------------------------
 
 /// A server for key looting: a key that fits turns the lock and is used

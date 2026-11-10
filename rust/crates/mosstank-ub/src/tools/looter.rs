@@ -17,11 +17,17 @@
 //! The verdict on an item is the macro's own rule engine's
 //! ([`UbHost::loot_decide`], the one the corpse looter uses), over the rules
 //! of the active loot profile: Keep, Keep # (up to its count, counting what
-//! is owned and what is on its way) and Salvage take the item (a salvage
-//! verdict loots the item; nothing is salvaged here), anything else leaves
-//! it. An item whose verdict turns on an appraisal is appraised first, one
-//! at a time. Everything in the character's own corpse is taken, as the
+//! is owned and what is on its way) and Salvage take the item, anything else
+//! leaves it. An item whose verdict turns on an appraisal is appraised first,
+//! one at a time. Everything in the character's own corpse is taken, as the
 //! reference takes it.
+//!
+//! With `Looter.AutoSalvageAfterLooting` on, a run of `/ub use` or the key
+//! looter that took anything by a Salvage rule then salvages it, one item at
+//! a time, once the container has closed; never the character's own corpse,
+//! and never a container the player opened. Each item is appraised in hand
+//! and judged again first, and what is not safe to destroy
+//! ([`is_safe_to_salvage`]) is left whole.
 //!
 //! What the reference reads off the server's messages is read off the
 //! client here: a chest's Locked property (the server's property update or
@@ -35,7 +41,7 @@
 use std::collections::HashSet;
 
 use ac_plugin_abi::items::{InventoryItem, ItemStatus};
-use ac_plugin_abi::world::{ObjectClass, WorldObject};
+use ac_plugin_abi::world::{ItemProperties, ObjectClass, WorldObject};
 use mosstank_automation::locks::ActionLockKind;
 use mosstank_dotnet::text::ordinal;
 use mosstank_formats::utl::{LootAction, LootRule};
@@ -60,6 +66,10 @@ pub const MAX_OPEN_ATTEMPTS: &str = "Looter.MaxOpenAttempts";
 pub const MAX_UNLOCK_ATTEMPTS: &str = "Looter.MaxUnlockAttempts";
 /// How many steps one item is tried before it is given up on.
 pub const ATTEMPTS_BEFORE_BLACKLISTING: &str = "Looter.AttemptsBeforeBlacklisting";
+/// Salvage what a Salvage rule took, after `/ub use` or the key looter.
+pub const AUTO_SALVAGE_AFTER_LOOTING: &str = "Looter.AutoSalvageAfterLooting";
+/// Think the end of the salvage pass instead of printing it.
+pub const AUTO_SALVAGE_THINK: &str = "AutoSalvage.Think";
 /// The pause between tries at unlocking, opening and closing, milliseconds.
 pub const DELAY_SPEED: &str = "Looter.DelaySpeed";
 /// How often the looter steps, milliseconds.
@@ -88,6 +98,18 @@ pub const IDENTIFY_TIMEOUT_SECONDS: f64 = 10.0;
 /// How many times one item is asked about before it is judged on what is
 /// known.
 pub const MAXIMUM_IDENTIFY_ATTEMPTS: i32 = 3;
+/// How long the salvage pass waits after the container has closed.
+pub const SALVAGE_START_DELAY_SECONDS: f64 = 0.5;
+/// How long one salvage is waited for before the next item is taken up.
+pub const SALVAGE_TIMEOUT_SECONDS: f64 = 4.0;
+/// How long the pass holds the macro's own salvaging.
+pub const SALVAGE_HOLD_SECONDS: f64 = 10.0;
+/// The tool the pass salvages with.
+pub const SALVAGE_TOOL_NAME: &str = "Ust";
+/// The integer property that says how an item is attuned.
+pub const ATTUNED_PROPERTY: u32 = 114;
+/// The text property an item's inscription is kept under.
+pub const INSCRIPTION_PROPERTY: u32 = 7;
 
 /// The words that call a key-loot run off.
 const STOP_WORDS: [&str; 4] = ["stop", "cancel", "quit", "abort"];
@@ -134,6 +156,8 @@ pub enum LooterState {
     Looting,
     /// Asking the container to close.
     Closing,
+    /// Salvaging what a Salvage rule took.
+    Salvaging,
 }
 
 /// How the run under way began (`runtype`).
@@ -236,6 +260,14 @@ pub struct ChestLooter {
     locked_at_round_start: bool,
     unlocked_this_round: bool,
     asked_about_container: bool,
+    /// A Salvage rule took something this round.
+    need_to_salvage: bool,
+    /// What the salvage pass has still to look at.
+    salvage_ids: Vec<u32>,
+    /// The item whose salvage is under way, 0 for none.
+    salvage_pending: u32,
+    /// The pause before the pass is over.
+    salvage_begun: bool,
     passive_seen: u32,
     holds: Vec<ActionLockKind>,
     page_key: String,
@@ -281,6 +313,10 @@ impl ChestLooter {
             locked_at_round_start: false,
             unlocked_this_round: false,
             asked_about_container: false,
+            need_to_salvage: false,
+            salvage_ids: Vec::new(),
+            salvage_pending: 0,
+            salvage_begun: false,
             passive_seen: 0,
             holds: Vec::new(),
             page_key: String::new(),
@@ -380,10 +416,12 @@ impl ChestLooter {
         match self.state {
             LooterState::Done => {}
             LooterState::Closed => {
-                if self.owned_container {
-                    self.finish(call, true, false);
-                } else {
+                if !self.owned_container {
                     self.state = LooterState::Done;
+                } else if self.salvages_after_looting(call) {
+                    self.begin_salvage();
+                } else {
+                    self.finish(call, true, false);
                 }
             }
             LooterState::Locked => {
@@ -403,6 +441,7 @@ impl ChestLooter {
             LooterState::Open => self.open(call, pacing),
             LooterState::Looting => self.looting(call, pacing),
             LooterState::Closing => self.closing(call, pacing),
+            LooterState::Salvaging => self.salvaging(call),
         }
     }
 
@@ -833,6 +872,166 @@ impl ChestLooter {
         }
     }
 
+    // ---- the salvage pass -----------------------------------------------
+
+    /// Whether the round ends in a salvage pass: the switch on, a Salvage
+    /// rule took something, and it was not the character's own corpse.
+    fn salvages_after_looting(&self, call: &UbCall<'_>) -> bool {
+        call.flag(AUTO_SALVAGE_AFTER_LOOTING)
+            && self.need_to_salvage
+            && self.kind != ContainerKind::MyCorpse
+    }
+
+    /// Everything the round took is looked at again, in hand.
+    fn begin_salvage(&mut self) {
+        self.salvage_ids = self
+            .items
+            .iter()
+            .filter(|entry| entry.state == ItemState::Looted)
+            .map(|entry| entry.item.object_id)
+            .collect();
+        self.since_attempt = 0.0;
+        self.state = LooterState::Salvaging;
+    }
+
+    /// One step of the pass (`looterstate.Salvaging`, `AutoSalvage`): every
+    /// item appraised, then the salvages one at a time. The next round of a
+    /// key-loot run waits for the end of this.
+    fn salvaging(&mut self, call: &mut UbCall<'_>) {
+        if !self.salvage_begun {
+            if self.since_attempt < SALVAGE_START_DELAY_SECONDS {
+                return;
+            }
+            self.salvage_begun = true;
+        }
+        if call.host.open_container() != 0 {
+            call.post_ub(&chat::tool(tools::AUTO_SALVAGE, "bailing, vendor is open."));
+            self.end_salvage(call);
+            return;
+        }
+        let owned = call.host.owned_items_shared();
+        if self.appraising_for_salvage(call, &owned) {
+            return;
+        }
+        if self.salvage_pending != 0 {
+            let pending = self.salvage_pending;
+            if self.since_attempt < SALVAGE_TIMEOUT_SECONDS
+                && owned.iter().any(|item| item.object_id == pending)
+            {
+                return;
+            }
+            self.salvage_pending = 0;
+        }
+        let Some(tool) = owned
+            .iter()
+            .find(|item| item.name == SALVAGE_TOOL_NAME)
+            .map(|item| item.object_id)
+        else {
+            call.write_ub_error(&format!(
+                "{}: No ust in inventory, can't salvage.",
+                tools::AUTO_SALVAGE
+            ));
+            self.end_salvage(call);
+            return;
+        };
+        self.hold_macro_salvage(call);
+        while let Some(&object_id) = self.salvage_ids.first() {
+            if !self.may_salvage(call, object_id, &owned) {
+                self.salvage_ids.remove(0);
+                continue;
+            }
+            if call.host.item_state().is_busy {
+                return;
+            }
+            let result = call.host.salvage(tool, vec![object_id]);
+            if result.status == ItemStatus::Busy {
+                return;
+            }
+            self.salvage_ids.remove(0);
+            if result.accepted() {
+                self.salvage_pending = object_id;
+                self.since_attempt = 0.0;
+                return;
+            }
+        }
+        self.end_salvage(call);
+    }
+
+    /// Appraises what the pass has to look at, one at a time, for what only
+    /// an appraisal shows; true while one is still being asked about. An
+    /// item that never answers stays unappraised, and so is not salvaged.
+    fn appraising_for_salvage(&mut self, call: &mut UbCall<'_>, owned: &[InventoryItem]) -> bool {
+        if let Some((object_id, false)) = self.settled_appraisal(call)
+            && let Some(index) = self.index_of(object_id)
+        {
+            self.items[index].identify_attempts += 1;
+        }
+        if self.awaiting_identify != 0 {
+            return true;
+        }
+        for object_id in self.salvage_ids.clone() {
+            if !owned.iter().any(|item| item.object_id == object_id) {
+                continue;
+            }
+            let Some(index) = self.index_of(object_id) else {
+                continue;
+            };
+            let appraised = call
+                .host
+                .object(object_id)
+                .is_some_and(|known| known.has_appraisal_data);
+            if !appraised && self.items[index].identify_attempts < MAXIMUM_IDENTIFY_ATTEMPTS {
+                self.request_appraisal(call, index);
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Whether an item is still carried, appraised, safe to destroy, and
+    /// what a Salvage rule says to salvage.
+    fn may_salvage(&self, call: &mut UbCall<'_>, object_id: u32, owned: &[InventoryItem]) -> bool {
+        let Some(item) = owned.iter().find(|item| item.object_id == object_id) else {
+            return false;
+        };
+        let appraised = call
+            .host
+            .object(object_id)
+            .is_some_and(|known| known.has_appraisal_data);
+        if !appraised {
+            return false;
+        }
+        let properties = call.host.properties(object_id).unwrap_or_default();
+        is_safe_to_salvage(item, &properties)
+            && call
+                .host
+                .loot_decide(item, &properties, &self.rules, owned)
+                .is_some_and(|decision| decision.action == LootAction::Salvage)
+    }
+
+    /// Holds the macro's own salvaging once, for as long as the reference
+    /// holds it.
+    fn hold_macro_salvage(&mut self, call: &mut UbCall<'_>) {
+        if self.holds.contains(&ActionLockKind::Salvage) {
+            return;
+        }
+        let mut locks = call.locks.borrow_mut();
+        if !locks.is_locked(ActionLockKind::Salvage) {
+            locks.arm(ActionLockKind::Salvage, SALVAGE_HOLD_SECONDS);
+            self.holds.push(ActionLockKind::Salvage);
+        }
+    }
+
+    /// The pass's last line, then the round's end.
+    fn end_salvage(&mut self, call: &mut UbCall<'_>) {
+        if call.flag(AUTO_SALVAGE_THINK) {
+            call.think(&format!("{}: complete.", tools::AUTO_SALVAGE));
+        } else {
+            call.post_ub(&chat::tool(tools::AUTO_SALVAGE, "complete."));
+        }
+        self.finish(call, true, false);
+    }
+
     // ---- judging --------------------------------------------------------
 
     /// The contents as the run's items: the own corpse's are all taken,
@@ -863,33 +1062,17 @@ impl ChestLooter {
     /// appraisal is appraised first, one at a time, through the appraisal
     /// slot the corpse looter shares.
     fn judge_next(&mut self, call: &mut UbCall<'_>) {
-        if self.awaiting_identify != 0 {
-            let awaited = self.awaiting_identify;
-            let arrived = call
-                .host
-                .object(awaited)
-                .is_some_and(|known| known.has_appraisal_data);
-            // A give-up counts only when it came after this request: the slot
-            // goes on naming an item given up on before.
-            let appraisal = call.host.appraisal();
-            let given_up = (appraisal.last_abandoned_id == awaited
-                && appraisal.revision > self.awaiting_revision)
-                || self.awaiting_seconds >= IDENTIFY_TIMEOUT_SECONDS;
-            if arrived || given_up {
-                self.awaiting_identify = 0;
-                self.awaiting_seconds = 0.0;
-                // An item that left the container meanwhile stays settled.
-                if let Some(index) = self
-                    .index_of(awaited)
-                    .filter(|&index| self.items[index].state == ItemState::RequestingInfo)
-                {
-                    if arrived {
-                        self.decide(call, index);
-                    } else {
-                        self.items[index].identify_attempts += 1;
-                        self.items[index].state = ItemState::InContainer;
-                    }
-                }
+        // An item that left the container meanwhile stays settled.
+        if let Some((awaited, arrived)) = self.settled_appraisal(call)
+            && let Some(index) = self
+                .index_of(awaited)
+                .filter(|&index| self.items[index].state == ItemState::RequestingInfo)
+        {
+            if arrived {
+                self.decide(call, index);
+            } else {
+                self.items[index].identify_attempts += 1;
+                self.items[index].state = ItemState::InContainer;
             }
         }
 
@@ -911,17 +1094,45 @@ impl ChestLooter {
                 .host
                 .loot_needs_identify(&item, &properties, &self.rules)
             {
-                self.request_appraisal(call, index);
+                if self.request_appraisal(call, index) {
+                    self.items[index].state = ItemState::RequestingInfo;
+                }
                 return;
             }
         }
         self.decide(call, index);
     }
 
-    /// Asks for one item's appraisal when the slot is free.
-    fn request_appraisal(&mut self, call: &mut UbCall<'_>, index: usize) {
+    /// The appraisal awaited, once it has settled: the item, and whether its
+    /// data arrived. `None` while nothing is awaited or it is still out.
+    fn settled_appraisal(&mut self, call: &mut UbCall<'_>) -> Option<(u32, bool)> {
+        if self.awaiting_identify == 0 {
+            return None;
+        }
+        let awaited = self.awaiting_identify;
+        let arrived = call
+            .host
+            .object(awaited)
+            .is_some_and(|known| known.has_appraisal_data);
+        // A give-up counts only when it came after this request: the slot
+        // goes on naming an item given up on before.
+        let appraisal = call.host.appraisal();
+        let given_up = (appraisal.last_abandoned_id == awaited
+            && appraisal.revision > self.awaiting_revision)
+            || self.awaiting_seconds >= IDENTIFY_TIMEOUT_SECONDS;
+        if !arrived && !given_up {
+            return None;
+        }
+        self.awaiting_identify = 0;
+        self.awaiting_seconds = 0.0;
+        Some((awaited, arrived))
+    }
+
+    /// Asks for one item's appraisal when the slot is free; whether the
+    /// request went out.
+    fn request_appraisal(&mut self, call: &mut UbCall<'_>, index: usize) -> bool {
         if self.awaiting_identify != 0 {
-            return;
+            return false;
         }
         if call.services.corpse_identifier_busy() || call.host.appraisal().awaiting_id != 0 {
             // Held up by the slot's other users: the wait counts against the
@@ -932,7 +1143,7 @@ impl ChestLooter {
                 self.blocked_seconds = 0.0;
                 self.items[index].identify_attempts += 1;
             }
-            return;
+            return false;
         }
         self.appraisal_blocked = false;
         self.blocked_seconds = 0.0;
@@ -942,15 +1153,18 @@ impl ChestLooter {
             self.awaiting_identify = object_id;
             self.awaiting_seconds = 0.0;
             self.awaiting_revision = call.host.appraisal().revision;
-            self.items[index].state = ItemState::RequestingInfo;
-        } else if result.status != ItemStatus::Busy {
+            return true;
+        }
+        if result.status != ItemStatus::Busy {
             self.items[index].identify_attempts += 1;
         }
+        false
     }
 
     /// The rules' verdict on one item: Keep, Keep # and Salvage take it,
-    /// anything else leaves it. A keep-up-to rule counts what is owned and
-    /// what this run is already taking.
+    /// anything else leaves it; a Salvage verdict calls for the salvage
+    /// pass. A keep-up-to rule counts what is owned and what this run is
+    /// already taking.
     fn decide(&mut self, call: &mut UbCall<'_>, index: usize) {
         let item = self.items[index].item.clone();
         let properties = call.host.properties(item.object_id).unwrap_or_default();
@@ -964,7 +1178,9 @@ impl ChestLooter {
         let decision = call
             .host
             .loot_decide(&item, &properties, &self.rules, &owned);
-        self.items[index].state = match decision.map(|decision| decision.action) {
+        let action = decision.map(|decision| decision.action);
+        self.need_to_salvage |= action == Some(LootAction::Salvage);
+        self.items[index].state = match action {
             Some(LootAction::Keep | LootAction::KeepUpTo | LootAction::Salvage) => {
                 ItemState::NeedsToBeLooted
             }
@@ -1082,6 +1298,10 @@ impl ChestLooter {
         self.locked_at_round_start = false;
         self.unlocked_this_round = false;
         self.asked_about_container = false;
+        self.need_to_salvage = false;
+        self.salvage_ids.clear();
+        self.salvage_pending = 0;
+        self.salvage_begun = false;
         self.key_id = 0;
     }
 
@@ -1135,6 +1355,30 @@ pub fn loot_container_kind(host: &mut dyn UbHost, object: &WorldObject) -> Optio
     } else {
         ContainerKind::MonsterCorpse
     })
+}
+
+/// Whether an item in hand is one the salvage pass may destroy
+/// (`IsItemSafeToGetRidOf`, `AllowedToSalvageItem`): it has a material, is
+/// not a bag of salvage, a pack or a focus, is not worn, retained, sticky or
+/// inscribed, and is not tinkered or imbued past the reference's limits.
+#[must_use]
+pub fn is_safe_to_salvage(item: &InventoryItem, properties: &ItemProperties) -> bool {
+    let inscribed = properties
+        .strings
+        .iter()
+        .any(|(property, text)| *property == INSCRIPTION_PROPERTY && !text.is_empty());
+    item.material_type > 0
+        && !matches!(
+            item.object_class,
+            ObjectClass::Salvage | ObjectClass::Container | ObjectClass::Foci
+        )
+        && item.equipped_location == 0
+        && item.wielder_id == 0
+        && !item.retained
+        && properties.int(ATTUNED_PROPERTY).unwrap_or(0) <= 1
+        && item.num_times_tinkered <= 1
+        && item.imbued_effect <= 1
+        && !inscribed
 }
 
 /// The slot count as the server's byte carries it.

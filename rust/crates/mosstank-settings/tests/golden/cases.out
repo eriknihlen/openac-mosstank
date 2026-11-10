@@ -1545,6 +1545,7 @@ Looter.BlockVtankMelee|Bool|Profile|Looter|"False"|"False"|"Looter.BlockVtankMel
 Looter.MaxOpenAttempts|Int|Profile|Looter|"10"|"10"|"Looter.MaxOpenAttempts (Profile) = 10"|"Number of chest open attempts before quitting."|
 Looter.MaxUnlockAttempts|Int|Profile|Looter|"10"|"10"|"Looter.MaxUnlockAttempts (Profile) = 10"|"Number of chest unlock attempts before quitting."|
 Looter.AttemptsBeforeBlacklisting|Int|Profile|Looter|"500"|"500"|"Looter.AttemptsBeforeBlacklisting (Profile) = 500"|"Number of loot attempts before blacklisting item. This applies per item."|
+Looter.AutoSalvageAfterLooting|Bool|Profile|Looter|"False"|"False"|"Looter.AutoSalvageAfterLooting (Profile) = False"|"Salvage what a Salvage rule took, after /ub use or the key looter. Never runs on your own corpse."|
 Looter.DelaySpeed|Int|Profile|Looter|"1000"|"1000"|"Looter.DelaySpeed (Profile) = 1000"|"Delay associated with unlocking, opening and closing a chest in milliseconds. Increase this number if issues start to occur."|
 Looter.OverallSpeed|Int|Profile|Looter|"100"|"100"|"Looter.OverallSpeed (Profile) = 100"|"Overall speed of looter in milliseconds (approximate)."|
 ItemInfo.Enabled|Bool|Profile|ItemInfo|"False"|"False"|"ItemInfo.Enabled (Profile) = False"|"Enable ItemInfo."|
@@ -1581,11 +1582,10 @@ Mag.ManaManagement.OverlayY|Int|Global|Mag|"150"|"150"|"Mag.ManaManagement.Overl
 VTank.PatchExpressionEngine|Bool|Profile|VTank|"True"|"True"|"VTank.PatchExpressionEngine (Profile) = True"|"The extended expression functions; always on here."|
 InventoryManager.TreatStackAsSingleItem|Bool|Profile|InventoryManager|"False"|"False"|"InventoryManager.TreatStackAsSingleItem (Profile) = False"|"Count a stack as one item when handing over; always off here."|
 Plugin.SettingsProfile|String|Character|Plugin|"default"|"default"|"Plugin.SettingsProfile (State) = default"|"The named settings profile this character has open."|
-AutoSalvage.Think|Bool|Profile|AutoSalvage|"False"|"False"|"AutoSalvage.Think (Profile) = False"|"Kept for macros; there is no auto-salvage here."|
+AutoSalvage.Think|Bool|Profile|AutoSalvage|"False"|"False"|"AutoSalvage.Think (Profile) = False"|"Think to yourself when auto salvage is completed."|
 AutoTrade.Think|Bool|Profile|AutoTrade|"False"|"False"|"AutoTrade.Think (Profile) = False"|"Kept for macros; there is no auto-trade here."|
 Looter.JumpWhenLooting|Bool|Profile|Looter|"False"|"False"|"Looter.JumpWhenLooting (Profile) = False"|"Kept for macros; the looter does not jump here."|
 Looter.JumpHeight|Int|Profile|Looter|"100"|"100"|"Looter.JumpHeight (Profile) = 100"|"Kept for macros; the looter does not jump here."|
-Looter.AutoSalvageAfterLooting|Bool|Profile|Looter|"False"|"False"|"Looter.AutoSalvageAfterLooting (Profile) = False"|"Kept for macros; the looter does not salvage here."|
 Looter.TestMode|Bool|Profile|Looter|"False"|"False"|"Looter.TestMode (Profile) = False"|"Kept for macros; the looter has no test mode here."|
 ItemInfo.DescribeOnLoot|Bool|Profile|ItemInfo|"True"|"True"|"ItemInfo.DescribeOnLoot (Profile) = True"|"Kept for macros; the looter does not describe what it takes here."|
 ItemInfo.AutoClipboard|Bool|Profile|ItemInfo|"False"|"False"|"ItemInfo.AutoClipboard (Profile) = False"|"Kept for macros; a plugin cannot reach the clipboard here."|

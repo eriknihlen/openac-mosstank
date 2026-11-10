@@ -166,6 +166,8 @@ pub fn post_tool_debug(
 pub mod tools {
     /// The assessor.
     pub const ASSESSOR: &str = "Assessor";
+    /// The looter's salvage pass.
+    pub const AUTO_SALVAGE: &str = "AutoSalvage";
     /// The tinkering run.
     pub const AUTO_TINKER: &str = "AutoTinker";
     /// The vendor run.

@@ -236,7 +236,7 @@ fn build_accepted_only() -> Vec<UbSettingDefinition> {
         ),
         switch(
             "AutoSalvage.Think",
-            "Kept for macros; there is no auto-salvage here.",
+            "Think to yourself when auto salvage is completed.",
             false,
         ),
         switch(
@@ -244,8 +244,8 @@ fn build_accepted_only() -> Vec<UbSettingDefinition> {
             "Kept for macros; there is no auto-trade here.",
             false,
         ),
-        // The looter's jumping, its salvage pass and its test mode are not
-        // brought over; a macro that sets them carries on.
+        // The looter's jumping and its test mode are not brought over; a
+        // macro that sets them carries on.
         switch(
             "Looter.JumpWhenLooting",
             "Kept for macros; the looter does not jump here.",
@@ -255,11 +255,6 @@ fn build_accepted_only() -> Vec<UbSettingDefinition> {
             "Looter.JumpHeight",
             "Kept for macros; the looter does not jump here.",
             100,
-        ),
-        switch(
-            "Looter.AutoSalvageAfterLooting",
-            "Kept for macros; the looter does not salvage here.",
-            false,
         ),
         switch(
             "Looter.TestMode",
@@ -845,6 +840,11 @@ fn add_behaviour_tools(rows: &mut Vec<UbSettingDefinition>) {
         "Looter.AttemptsBeforeBlacklisting",
         "Number of loot attempts before blacklisting item. This applies per item.",
         500,
+    ));
+    rows.push(switch(
+        "Looter.AutoSalvageAfterLooting",
+        "Salvage what a Salvage rule took, after /ub use or the key looter. Never runs on your own corpse.",
+        false,
     ));
     rows.push(whole(
         "Looter.DelaySpeed",

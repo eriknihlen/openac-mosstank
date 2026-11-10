@@ -100,11 +100,16 @@ stay the macro's corpse looter's, and a container it is working is left to it.
   button), `/ub keyloot stop` to stop. Each round uses a key on the chest (up
   to `Looter.MaxUnlockAttempts` tries), opens it, loots it and closes it, and
   the next round starts while keys of that name are left.
+- **Salvaging what a chest gave**: with `Looter.AutoSalvageAfterLooting` on
+  (off by default, as in UtilityBelt), `/ub use` and the key looter salvage
+  what a Salvage rule took, one item at a time with your Ust, once the
+  container has closed. A chest opened by hand and your own corpse are looted
+  only. Worn, retained, sticky, inscribed, tinkered and imbued items are left
+  whole. `AutoSalvage.Think` thinks the closing line instead of printing it.
 - `Looter.AttemptsBeforeBlacklisting` (500) is how many steps one item is tried
   before it is given up on; `Looter.OverallSpeed` (100, the least allowed) is
   how often, in milliseconds, the looter steps. `Looter.JumpWhenLooting`,
-  `JumpHeight`, `AutoSalvageAfterLooting` and `TestMode` are kept for macros
-  and do nothing here.
+  `JumpHeight` and `TestMode` are kept for macros and do nothing here.
 
 ## The Comps HUD
 
