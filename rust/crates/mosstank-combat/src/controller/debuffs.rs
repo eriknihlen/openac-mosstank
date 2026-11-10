@@ -881,7 +881,11 @@ impl CombatController {
         if !self.debuffs.has_pending() || !automation.is_available() {
             return;
         }
-        self.advance_clock_from_frame(elapsed_seconds);
+        // A swing still armed moves the clock on this same frame; a second
+        // advance would spend a curse's result budget at twice the speed.
+        if !self.swing_driver_runs(automation) {
+            self.advance_clock_from_frame(elapsed_seconds);
+        }
         let completion = automation.last_cast_completion();
         let answered = self.debuffs.observe(&completion, self.now);
         self.on_learned_debuff_completed(automation, answered);
