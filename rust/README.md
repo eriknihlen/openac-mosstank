@@ -32,7 +32,8 @@ The SDK crates (`openac-plugin`, `openac-plugin-compat`, `ac-plugin-abi`)
 come from the OpenAC repository by git, pinned to a commit in
 `Cargo.toml`: OpenAC `main` at a9a59935, plugin API 1.11 (who changed
 the selection; 1.10: every enchantment on the character, right-aligned
-list columns), so MossTank needs OpenAC client 0.2.3 or later.
+list columns), and MossTank needs OpenAC client 0.2.4 or later: its nav
+lines ask to follow the ground indoors too, which 0.2.4 fits to the floors.
 
 `scripts/check.ps1` (or `scripts/check.sh`) runs the full check: formatting,
 clippy, the tests, the WebAssembly build, the module's imports, and the

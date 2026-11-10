@@ -97,12 +97,14 @@ fn the_lines_follow_the_route_frame_by_frame_and_set_only_on_a_change() {
     world.ticks(&mut plugin, 3);
     assert_eq!(world.requests::<calls::UiLinesSet>().len(), sets);
 
-    // Indoors the lines keep their heights.
+    // Indoors the lines still follow the ground (the client fits them to
+    // the floors), so walking in redraws nothing.
     let mut indoors = navigation_at(0.0);
     indoors.position.is_outdoor = false;
     world.set_reply::<calls::NavigationSnapshot>(&indoors);
     world.tick(&mut plugin);
-    assert!(drawn(&world).iter().all(|line| !line.follow_terrain));
+    assert!(drawn(&world).iter().all(|line| line.follow_terrain));
+    assert_eq!(world.requests::<calls::UiLinesSet>().len(), sets);
 
     // Portal space clears them.
     world.set_reply::<calls::NavigationSnapshot>(&NavigationSnapshot {

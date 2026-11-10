@@ -123,13 +123,11 @@ struct LegStart<'a> {
 /// (back to the first on a circular route). The waypoints that are not
 /// places are passed over; no leg leaves a portal, a recall or a jump, and
 /// none that passes over a waypoint is longer than [`MAX_LEG_METRES`].
-/// Lines follow the terrain outdoors.
+/// Every line asks to follow the ground: the client fits it to the terrain
+/// or to the floors under its ends, indoors and out, and keeps a line
+/// straight where neither is under it.
 #[must_use]
-pub fn route_lines(
-    settings: &NavigationSettings,
-    current_waypoint_index: i32,
-    is_outdoor: bool,
-) -> Vec<WorldLine> {
+pub fn route_lines(settings: &NavigationSettings, current_waypoint_index: i32) -> Vec<WorldLine> {
     let mut lines = Vec::new();
     let points = &settings.waypoints;
     let count = points.len().min(MAX_DRAWN_POINTS);
@@ -142,7 +140,7 @@ pub fn route_lines(
         start,
         end,
         color_rgb,
-        follow_terrain: is_outdoor,
+        follow_terrain: true,
         width_metres: 0.25,
     };
     let leg = |lines: &mut Vec<WorldLine>, start: &LegStart<'_>, to: &Position| {

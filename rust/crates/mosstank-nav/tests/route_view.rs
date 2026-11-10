@@ -73,7 +73,7 @@ fn show_nav_lines_draws_the_loaded_route_as_rings_and_legs() {
         )],
         ..NavigationSettings::default()
     };
-    let lines = route_lines(&one, 0, true);
+    let lines = route_lines(&one, 0);
     assert_eq!(lines.len(), 24);
     assert!(
         lines
@@ -93,9 +93,9 @@ fn show_nav_lines_draws_the_loaded_route_as_rings_and_legs() {
         ],
         ..NavigationSettings::default()
     };
-    assert_eq!(route_lines(&two, 5, false).len(), 24 * 2 + 2);
+    assert_eq!(route_lines(&two, 5).len(), 24 * 2 + 2);
     two.waypoints[1].kind = RouteWaypointType::Portal;
-    assert_eq!(route_lines(&two, 5, false).len(), 24 * 2 + 1);
+    assert_eq!(route_lines(&two, 5).len(), 24 * 2 + 1);
 }
 
 /// The segments of one arrival ring.
@@ -159,7 +159,7 @@ fn a_chat_command_or_a_pause_is_not_a_place_on_the_drawn_route() {
         at(RouteWaypointType::Pause, 59.3, -28.5),
         at(RouteWaypointType::Point, 10.1, 10.0),
     ]);
-    let lines = route_lines(&route, 1, true);
+    let lines = route_lines(&route, 1);
     assert_eq!(lines.len(), RING * 2 + 1);
     let drawn_legs = legs(&lines);
     assert_eq!(drawn_legs.len(), 1);
@@ -179,7 +179,7 @@ fn a_recall_or_a_vendor_is_not_a_place_and_a_recall_breaks_the_line() {
         at(RouteWaypointType::Recall, 10.1, 10.0),
         at(RouteWaypointType::Point, 10.2, 10.0),
     ]);
-    let lines = route_lines(&route, -1, true);
+    let lines = route_lines(&route, -1);
     assert_eq!(lines.len(), RING * 3 + 1);
     let drawn_legs = legs(&lines);
     assert_eq!(drawn_legs.len(), 1);
@@ -201,20 +201,20 @@ fn a_circular_route_does_not_close_across_an_unrecorded_teleport() {
         at(RouteWaypointType::Point, 1.0, 1.0),
         at(RouteWaypointType::Point, 1.0 + far, 1.0),
     ]);
-    assert_eq!(route_lines(&at_the_start, -1, true).len(), RING * 2 + 1);
+    assert_eq!(route_lines(&at_the_start, -1).len(), RING * 2 + 1);
     let at_the_end = circular(vec![
         at(RouteWaypointType::Point, 1.0, 1.0),
         at(RouteWaypointType::Point, 1.0 + far, 1.0),
         at(RouteWaypointType::ChatCommand, 1.0, 1.0),
     ]);
-    assert_eq!(route_lines(&at_the_end, -1, true).len(), RING * 2 + 1);
+    assert_eq!(route_lines(&at_the_end, -1).len(), RING * 2 + 1);
 
     // With nothing between them, the closing leg is a walk, and is drawn.
     let walked = circular(vec![
         at(RouteWaypointType::Point, 1.0, 1.0),
         at(RouteWaypointType::Point, 1.0 + far, 1.0),
     ]);
-    assert_eq!(route_lines(&walked, -1, true).len(), RING * 2 + 2);
+    assert_eq!(route_lines(&walked, -1).len(), RING * 2 + 2);
 }
 
 #[test]
@@ -228,7 +228,7 @@ fn a_place_after_an_action_starts_a_fresh_leg() {
         at(RouteWaypointType::Point, 1.1, 1.0),
         at(RouteWaypointType::Point, 1.1 + far, 1.0),
     ]);
-    let lines = route_lines(&route, -1, true);
+    let lines = route_lines(&route, -1);
     assert_eq!(lines.len(), RING * 3 + 2);
     assert!(
         legs(&lines)
@@ -243,12 +243,12 @@ fn an_object_with_no_recorded_position_is_not_drawn() {
     // as the map's centre, marked outdoors.
     let mut empty = by_name(RouteWaypointType::UseNpc, 10.0, 10.0, 0.0, 0.0);
     empty.reference_position = mosstank_formats::route::map_position(0.0, 0.0, 0.0);
-    assert!(route_lines(&once(vec![empty]), -1, true).is_empty());
+    assert!(route_lines(&once(vec![empty]), -1).is_empty());
 
     // A NAV file that marks the position not valid.
     let mut invalid = by_name(RouteWaypointType::PortalByName, 10.0, 10.0, 10.1, 10.0);
     invalid.legacy_reference_valid = false;
-    assert!(route_lines(&once(vec![invalid]), -1, true).is_empty());
+    assert!(route_lines(&once(vec![invalid]), -1).is_empty());
 }
 
 #[test]
@@ -259,7 +259,7 @@ fn a_jump_is_a_place_but_no_leg_leaves_it() {
         at(RouteWaypointType::Jump, 10.1, 10.0),
         at(RouteWaypointType::Point, 10.2, 10.0),
     ]);
-    let lines = route_lines(&route, -1, true);
+    let lines = route_lines(&route, -1);
     assert_eq!(lines.len(), RING * 3 + 1);
     let drawn_legs = legs(&lines);
     assert!(near(&drawn_legs[0].start, 10.0, 10.0) && near(&drawn_legs[0].end, 10.1, 10.0));
@@ -274,7 +274,7 @@ fn a_portal_or_npc_by_name_is_drawn_where_the_object_is() {
         by_name(RouteWaypointType::PortalByName, 0.67, 13.57, 59.39, -28.72),
         at(RouteWaypointType::Point, 59.48, -28.72),
     ]);
-    let lines = route_lines(&route, -1, true);
+    let lines = route_lines(&route, -1);
     assert_eq!(lines.len(), RING * 3 + 1);
     let drawn_legs = legs(&lines);
     assert_eq!(drawn_legs.len(), 1);
@@ -287,11 +287,11 @@ fn a_portal_or_npc_by_name_is_drawn_where_the_object_is() {
         by_name(RouteWaypointType::UseNpc, 0.67, 13.57, 59.39, -28.72),
         at(RouteWaypointType::Point, 59.48, -28.72),
     ]);
-    assert_eq!(legs(&route_lines(&npc, -1, true)).len(), 2);
+    assert_eq!(legs(&route_lines(&npc, -1)).len(), 2);
 
     // Without a recorded object position it is not drawn.
     let unknown = once(vec![at(RouteWaypointType::UseNpc, 0.67, 13.57)]);
-    assert!(route_lines(&unknown, -1, true).is_empty());
+    assert!(route_lines(&unknown, -1).is_empty());
 }
 
 #[test]
@@ -302,7 +302,7 @@ fn a_teleport_the_route_has_no_waypoint_for_draws_no_leg() {
         at(RouteWaypointType::ChatCommand, 0.675, 13.57),
         at(RouteWaypointType::Point, 59.33, -28.59),
     ]);
-    let lines = route_lines(&route, -1, true);
+    let lines = route_lines(&route, -1);
     assert_eq!(lines.len(), RING * 2);
 
     // Past a chat command, a leg just under the limit is a walk, and is
@@ -315,11 +315,11 @@ fn a_teleport_the_route_has_no_waypoint_for_draws_no_leg() {
         ])
     };
     assert_eq!(
-        route_lines(&past_a_command(MAX_LEG_METRES * 0.99), -1, true).len(),
+        route_lines(&past_a_command(MAX_LEG_METRES * 0.99), -1).len(),
         RING * 2 + 1
     );
     assert_eq!(
-        route_lines(&past_a_command(MAX_LEG_METRES * 1.01), -1, true).len(),
+        route_lines(&past_a_command(MAX_LEG_METRES * 1.01), -1).len(),
         RING * 2
     );
 
@@ -329,7 +329,7 @@ fn a_teleport_the_route_has_no_waypoint_for_draws_no_leg() {
         at(RouteWaypointType::Point, 1.0, 1.0),
         at(RouteWaypointType::Point, 1.0 + far, 1.0),
     ]);
-    assert_eq!(route_lines(&route, -1, true).len(), RING * 2 + 1);
+    assert_eq!(route_lines(&route, -1).len(), RING * 2 + 1);
 }
 
 #[test]
@@ -344,7 +344,7 @@ fn a_circular_route_closes_over_what_is_not_a_place_but_not_over_a_recall() {
         ],
         ..NavigationSettings::default()
     };
-    let lines = route_lines(&route, -1, true);
+    let lines = route_lines(&route, -1);
     assert_eq!(lines.len(), RING * 2 + 2);
     assert!(
         legs(&lines)
@@ -353,7 +353,7 @@ fn a_circular_route_closes_over_what_is_not_a_place_but_not_over_a_recall() {
     );
 
     route.waypoints[0].kind = RouteWaypointType::Recall;
-    assert_eq!(route_lines(&route, -1, true).len(), RING * 2 + 1);
+    assert_eq!(route_lines(&route, -1).len(), RING * 2 + 1);
 }
 
 /// The places a route's lines may touch: every point, checkpoint, portal
@@ -395,7 +395,7 @@ fn the_fixture_routes_draw_no_line_across_the_world() {
             None,
         )
         .unwrap_or_else(|error| panic!("{name}: {error}"));
-        let lines = route_lines(&route, 0, true);
+        let lines = route_lines(&route, 0);
         assert!(!lines.is_empty(), "{name}");
         let places: Vec<(f64, f64)> = route.waypoints.iter().filter_map(place_of).collect();
         // A ring is at most 50 m from its place.
@@ -435,7 +435,7 @@ fn the_lock_and_key_jaw_route_is_one_line_through_the_dungeon_past_its_chat_comm
     let six = &route.waypoints[6].position;
     let eight = &route.waypoints[8].position;
     assert_eq!(route.waypoints[7].kind, RouteWaypointType::ChatCommand);
-    let lines = route_lines(&route, -1, true);
+    let lines = route_lines(&route, -1);
     assert!(lines.iter().any(|line| {
         near(&line.start, six.east_west, six.north_south)
             && near(&line.end, eight.east_west, eight.north_south)
