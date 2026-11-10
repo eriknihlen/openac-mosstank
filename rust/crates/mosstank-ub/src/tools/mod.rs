@@ -4,6 +4,7 @@
 //!
 //! - [`stack_cram`]: `/ub autostack`, `/ub autocram`
 //!   (`InventoryMaintenance`, `StackCramCommandRun`).
+//! - [`pack`]: `/ub autopack` (Mag-Tools' `InventoryPacker`).
 //! - [`give`]: `/ub give`, `/ub ig` (`ProfileGiveController`).
 //! - [`clear_bugged`]: `/ub clearbugged` (`ClearBuggedRun`).
 //! - [`count`]: `/ub count` (`InventoryCountController`).
@@ -27,6 +28,7 @@ pub mod give;
 pub mod item_info;
 pub mod looter;
 pub mod nametags;
+pub mod pack;
 pub mod stack_cram;
 pub mod tinker;
 pub mod tinker_page;
@@ -43,6 +45,7 @@ use give::ProfileGiveController;
 use item_info::ItemInfoController;
 use looter::ChestLooter;
 use nametags::{CatalogNametagSettings, NametagController};
+use pack::InventoryPacker;
 use stack_cram::StackCramCommandRun;
 use tinker_page::TinkerPage;
 use xp::ExperienceSpendController;
@@ -62,13 +65,15 @@ pub struct PrologueOwners {
     pub equip: bool,
     /// The stack-or-cram pass.
     pub stack_cram: bool,
+    /// The inventory packer (`/ub autopack`).
+    pub pack: bool,
 }
 
 impl PrologueOwners {
     /// Whether any of them owns the character.
     #[must_use]
     pub fn any(self) -> bool {
-        self.give || self.count || self.vendor || self.equip || self.stack_cram
+        self.give || self.count || self.vendor || self.equip || self.stack_cram || self.pack
     }
 }
 
@@ -77,7 +82,8 @@ impl PrologueOwners {
 /// The plugin's frame (`MossTankPanel.OnTick`) drives the prologue owners
 /// in this order, each told it may act only while none before it owns the
 /// character: the command jump, the item giver, the counter, the vendor
-/// run, the equipment profile, then the stack-or-cram pass.
+/// run, the equipment profile, the stack-or-cram pass, then the inventory
+/// packer.
 #[derive(Debug, Default)]
 pub struct UbTools {
     /// `/ub give` and `/ub ig`; shared, because a meta's
@@ -88,6 +94,8 @@ pub struct UbTools {
     pub count: Rc<RefCell<InventoryCountController>>,
     /// `/ub autostack` and `/ub autocram`.
     pub stack_cram: StackCramCommandRun,
+    /// `/ub autopack`.
+    pub pack: InventoryPacker,
     /// `/ub clearbugged`.
     pub clear_bugged: ClearBuggedRun,
     /// The Tinker page, its run, and `/ub autotinker`, `getjob`, `tinkcalc`.
@@ -126,8 +134,8 @@ impl UbTools {
 
     /// The prologue owners after the command jump, in the panel's order:
     /// the item giver, the counter, the vendor run (`vendor`, the plugin's,
-    /// told whether it may act), the equipment profile, then the
-    /// stack-or-cram pass; each may act only while none before it owns the
+    /// told whether it may act), the equipment profile, the stack-or-cram
+    /// pass, then the inventory packer; each may act only while none before it owns the
     /// character. `can_act` is false while a buff burst or the command
     /// jump holds it. Which of them own the character this frame.
     pub fn tick_prologue(
@@ -151,12 +159,18 @@ impl UbTools {
             elapsed_seconds,
             can_act && !give && !count && !vendor && !equip,
         );
+        let pack = self.pack.tick(
+            call,
+            elapsed_seconds,
+            can_act && !give && !count && !vendor && !equip && !stack_cram,
+        );
         PrologueOwners {
             give,
             count,
             vendor,
             equip,
             stack_cram,
+            pack,
         }
     }
 
@@ -177,6 +191,7 @@ impl UbTools {
     pub fn reset_session(&mut self, call: &mut UbCall<'_>) {
         self.give.borrow_mut().reset();
         self.stack_cram.reset();
+        self.pack.reset();
         self.clear_bugged.reset();
         self.count.borrow_mut().reset();
         self.equip.reset(&mut call.locks.borrow_mut());

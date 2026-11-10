@@ -351,6 +351,7 @@ impl UbCommands {
             }
             "autostack" => self.tools.stack_cram.start(call, true),
             "autocram" => self.tools.stack_cram.start(call, false),
+            "autopack" => self.tools.pack.command(call, &arguments),
             "count" => self.tools.count.borrow_mut().command(call, &arguments),
             "autotinker" => self.tools.tinker.auto_tinker(call),
             "getjob" => self.tools.tinker.print_jobs(call),

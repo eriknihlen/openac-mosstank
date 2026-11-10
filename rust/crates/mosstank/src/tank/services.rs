@@ -496,6 +496,14 @@ impl UbHost for ClientProxy<'_, '_> {
     ) -> bool {
         ub!(self.loot_rule_matches(rule, item, properties))
     }
+    fn loot_rule_early_match(
+        &mut self,
+        rule: &LootRule,
+        item: &InventoryItem,
+        properties: &ItemProperties,
+    ) -> (bool, bool) {
+        ub!(self.loot_rule_early_match(rule, item, properties))
+    }
     fn loot_needs_identify(
         &mut self,
         item: &InventoryItem,

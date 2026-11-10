@@ -1271,6 +1271,145 @@ fn the_inventory_log_fits() {
     assert_within_margin(&cases, &report);
 }
 
+/// The side packs a character carries at most.
+const AUTOPACK_SIDE_PACKS: u32 = 7;
+
+/// How many items a full character carries: the main pack's 102 and 24 in
+/// each side pack.
+const AUTOPACK_CARRIED: u32 = 102 + 24 * AUTOPACK_SIDE_PACKS;
+
+/// The free slots left in the first side pack, so the run has moves to make.
+const AUTOPACK_ROOM: u32 = 5;
+
+/// A packing profile of 100 Keep Up To rules: 90 that ask for a name no
+/// item has, 9 that ask for an armor level only an appraisal reports, and a
+/// catch-all last that names every pack, the main pack after the side
+/// packs. Every item is judged against every rule before it lands on the
+/// last.
+fn autopack_profile() -> String {
+    use mosstank_formats::utl::{self, LootAction, LootRule, VtankLootRequirement};
+    let mut rules = Vec::new();
+    for index in 0..99 {
+        let mut rule = LootRule::named(&format!("rule {index}"), "*");
+        rule.action = LootAction::KeepUpTo;
+        rule.keep_count = index % 7 + 1;
+        rule.has_imported_requirements = true;
+        rule.vtank_requirements = vec![if index % 10 == 9 {
+            VtankLootRequirement {
+                kind: 3,
+                payload: "9999\r\n28\r\n".to_owned(),
+            }
+        } else {
+            VtankLootRequirement {
+                kind: 1,
+                payload: format!("^Nothing Named {index}$\r\n1\r\n"),
+            }
+        }];
+        rules.push(rule);
+    }
+    let mut everything = LootRule::named("everything", "*");
+    everything.action = LootAction::KeepUpTo;
+    everything.keep_count = 12_345_670;
+    rules.push(everything);
+    utl::serialize_rules(&rules)
+}
+
+/// `/ub autopack` on a full character (the heavy inventory cut to the main
+/// pack and seven side packs, 272 items, the side packs full but the first)
+/// with a profile of 100 rules: every look at the packs judges every item
+/// against the rules and tries every pack for every item. Twice: with most
+/// items never appraised (the run asks for appraisals), and with everything
+/// appraised.
+#[test]
+#[ignore = "needs the release module: scripts/check.sh runs it after the WebAssembly build"]
+fn the_autopack_look_fits() {
+    let wasm = std::fs::read(wasm_path()).expect("the release mosstank.wasm (build it first)");
+    let mut session = new_session();
+    let mut cases = Cases::default();
+    for round in ["most items unappraised", "everything appraised"] {
+        let (mut plugin, _) = Plugin::load(&wasm, DEFAULT_MEMORY_MIB).expect("load");
+        plugin.enable(&start_info(), &mut session).expect("enable");
+        enter_world(&mut session);
+        // The seven packs and what they and the main pack hold, the first
+        // side pack's first few taken out to make room in it.
+        let first_carried = 0x8000_2000 + heavy::SIDE_PACKS as u32;
+        let kept = |id: u32| {
+            (0x8000_1000..0x8000_1000 + AUTOPACK_SIDE_PACKS).contains(&id)
+                || ((first_carried..first_carried + AUTOPACK_CARRIED).contains(&id)
+                    && !(first_carried + 102..first_carried + 102 + AUTOPACK_ROOM).contains(&id))
+        };
+        // The character the packs hang on, with room in its main pack.
+        let character = session.world.fake.character.as_mut().expect("in the world");
+        character.id = heavy::CHARACTER_ID;
+        character.main_pack_free_slots = 10;
+        let automation = session.world.automation();
+        automation.main_pack_free_slots = 10;
+        automation.item_entries.retain(|item| kept(item.object_id));
+        automation
+            .world_objects
+            .retain(|object| !object.is_owned || kept(object.object_id));
+        if round == "everything appraised" {
+            for object in &mut automation.world_objects {
+                object.has_appraisal_data |= object.is_owned;
+            }
+        }
+        assert_eq!(
+            (AUTOPACK_SIDE_PACKS + AUTOPACK_CARRIED - AUTOPACK_ROOM) as usize,
+            automation.item_entries.len()
+        );
+        session
+            .world
+            .profiles
+            .insert("mosstank/loot/autopack-fuel.utl", &autopack_profile());
+        send(&mut plugin, &mut session, &Event::LoginComplete);
+        for _ in 0..60 {
+            tick(&mut plugin, &mut session);
+        }
+        session.world.clear_chat();
+        let moved_before = session.world.requests::<calls::ItemsMoveJoinStack>().len()
+            + session.world.requests::<calls::ItemsMove>().len();
+        let start = send(
+            &mut plugin,
+            &mut session,
+            &command("ub", "autopack autopack-fuel"),
+        );
+        cases.add("autopack: start", start);
+        assert!(
+            session
+                .world
+                .chat()
+                .iter()
+                .any(|line| line.contains("Auto Pack - Started.")),
+            "{round}: the run did not start: {:?}",
+            session.world.chat()
+        );
+        for _ in 0..1500 {
+            let fuel = tick(&mut plugin, &mut session);
+            cases.add(&format!("autopack: tick ({round})"), fuel);
+        }
+        let moves = session.world.requests::<calls::ItemsMoveJoinStack>().len()
+            + session.world.requests::<calls::ItemsMove>().len();
+        assert!(
+            moves > moved_before,
+            "{round}: nothing was moved: {:?}",
+            session.world.chat()
+        );
+        if round == "most items unappraised" {
+            assert!(
+                !session.world.requests::<calls::WorldIdentify>().is_empty(),
+                "{round}: nothing was appraised"
+            );
+        }
+        send(&mut plugin, &mut session, &command("ub", "autopack stop"));
+        send(&mut plugin, &mut session, &Event::Logoff);
+        plugin.disable(&mut session).expect("disable");
+    }
+    let cases = cases.all();
+    let report = report(&cases);
+    println!("{report}");
+    assert_within_margin(&cases, &report);
+}
+
 /// Every owned item moves (a pack sorted), each change its own event,
 /// with no tick between: the inventory log has them all to record again.
 fn every_owned_item_moved(
