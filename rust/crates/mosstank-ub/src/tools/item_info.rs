@@ -1,7 +1,7 @@
 //! UtilityBelt's ItemInfo (`Tools/ItemInfo.cs`, its description classes
 //! after Mag-Tools' `ItemInfoOnIdent`): selecting an object writes one chat
-//! line with its name, the loot rule it matches in the loot profile in
-//! force, and what it is made of: armor level, imbues, damage, the spells
+//! line with its name, the loot rule the looter's own decision on it names
+//! (none without a loot profile in force), and what it is made of: armor level, imbues, damage, the spells
 //! worth knowing about, what it takes to wield, workmanship, ratings.
 //!
 //! ```text
@@ -240,24 +240,15 @@ pub fn describe(call: &mut UbCall<'_>, object: &WorldObject) -> String {
                 .find(|item| item.object_id == object.object_id)
         })
         .unwrap_or_else(|| inventory_item(object, &properties));
-    // The first rule that matches names the item, whatever it says to do
-    // with it (VTank's classification names its rule either way).
-    let rules = call.services.live_loot_rules();
-    let rule_name = rules.iter().enumerate().find_map(|(index, rule)| {
-        call.host
-            .loot_rule_matches(rule, &item, &properties)
-            .then(|| {
-                if rule.name.trim().is_empty() {
-                    format!("Rule {}", index + 1)
-                } else {
-                    rule.name.clone()
-                }
-            })
-    });
+    // The rule the looter's decision names, whatever it says to do with the
+    // item (VTank's classification names its rule either way); the item
+    // alone when no rule is named.
+    let rule_name = call.services.loot_rule_name(&item, &properties);
     let name = object_name(&item, &properties);
-    let label = match rule_name {
-        Some(rule) => format!("{rule} - {name}"),
-        None => name,
+    let label = if rule_name.is_empty() {
+        name
+    } else {
+        format!("{rule_name} - {name}")
     };
     #[allow(clippy::cast_possible_wrap)]
     let signed = object.object_id as i32;

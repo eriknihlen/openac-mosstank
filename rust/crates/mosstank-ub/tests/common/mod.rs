@@ -10,8 +10,9 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use ac_plugin_abi::items::InventoryItem;
 use ac_plugin_abi::navigation::NavigationSnapshot;
-use ac_plugin_abi::world::{ObjectClass, Position, WorldObject};
+use ac_plugin_abi::world::{ItemProperties, ObjectClass, Position, WorldObject};
 use mosstank_automation::locks::{ActionLockTable, SharedActionLocks};
 use mosstank_expr::{ExpressionValue, FixedClock};
 use mosstank_formats::utl::LootRule;
@@ -61,8 +62,10 @@ pub struct Services {
     pub item_giver_profiles: Vec<(String, Vec<LootRule>)>,
     /// Loot profiles, by name.
     pub loot_profiles: Vec<(String, Vec<LootRule>)>,
-    /// The loot profile in force.
-    pub live_loot_rules: Vec<LootRule>,
+    /// The rule name the looter's decision gives every item.
+    pub loot_rule_name: String,
+    /// The items a rule name was asked for.
+    pub loot_rule_asked: Vec<u32>,
     pub corpse_identifier_busy: bool,
     /// The active loot profile's rules, `None` for no active profile.
     pub active_loot_rules: Option<Vec<LootRule>>,
@@ -129,8 +132,9 @@ impl UbServices for Services {
         self.vendor_reply.clone()
     }
 
-    fn live_loot_rules(&mut self) -> Vec<LootRule> {
-        self.live_loot_rules.clone()
+    fn loot_rule_name(&mut self, item: &InventoryItem, _properties: &ItemProperties) -> String {
+        self.loot_rule_asked.push(item.object_id);
+        self.loot_rule_name.clone()
     }
 
     fn auto_vendor_start(&mut self, _host: &mut dyn UbHost, profile: Option<&str>) {

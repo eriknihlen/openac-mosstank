@@ -4,6 +4,8 @@
 //! UtilityBelt line writers every command prints through (`WriteUb`,
 //! `WriteUbError`, `WriteUbMessage`, `WriteUbBadSyntax`, ...).
 
+use ac_plugin_abi::items::InventoryItem;
+use ac_plugin_abi::world::ItemProperties;
 use mosstank_automation::locks::SharedActionLocks;
 use mosstank_expr::ExpressionValue;
 use mosstank_formats::utl::LootRule;
@@ -72,12 +74,11 @@ pub trait UbServices {
     /// (`MossTankLootProfileStore.TryLoadNamed`); `None` when there is no such
     /// file or it will not read.
     fn loot_profile_rules(&mut self, host: &mut dyn UbHost, name: &str) -> Option<Vec<LootRule>>;
-    /// The loot profile in force, as the looter reads it: what an item's
-    /// description names the rule of (VTank's current profile). None loaded
-    /// is no rules.
-    fn live_loot_rules(&mut self) -> Vec<LootRule> {
-        Vec::new()
-    }
+    /// The name of the loot rule the looter's own decision on an item names
+    /// (UB's `LootAction.RuleName`), whatever the rule says to do with it:
+    /// blank when no loot profile is in force, when no rule names the item,
+    /// and for a rule that has no name.
+    fn loot_rule_name(&mut self, item: &InventoryItem, properties: &ItemProperties) -> String;
     /// Whether the looter is waiting on the appraisal slot now
     /// (`Looting.CorpseIdentifierBusy`).
     fn corpse_identifier_busy(&mut self) -> bool;

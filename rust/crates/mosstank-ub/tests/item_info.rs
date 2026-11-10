@@ -7,7 +7,6 @@ use ac_plugin_abi::items::InventoryItem;
 use ac_plugin_abi::magic::SpellInfo;
 use ac_plugin_abi::world::{ArmorProfile, ItemProperties, ObjectClass, WeaponProfile, WorldObject};
 use common::Rig;
-use mosstank_formats::utl::{LootAction, LootRule};
 use mosstank_settings::ub::UbSettingValue;
 use mosstank_ub::catalog::UbCatalog;
 use mosstank_ub::tools::item_info::{self, APPRAISAL_TIMEOUT_SECONDS};
@@ -25,14 +24,6 @@ fn enabled() -> Rig {
     switch_on(&mut rig, item_info::ENABLED_SETTING);
     switch_on(&mut rig, item_info::DESCRIBE_ON_SELECT_SETTING);
     rig
-}
-
-fn rule(name: &str, expression: &str, action: LootAction) -> LootRule {
-    let mut rule = LootRule::default();
-    name.clone_into(&mut rule.name);
-    rule.action = action;
-    rule.set_expression(expression);
-    rule
 }
 
 fn spell(id: u32, name: &str, family: u32, difficulty: i32) -> (u32, SpellInfo) {
@@ -146,10 +137,7 @@ fn selecting_an_appraised_item_names_the_rule_it_matches_and_its_stats() {
     let id = object.object_id;
     carry(&mut rig, object, item, properties);
     breastplate_spells(&mut rig);
-    rig.services.live_loot_rules = vec![
-        rule("swords", "name ~= Sword", LootAction::Keep),
-        rule("Keep armor", "name ~= Breastplate", LootAction::Keep),
-    ];
+    "Keep armor".clone_into(&mut rig.services.loot_rule_name);
 
     select(&mut rig, id);
 
@@ -162,15 +150,16 @@ fn selecting_an_appraised_item_names_the_rule_it_matches_and_its_stats() {
         )
     );
     assert!(rig.host.identified.is_empty());
+    // The looter was asked about the item described.
+    assert_eq!(rig.services.loot_rule_asked, [id]);
 }
 
 #[test]
-fn an_item_no_rule_matches_is_named_alone() {
+fn an_item_no_rule_names_is_named_alone() {
     let mut rig = enabled();
     let (object, item, properties) = breastplate(true);
     let id = object.object_id;
     carry(&mut rig, object, item, properties);
-    rig.services.live_loot_rules = vec![rule("swords", "name ~= Sword", LootAction::Keep)];
 
     select(&mut rig, id);
 
@@ -179,24 +168,6 @@ fn an_item_no_rule_matches_is_named_alone() {
             "[UB] ItemInfo: {LINK}{}>Silver Breastplate</Tell>, ",
             id as i32
         )),
-        "{}",
-        rig.single_message()
-    );
-}
-
-#[test]
-fn a_rule_that_leaves_the_item_still_names_it() {
-    let mut rig = enabled();
-    let (object, item, properties) = breastplate(true);
-    let id = object.object_id;
-    carry(&mut rig, object, item, properties);
-    rig.services.live_loot_rules = vec![rule("junk", "*", LootAction::NoLoot)];
-
-    select(&mut rig, id);
-
-    assert!(
-        rig.single_message()
-            .contains(">junk - Silver Breastplate</Tell>"),
         "{}",
         rig.single_message()
     );

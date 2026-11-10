@@ -41,6 +41,21 @@ pub(crate) struct ShellVerdict<'a> {
     pub(crate) host: &'a mut dyn LootHost,
 }
 
+impl ShellVerdict<'_> {
+    /// The rule UB's item description names (`LootAction.RuleName`): the
+    /// one the looter's decision names, whatever it says to do with the
+    /// item; blank without a profile or when no rule names the item.
+    pub(crate) fn described_rule(
+        &mut self,
+        item: &InventoryItem,
+        properties: &ItemProperties,
+    ) -> String {
+        self.verdict(item, properties)
+            .map(|verdict| verdict.rule_name)
+            .unwrap_or_default()
+    }
+}
+
 impl LootVerdict for ShellVerdict<'_> {
     fn verdict(&mut self, item: &InventoryItem, properties: &ItemProperties) -> Option<Verdict> {
         if !self.profile_loaded {
@@ -629,5 +644,32 @@ mod tests {
     #[test]
     fn without_a_profile_there_is_no_verdict() {
         assert_eq!(verdict(&[rule("Rings", LootAction::Keep)], false), None);
+    }
+
+    /// The rule UB's item description names.
+    fn described(rules: &[LootRule], profile_loaded: bool) -> String {
+        let mut fake = FakeHost::new("acdream.mosstank");
+        let mut host = Host::with_transport(&mut fake);
+        let mut client = HostAutomation::new(&mut host);
+        ShellVerdict {
+            rules,
+            external_classifier_id: "",
+            profile_loaded,
+            owned: &[],
+            host: &mut client,
+        }
+        .described_rule(&ring(), &ItemProperties::default())
+    }
+
+    #[test]
+    fn the_description_names_no_rule_without_a_profile() {
+        assert_eq!(described(&[rule("Rings", LootAction::Keep)], false), "");
+    }
+
+    #[test]
+    fn the_description_names_the_deciding_rule_whatever_it_says_to_do() {
+        assert_eq!(described(&[rule("Rings", LootAction::Keep)], true), "Rings");
+        assert_eq!(described(&[rule("Junk", LootAction::NoLoot)], true), "Junk");
+        assert_eq!(described(&[], true), "");
     }
 }

@@ -15,6 +15,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use ac_plugin_abi::callback::InterceptDecision;
+use ac_plugin_abi::items::InventoryItem;
+use ac_plugin_abi::world::ItemProperties;
 use mosstank_expr::{ExpressionError, ExpressionState, ExpressionValue};
 use mosstank_formats::utl::LootRule;
 use mosstank_meta::engine::MetaEngine;
@@ -707,8 +709,24 @@ impl UbServices for ShellUbServices<'_, '_> {
         loaded_rules(&mut **client, loaded, rules)
     }
 
-    fn live_loot_rules(&mut self) -> Vec<LootRule> {
-        self.core.0.borrow().settings.inventory.loot.rules.clone()
+    /// The looter's own decision, asked as the Mag tab's item info line
+    /// asks it ([`super::mag::ShellVerdict`]).
+    fn loot_rule_name(&mut self, item: &InventoryItem, properties: &ItemProperties) -> String {
+        let core = self.core.0.borrow();
+        let loot = &core.settings.inventory.loot;
+        if !loot.profile_active {
+            return String::new();
+        }
+        let mut client = self.client.0.borrow_mut();
+        let owned = client.mag().owned_items();
+        super::mag::ShellVerdict {
+            rules: &loot.rules,
+            external_classifier_id: &loot.external_classifier_id,
+            profile_loaded: true,
+            owned: &owned,
+            host: client.looter(),
+        }
+        .described_rule(item, properties)
     }
 
     fn corpse_identifier_busy(&mut self) -> bool {

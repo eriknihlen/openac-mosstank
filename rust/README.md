@@ -144,7 +144,7 @@ a button for what it does.
 
 After UtilityBelt's ItemInfo: select an item (in your packs, on a corpse or
 on the ground) and a line about it is written in chat, starting with the
-loot rule it matches in the loot profile you have loaded:
+loot rule the looter would decide it by in the loot profile you have loaded:
 
 ```text
 [UB] ItemInfo: Keep armor - Silver Breastplate, Soldier's Set, AL 512, AR, Tinks 2, Epic Strength, Major Impenetrability, Wield Lvl 150, Craft 7, [D 2]
