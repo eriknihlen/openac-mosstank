@@ -75,8 +75,8 @@ choice on that tab.
 A port of UtilityBelt's looter: it takes what the **active loot profile**
 keeps out of chests and your own corpse, judged by MossTank's own loot rules
 (the corpse looter's). Keep, Keep # (up to its count, counting what you carry)
-and Salvage take an item (salvage is looted, not salvaged); an item whose
-verdict needs an appraisal is appraised first, one at a time. Monster corpses
+and Salvage take an item (whether it is then salvaged is a switch of its own,
+below); an item whose verdict needs an appraisal is appraised first, one at a time. Monster corpses
 stay the macro's corpse looter's, and a container it is working is left to it.
 
 - **Chests and your own corpse, as they open.** With `Looter.Enabled` on, a
@@ -104,8 +104,10 @@ stay the macro's corpse looter's, and a container it is working is left to it.
   (off by default, as in UtilityBelt), `/ub use` and the key looter salvage
   what a Salvage rule took, one item at a time with your Ust, once the
   container has closed. A chest opened by hand and your own corpse are looted
-  only. Worn, retained, sticky, inscribed, tinkered and imbued items are left
-  whole. `AutoSalvage.Think` thinks the closing line instead of printing it.
+  only. Worn, retained, sticky and inscribed items are left whole, as are
+  items tinkered more than once or with an imbue value above 1 (UtilityBelt's
+  limits): an item tinkered once can be salvaged. `AutoSalvage.Think` thinks
+  the closing line instead of printing it.
 - `Looter.AttemptsBeforeBlacklisting` (500) is how many steps one item is tried
   before it is given up on; `Looter.OverallSpeed` (100, the least allowed) is
   how often, in milliseconds, the looter steps. `Looter.JumpWhenLooting`,
