@@ -514,6 +514,57 @@ fn a_stack_left_alone_is_not_poured_onto_either() {
 }
 
 #[test]
+fn worn_and_wielded_items_packs_and_foci_stay_where_they_are() {
+    let worn = InventoryItem {
+        equipped_location: 0x0000_0200,
+        wielder_id: PLAYER,
+        container_id: 0,
+        ..loose(20, "Hauberk", 0)
+    };
+    let wielded = InventoryItem {
+        wielder_id: PLAYER,
+        container_id: 0,
+        ..loose(21, "Sword", 0)
+    };
+    let focus = InventoryItem {
+        public_flags: 0x0080_0000,
+        container_slot: 2,
+        ..loose(22, "Foci of Strife", PLAYER)
+    };
+    let mut rig = rig(
+        vec![worn, wielded, focus, loose(23, "Trade Note", PLAYER)],
+        true,
+    );
+    save(
+        &mut rig,
+        "Tester.AutoPack",
+        vec![keep_up_to("Everything", "*", 2)],
+    );
+
+    rig.ub("autopack");
+    for _ in 0..20 {
+        let (item, to) = match moves(&rig).last() {
+            Some(made) => *made,
+            None => (0, 0),
+        };
+        if item != 0 {
+            land(&mut rig, item, to);
+        }
+        if !tick(&mut rig, 0.5) {
+            break;
+        }
+    }
+
+    // Only the note moves: the side packs, the focus and what is worn or
+    // wielded match the rule but are never packed.
+    assert_eq!(vec![(23, SECOND_PACK)], moves(&rig));
+    assert_eq!(
+        Some(&"[UB] Auto Pack - Completed.".to_owned()),
+        rig.messages().last()
+    );
+}
+
+#[test]
 fn an_item_that_will_not_move_is_left_alone_after_ten_seconds() {
     let mut rig = rig(vec![loose(20, "Trade Note", PLAYER)], true);
     save(
