@@ -3,7 +3,7 @@
 
 mod common;
 
-use ac_plugin_abi::items::InventoryItem;
+use ac_plugin_abi::items::{InventoryItem, ItemStatus};
 use ac_plugin_abi::magic::SpellInfo;
 use ac_plugin_abi::world::{
     ArmorProfile, ItemProperties, ObjectClass, WeaponProfile, WorldObject, selection_source,
@@ -539,4 +539,125 @@ fn a_players_pk_ratings_alone_show_no_ratings() {
             "[UB] ItemInfo: Hitter, [D 2, PKD 5] "
         ]
     );
+}
+
+#[test]
+fn an_appraisal_the_client_gives_up_on_describes_what_is_known_at_once() {
+    let mut rig = enabled();
+    let (object, item, properties) = breastplate(false);
+    let id = object.object_id;
+    carry(&mut rig, object, item, properties);
+    select(&mut rig, id);
+    tick(&mut rig, 0.1);
+    assert!(rig.messages().is_empty());
+
+    // Long before the five seconds are up.
+    rig.host.appraisal.last_abandoned_id = id;
+    tick(&mut rig, 0.1);
+
+    assert_eq!(rig.messages().len(), 1);
+    assert!(rig.messages()[0].contains("Silver Breastplate"));
+    tick(&mut rig, APPRAISAL_TIMEOUT_SECONDS);
+    assert_eq!(rig.messages().len(), 1, "said once");
+}
+
+#[test]
+fn a_busy_appraisal_slot_is_asked_again_the_next_frame() {
+    let mut rig = enabled();
+    let (object, item, properties) = breastplate(false);
+    let id = object.object_id;
+    carry(&mut rig, object, item, properties);
+    rig.host.identify_status = ItemStatus::Busy;
+
+    select(&mut rig, id);
+    tick(&mut rig, 0.1);
+    assert_eq!(rig.host.identified, [id, id], "asked again while busy");
+
+    rig.host.identify_status = ItemStatus::Started;
+    tick(&mut rig, 0.1);
+    tick(&mut rig, 0.1);
+    assert_eq!(rig.host.identified, [id, id, id], "asked until it was sent");
+
+    rig.host.meta.objects[0].has_appraisal_data = true;
+    tick(&mut rig, 0.1);
+    assert_eq!(rig.messages().len(), 1);
+}
+
+#[test]
+fn an_appraisal_someone_else_asked_for_describes_the_object_waiting() {
+    // The slot already waits on the object (the player or another tool
+    // asked): nothing more is asked, and its answer describes it.
+    let mut rig = enabled();
+    let (object, item, properties) = breastplate(false);
+    let id = object.object_id;
+    carry(&mut rig, object, item, properties);
+    rig.host.appraisal.awaiting_id = id;
+
+    select(&mut rig, id);
+    tick(&mut rig, 0.1);
+    assert!(rig.host.identified.is_empty(), "{:?}", rig.host.identified);
+    assert!(rig.messages().is_empty());
+
+    rig.host.appraisal.awaiting_id = 0;
+    rig.host.meta.objects[0].has_appraisal_data = true;
+    tick(&mut rig, 0.1);
+
+    assert_eq!(rig.messages().len(), 1);
+    assert!(rig.host.identified.is_empty(), "{:?}", rig.host.identified);
+}
+
+#[test]
+fn an_appraisal_someone_else_asked_for_that_the_client_gives_up_on_ends_the_wait() {
+    // That request counts as the one asked for: when the client gives up
+    // on it, what is known is described and nothing more is asked.
+    let mut rig = enabled();
+    let (object, item, properties) = breastplate(false);
+    let id = object.object_id;
+    carry(&mut rig, object, item, properties);
+    rig.host.appraisal.awaiting_id = id;
+    select(&mut rig, id);
+    tick(&mut rig, 0.1);
+
+    rig.host.appraisal.awaiting_id = 0;
+    rig.host.appraisal.last_abandoned_id = id;
+    tick(&mut rig, 0.1);
+
+    assert_eq!(rig.messages().len(), 1);
+    assert!(rig.host.identified.is_empty(), "{:?}", rig.host.identified);
+}
+
+#[test]
+fn a_slot_waiting_on_another_object_is_left_to_it() {
+    let mut rig = enabled();
+    let (object, item, properties) = breastplate(false);
+    let id = object.object_id;
+    carry(&mut rig, object, item, properties);
+    rig.host.appraisal.awaiting_id = 0x8000_0099;
+
+    select(&mut rig, id);
+    tick(&mut rig, 0.1);
+    assert!(rig.host.identified.is_empty());
+
+    rig.host.appraisal.awaiting_id = 0;
+    tick(&mut rig, 0.1);
+    assert_eq!(rig.host.identified, [id]);
+}
+
+#[test]
+fn an_npc_is_described_with_show_npc_info_on() {
+    let mut rig = enabled();
+    rig.host.meta.objects.push(WorldObject {
+        object_id: 90,
+        name: "Town Crier".to_owned(),
+        object_class: ObjectClass::Npc,
+        has_appraisal_data: true,
+        ..WorldObject::default()
+    });
+
+    select(&mut rig, 90);
+    assert!(rig.messages().is_empty());
+
+    switch_on(&mut rig, item_info::SHOW_NPC_INFO_SETTING);
+    select(&mut rig, 90);
+    assert_eq!(rig.single_message(), "[UB] ItemInfo: Town Crier ");
 }
