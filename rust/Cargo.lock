@@ -710,7 +710,7 @@ dependencies = [
 
 [[package]]
 name = "mosstank"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "ac-plugin-abi",
  "mosstank-automation",
@@ -736,7 +736,7 @@ dependencies = [
 
 [[package]]
 name = "mosstank-automation"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "ac-plugin-abi",
  "mosstank-dotnet",
@@ -745,7 +745,7 @@ dependencies = [
 
 [[package]]
 name = "mosstank-buffs"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "ac-plugin-abi",
  "mosstank-automation",
@@ -760,7 +760,7 @@ dependencies = [
 
 [[package]]
 name = "mosstank-combat"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "ac-plugin-abi",
  "mosstank-automation",
@@ -774,7 +774,7 @@ dependencies = [
 
 [[package]]
 name = "mosstank-data"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "ac-plugin-abi",
  "mosstank-dotnet",
@@ -784,14 +784,14 @@ dependencies = [
 
 [[package]]
 name = "mosstank-dotnet"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "openac-plugin-compat",
 ]
 
 [[package]]
 name = "mosstank-expr"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "mosstank-dotnet",
  "openac-plugin-compat",
@@ -800,7 +800,7 @@ dependencies = [
 
 [[package]]
 name = "mosstank-formats"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "ac-plugin-abi",
  "mosstank-data",
@@ -811,7 +811,7 @@ dependencies = [
 
 [[package]]
 name = "mosstank-fuel"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "ac-plugin-abi",
  "mosstank",
@@ -825,7 +825,7 @@ dependencies = [
 
 [[package]]
 name = "mosstank-loot"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "ac-plugin-abi",
  "mosstank-automation",
@@ -841,7 +841,7 @@ dependencies = [
 
 [[package]]
 name = "mosstank-mag"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "ac-plugin-abi",
  "mosstank-dotnet",
@@ -857,7 +857,7 @@ dependencies = [
 
 [[package]]
 name = "mosstank-meta"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "ac-plugin-abi",
  "mosstank-dotnet",
@@ -872,7 +872,7 @@ dependencies = [
 
 [[package]]
 name = "mosstank-nav"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "ac-plugin-abi",
  "mosstank-automation",
@@ -886,7 +886,7 @@ dependencies = [
 
 [[package]]
 name = "mosstank-session"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "ac-plugin-abi",
  "mosstank-automation",
@@ -898,7 +898,7 @@ dependencies = [
 
 [[package]]
 name = "mosstank-settings"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "ac-plugin-abi",
  "mosstank-data",
@@ -910,7 +910,7 @@ dependencies = [
 
 [[package]]
 name = "mosstank-stores"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "mosstank-data",
  "mosstank-dotnet",
@@ -923,7 +923,7 @@ dependencies = [
 
 [[package]]
 name = "mosstank-ub"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "ac-plugin-abi",
  "mosstank-automation",
@@ -942,7 +942,7 @@ dependencies = [
 
 [[package]]
 name = "mosstank-vendor"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "ac-plugin-abi",
  "mosstank-automation",
@@ -1632,7 +1632,7 @@ dependencies = [
 
 [[package]]
 name = "xtask"
-version = "0.7.0"
+version = "0.7.1"
 
 [[package]]
 name = "zmij"
