@@ -1479,3 +1479,117 @@ fn a_blocked_launcher_goes_on_to_the_next_monster_when_the_row_also_ticks_ring()
     assert_eq!(times_chosen_again(&fight), 1);
     assert_eq!(fight.surface.begin_count, 1);
 }
+
+/// Two monsters that each want their own bow; the first bow is in hand.
+fn two_bows_fight(blocked_ids: &[u32]) -> Fight {
+    let second_bow = equipment(702, "Second Bow", 0x10)
+        .item_type(0x100)
+        .valid(0x0010_0000)
+        .ammo(1, 1)
+        .build();
+    let surface = FakeAutomation {
+        combat_snapshot: in_mode(CombatMode::Missile),
+        targets: vec![
+            common::target(10, "Drudge", 10.0, 0.0),
+            common::target(20, "Mosswart", 12.0, 10.0),
+        ],
+        character_skills: vec![missile_skill()],
+        equipment_items: vec![fire_bow(), second_bow, loaded_arrows()],
+        item_entries: vec![inventory_item(801, "Deadly Fire Arrow", 0x100, 0, false)],
+        ..FakeAutomation::default()
+    };
+    let row = |name: &str, weapon: u32| {
+        rule_with(
+            name,
+            MonsterRuleActions {
+                damage_type: MonsterDamageType::Fire,
+                ..MonsterActionFlags::ATTACK.with_weapon(weapon)
+            },
+        )
+    };
+    let mut settings = CombatSettings::default();
+    settings.rules.clear();
+    settings.rules.push(row("Drudge", 700));
+    settings.rules.push(row("Mosswart", 702));
+    settings.rules.push(row("DEFAULT", 700));
+    settings.combat_item_object_ids.insert(700);
+    settings.combat_item_object_ids.insert(702);
+    settings.maximum_range = 40.0;
+    settings.use_projectile_awareness = true;
+    let mut fight = Fight::with_game_info(surface, settings, ammo_game_info());
+    for id in blocked_ids {
+        fight.surface.projectile_paths.insert(*id, blocked_flight());
+    }
+    fight
+}
+
+fn run_with_equipment_clock(fight: &mut Fight, ticks: usize) {
+    fight.toggle();
+    for _ in 0..ticks {
+        fight
+            .controller
+            .gate()
+            .borrow_mut()
+            .advance_pass(&mut fight.surface, 0.3);
+        fight.tick(0.3);
+    }
+}
+
+fn bow_changes(fight: &Fight) -> Vec<&String> {
+    fight
+        .surface
+        .call_log
+        .iter()
+        .filter(|call| call.starts_with("Equip:"))
+        .collect()
+}
+
+// Wielding comes after the flight is known: two monsters behind cover that
+// want different bows must not trade the character's hands back and forth.
+#[test]
+fn monsters_behind_cover_do_not_make_the_character_change_bows() {
+    let mut fight = two_bows_fight(&[10, 20]);
+
+    run_with_equipment_clock(&mut fight, 40);
+
+    assert!(bow_changes(&fight).is_empty(), "{:?}", bow_changes(&fight));
+    assert_eq!(fight.surface.begin_count, 0);
+    assert!(fight.surface.projectile_path_checks >= 2);
+}
+
+#[test]
+fn a_monster_behind_cover_is_not_given_its_bow_for_a_shot_that_cannot_reach() {
+    let mut fight = two_bows_fight(&[20]);
+    fight.surface.targets = vec![common::target(20, "Mosswart", 12.0, 10.0)];
+
+    run_with_equipment_clock(&mut fight, 10);
+
+    assert!(bow_changes(&fight).is_empty(), "{:?}", bow_changes(&fight));
+}
+
+#[test]
+fn a_reachable_monster_still_gets_its_bow_when_the_nearer_one_is_behind_cover() {
+    let mut fight = two_bows_fight(&[10]);
+
+    run_with_equipment_clock(&mut fight, 40);
+
+    assert_eq!(bow_changes(&fight), ["Equip:000002BE"]);
+    assert!(fight.surface.begin_count > 0);
+}
+
+// The early look must leave a shot already on its way to the swing executor.
+#[test]
+fn a_shot_under_way_is_not_abandoned_when_the_flight_becomes_blocked() {
+    let mut fight = two_bows_fight(&[]);
+    fight.surface.targets = vec![common::target(10, "Drudge", 10.0, 0.0)];
+    run_with_equipment_clock(&mut fight, 1);
+    assert_eq!(fight.surface.begin_count, 1);
+
+    fight.surface.combat_snapshot.server_response_pending = true;
+    fight.surface.projectile_path = blocked_flight();
+    let checks = fight.surface.projectile_path_checks;
+    fight.tick(0.3);
+
+    assert!(fight.has_target());
+    assert_eq!(fight.surface.projectile_path_checks, checks);
+}

@@ -15,6 +15,7 @@ use super::{
     UNANSWERED_SWING_SECONDS,
 };
 use crate::MacroLogChannel;
+use crate::gate::CombatModeGate;
 
 /// The executor's repeat period, seconds.
 const SWING_REPEAT_SECONDS: f64 = 0.263;
@@ -51,6 +52,49 @@ fn notice_suffix(notice: Option<&String>) -> String {
 }
 
 impl CombatController {
+    /// Whether the launcher planned for this monster has no way to reach it,
+    /// asked before the weapon is wielded: monsters behind cover must not
+    /// trade the character's hands between their bows. A shot already on its
+    /// way stays with the swing executor.
+    pub(super) fn planned_launcher_cannot_reach(&mut self, cx: &mut Ctx<'_>) -> bool {
+        let combat = cx.automation.combat_snapshot();
+        if combat.request_in_progress
+            || combat.server_response_pending
+            || combat.repeat_attack_in_progress
+            || self.planned_weapon == 0
+            || !cx.automation.equipment_available()
+        {
+            return false;
+        }
+        let equipment = self.pass_equipment(cx.automation);
+        let is_launcher = equipment
+            .iter()
+            .find(|item| item.object_id == self.planned_weapon)
+            .is_some_and(|item| CombatModeGate::mode_for(item) == CombatMode::Missile);
+        is_launcher && self.give_up_on_blocked_missile_flight(cx)
+    }
+
+    /// Whether the missile flight to this monster is blocked. It then has
+    /// nothing left for this pass: a launcher has no ring to offer instead.
+    fn give_up_on_blocked_missile_flight(&mut self, cx: &mut Ctx<'_>) -> bool {
+        let height = cx.settings.attack_height;
+        let (clear, path) = self.projectile_path_is_clear(
+            cx,
+            self.target_id,
+            ProjectilePathKind::Missile,
+            attack_height(height.0),
+        );
+        if clear {
+            return false;
+        }
+        self.set_status(projectile_status(&path, &self.target_name));
+        self.clear_actions_for_pass(
+            self.target_id,
+            MonsterActionFlags::ATTACK | MonsterActionFlags::RING | MonsterActionFlags::STREAK,
+        );
+        true
+    }
+
     pub(super) fn tick_physical(
         &mut self,
         cx: &mut Ctx<'_>,
@@ -94,26 +138,8 @@ impl CombatController {
         let decision = self.decision_actions();
         let physical_actions =
             self.resolve_physical_actions(decision, &physical_target, &inventory);
-        if combat.mode == CombatMode::Missile {
-            let height = cx.settings.attack_height;
-            let (clear, path) = self.projectile_path_is_clear(
-                cx,
-                self.target_id,
-                ProjectilePathKind::Missile,
-                attack_height(height.0),
-            );
-            if !clear {
-                self.set_status(projectile_status(&path, &self.target_name));
-                // The shot cannot reach, and a launcher has no ring to offer
-                // instead: choose again without this monster.
-                self.clear_actions_for_pass(
-                    self.target_id,
-                    MonsterActionFlags::ATTACK
-                        | MonsterActionFlags::RING
-                        | MonsterActionFlags::STREAK,
-                );
-                return AttackPassOutcome::Retry;
-            }
+        if combat.mode == CombatMode::Missile && self.give_up_on_blocked_missile_flight(cx) {
+            return AttackPassOutcome::Retry;
         }
         // The power table reads the element the attack resolved to.
         let element = self.resolve_attack_element(cx, &physical_actions, &physical_target);

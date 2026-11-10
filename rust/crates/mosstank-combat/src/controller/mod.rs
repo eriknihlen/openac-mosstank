@@ -1103,6 +1103,10 @@ impl CombatController {
             return AttackPassOutcome::Retry;
         }
 
+        if self.planned_launcher_cannot_reach(cx) {
+            return AttackPassOutcome::Retry;
+        }
+
         if !self.try_prepare_attack(cx) {
             // Unsettled equipment is waited on; no usable weapon at all
             // yields the monster.
