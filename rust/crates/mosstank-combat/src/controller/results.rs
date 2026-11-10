@@ -151,7 +151,6 @@ impl CombatController {
         for message in messages {
             self.observed_chat_sequence = self.observed_chat_sequence.max(message.sequence);
             self.observe_physical_result_text(cx, &message);
-            self.observe_debuff_landing(cx, &message);
             let own_speech = message.kind == LOCAL_SPEECH_CHAT_KIND
                 && message.sender_id != 0
                 && message.sender_id == character;
@@ -163,7 +162,7 @@ impl CombatController {
             );
             self.drain_cast_events(cx);
         }
-        self.expire_debuff_flight(cx);
+        self.observe_debuff_flight(cx);
     }
 
     /// The in-flight item transaction's own watcher.

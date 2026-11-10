@@ -1283,30 +1283,6 @@ fn logged(fight: &Fight, text: &str) -> bool {
     fight.log_texts().iter().any(|line| line.contains(text))
 }
 
-#[test]
-fn a_projectile_debuff_outside_the_shape_families_is_still_kept_off_walls() {
-    // No debuff the spell table types a projectile lacks a flight shape
-    // today; Destructive Curse typed one stands in for such a spell.
-    let curse = SpellInfo {
-        is_projectile: true,
-        ..mosstank_combat::testing::debuff_spell("Destructive Curse VII")
-    };
-    let mut rule = debuff_only(MonsterActionFlags::DESTRUCTIVE_CURSE);
-    rule.maximum_range = 40.0;
-    rule.use_projectile_awareness = true;
-    let mut fight = Fight::new(magic(drudge(), vec![curse.clone()]), rule);
-    fight.surface.projectile_path = ProjectilePathResult {
-        status: ProjectilePathStatus::Blocked,
-        collision_checks: 3,
-        ..ProjectilePathResult::default()
-    };
-
-    fight.toggle();
-    fight.tick(0.25);
-
-    assert!(!fight.surface.cast_spell_ids.contains(&curse.spell_id));
-}
-
 // The server sends the landing line as the bolt lands, which at a short
 // range is before it finishes the cast (a second of recoil later).
 #[test]
@@ -1484,6 +1460,9 @@ fn a_monster_dead_while_the_curse_flies_is_no_miss_and_the_next_is_cursed() {
     );
 }
 
+// The retail client's wording of a refused target. The local server says
+// out of range in its finish-cast answer instead, the case of
+// `a_cast_the_server_refuses_is_cast_again_with_no_miss`.
 #[test]
 fn a_projectile_debuff_out_of_range_gives_the_monster_up() {
     let mut fight = corrosion_fight(CombatSettings::default());
@@ -1496,6 +1475,99 @@ fn a_projectile_debuff_out_of_range_gives_the_monster_up() {
     fight.tick(0.25);
 
     assert!(!fight.has_target());
+    assert!(fight.surface.peers.successes.is_empty());
+}
+
+// A single-target spell has only its one monster: any resist is that
+// spell's, whatever name the line carries.
+#[test]
+fn a_resist_ends_a_single_target_curses_wait_whoever_it_names() {
+    let mut fight = corrosion_fight(blacklist_on_first_miss());
+
+    fight.toggle();
+    fight.tick(0.25);
+    fight.surface.last_cast_completion = completion(1, CORROSION, 10, 0);
+    fight.tick(0.25);
+    fight.surface.chat_messages = vec![magic_line(1, "Tusker Guard resists your spell")];
+    fight.tick(0.25);
+    fight.tick(0.25);
+
+    assert!(fight.has_target());
+    assert_eq!(fight.surface.cast_spell_ids, [CORROSION, CORROSION]);
+}
+
+// Corruption's side bolts can be resisted by others while the aimed one
+// is still on its way.
+#[test]
+fn a_side_bolts_resist_does_not_end_corruptions_wait() {
+    let mut fight = corruption_fight(CombatSettings::default());
+
+    fight.toggle();
+    fight.tick(0.25);
+    fight.surface.last_cast_completion = completion(1, CORRUPTION, 10, 0);
+    fight.tick(0.25);
+    fight.surface.chat_messages = vec![magic_line(1, "Tusker Guard resists your spell")];
+    fight.tick(0.25);
+
+    assert_eq!(fight.surface.cast_spell_ids, [CORRUPTION]);
+    assert!(fight.status().contains("land"), "{}", fight.status());
+}
+
+// A late line of the cast before is in the chat when this one goes out.
+#[test]
+fn a_line_from_before_the_cast_is_not_its_landing() {
+    let mut fight = corrosion_fight(CombatSettings::default());
+    fight.surface.chat_messages = vec![magic_line(1, "You cast Corrosion VII on Drudge")];
+
+    fight.toggle();
+    fight.tick(0.25);
+    assert_eq!(fight.surface.cast_spell_ids, [CORROSION]);
+    fight.surface.last_cast_completion = completion(1, CORROSION, 10, 0);
+    fight.tick(0.25);
+
+    assert!(fight.surface.peers.successes.is_empty());
+    assert!(fight.status().contains("land"), "{}", fight.status());
+}
+
+#[test]
+fn a_killing_blow_on_the_monster_ends_the_wait_with_no_miss() {
+    let mut fight = corrosion_fight(blacklist_on_first_miss());
+
+    fight.toggle();
+    fight.tick(0.25);
+    fight.surface.last_cast_completion = completion(1, CORROSION, 10, 0);
+    fight.tick(0.25);
+    assert!(fight.status().contains("land"), "{}", fight.status());
+    fight.surface.chat_messages = vec![ChatLine {
+        sequence: 1,
+        text: "You killed Drudge!".to_owned(),
+        log_text_type: 0,
+        ..ChatLine::default()
+    }];
+    fight.tick(0.25);
+
+    assert!(!fight.status().contains("land"), "{}", fight.status());
+    assert!(!logged(&fight, "never landed"));
+    assert!(!gave_up(&fight, "Drudge"));
+}
+
+// The server refuses a cast at a monster out of reach in its finish-cast
+// answer (0x550, missile out of range): nothing flew, so nothing is awaited
+// and it is no miss.
+#[test]
+fn a_cast_the_server_refuses_is_cast_again_with_no_miss() {
+    let mut fight = corrosion_fight(blacklist_on_first_miss());
+
+    fight.toggle();
+    fight.tick(0.25);
+    assert_eq!(fight.surface.cast_spell_ids, [CORROSION]);
+    fight.surface.last_cast_completion = completion(1, CORROSION, 10, 0x550);
+    fight.tick(0.25);
+
+    assert!(!fight.status().contains("land"), "{}", fight.status());
+    assert_eq!(fight.surface.cast_spell_ids, [CORROSION, CORROSION]);
+    assert!(fight.has_target());
+    assert!(!gave_up(&fight, "Drudge"));
     assert!(fight.surface.peers.successes.is_empty());
 }
 

@@ -619,6 +619,10 @@ impl TankCx<'_> {
         }
         core.combat
             .observe_learned_debuff_receipt(self.client.rules(), elapsed_seconds);
+        {
+            let mut ctx = combat_ctx!(self.client, core);
+            core.combat.observe_debuff_flight(&mut ctx);
+        }
         core.write_out(self.client);
     }
 

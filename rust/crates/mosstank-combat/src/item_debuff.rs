@@ -132,7 +132,7 @@ fn collect(
             continue;
         }
         let skill = current_skill(input.skills, spell.school);
-        let shape = flight_shape(spell);
+        let shape = projectile_shape_for(spell.family);
         add_if_required(
             &mut result,
             required,
@@ -209,7 +209,7 @@ fn add_profile_item(
         && let Some(caster_spell) = spells.try_get(item.spell_id)
     {
         // A wand throws its own spell, so the spell's shape stands.
-        let shape = flight_shape(&caster_spell);
+        let shape = projectile_shape_for(caster_spell.family);
         add_if_required(
             result,
             required,
@@ -302,14 +302,6 @@ fn find_grenade<'g>(
     grenades
         .iter()
         .find(|option| ordinal::equals_ignore_case(&option.name, name))
-}
-
-/// The flight a spell takes: its family's shape, else straight for any spell
-/// the spell table marks a projectile (an enchantment projectile, such as a
-/// Void curse, whose family no shape lists).
-fn flight_shape(spell: &SpellInfo) -> Option<ProjectilePathKind> {
-    projectile_shape_for(spell.family)
-        .or_else(|| spell.is_projectile.then_some(ProjectilePathKind::Straight))
 }
 
 #[allow(clippy::too_many_arguments)]
