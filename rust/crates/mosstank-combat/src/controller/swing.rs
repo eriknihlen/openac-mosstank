@@ -104,10 +104,13 @@ impl CombatController {
             );
             if !clear {
                 self.set_status(projectile_status(&path, &self.target_name));
-                // The shot cannot reach: choose again.
+                // The shot cannot reach, and a launcher has no ring to offer
+                // instead: choose again without this monster.
                 self.clear_actions_for_pass(
                     self.target_id,
-                    MonsterActionFlags::ATTACK | MonsterActionFlags::STREAK,
+                    MonsterActionFlags::ATTACK
+                        | MonsterActionFlags::RING
+                        | MonsterActionFlags::STREAK,
                 );
                 return AttackPassOutcome::Retry;
             }

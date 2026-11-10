@@ -606,3 +606,99 @@ fn a_listed_weapon_is_kept_between_kills_rather_than_swapping_to_the_wand() {
     assert!(!has(&fight.surface.call_log, "EnterMode:Magic"));
     assert_eq!(fight.surface.last_begin_target, 11);
 }
+
+/// How many times the last pass gave up on a monster and chose again.
+fn times_chosen_again(fight: &Fight) -> usize {
+    fight
+        .lines
+        .borrow()
+        .iter()
+        .filter(|(_, text)| text.contains("yielded nothing"))
+        .count()
+}
+
+/// A wand in hand that knows a bolt and an arc, its row ticking both Attack
+/// and Ring.
+fn wand_with_ring_ticked(targets: Vec<CombatTarget>, knows_a_ring: bool) -> Fight {
+    let mut surface = magic(targets);
+    surface.known_combat_spells = vec![
+        SpellInfo {
+            is_projectile: true,
+            ..magic_spell(100, "Flame Bolt VII", 300)
+        },
+        SpellInfo {
+            is_projectile: true,
+            ..magic_spell(101, "Flame Arc VII", 300)
+        },
+    ];
+    if knows_a_ring {
+        surface
+            .known_combat_spells
+            .push(magic_spell(110, "Cassius' Ring of Fire", 300));
+    }
+    Fight::new(
+        surface,
+        only_rule(
+            CombatSettings {
+                maximum_range: 40.0,
+                selection_method: TargetSelectionMethod::RANGE,
+                use_projectile_awareness: true,
+                ..CombatSettings::default()
+            },
+            single_rule(
+                MonsterActionFlags::ATTACK | MonsterActionFlags::RING,
+                MonsterDamageType::Fire,
+            ),
+        ),
+    )
+}
+
+// Both flights blocked keeps the monster for a ring; with no ring to cast
+// the second look has to let it go, or it fills the pass's retry budget.
+#[test]
+fn a_blocked_wand_lets_go_of_a_monster_no_ring_can_reach() {
+    // Beyond the ring's distance, ring known; close, no ring known.
+    for (distance, knows_a_ring) in [(20.0, true), (20.0, false), (3.0, false)] {
+        let mut fight =
+            wand_with_ring_ticked(vec![target(10, "Drudge", distance, 0.0)], knows_a_ring);
+        fight.surface.projectile_path = blocked();
+
+        fight.toggle();
+        fight.tick(0.25);
+
+        assert_eq!(
+            times_chosen_again(&fight),
+            2,
+            "{distance} m, {knows_a_ring}"
+        );
+        assert!(fight.surface.cast_spell_ids.is_empty());
+    }
+}
+
+#[test]
+fn a_blocked_wand_still_casts_the_ring_it_kept_the_monster_for() {
+    let mut fight = wand_with_ring_ticked(vec![target(10, "Drudge", 3.0, 0.0)], true);
+    fight.surface.projectile_path = blocked();
+
+    fight.toggle();
+    fight.tick(0.25);
+
+    assert_eq!(fight.surface.cast_spell_ids, [110]);
+}
+
+#[test]
+fn a_blocked_wand_goes_on_to_the_next_monster_when_the_row_also_ticks_ring() {
+    let mut fight = wand_with_ring_ticked(
+        vec![
+            target(10, "Drudge", 20.0, 0.0),
+            target(20, "Mosswart", 25.0, 10.0),
+        ],
+        false,
+    );
+    fight.surface.projectile_paths.insert(10, blocked());
+
+    fight.toggle();
+    fight.tick(0.25);
+
+    assert_eq!(fight.surface.last_targeted_cast.1, 20);
+}

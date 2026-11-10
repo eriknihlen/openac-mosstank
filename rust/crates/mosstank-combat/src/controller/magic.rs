@@ -302,7 +302,9 @@ impl CombatController {
             if self.status.starts_with(NO_USABLE_ATTACK_SPELL) {
                 self.cannot_attack_reason = Some(self.status.clone());
             }
-            if !self.plan_kept_the_monster_in_play {
+            // Kept for a ring, it gets one more look; a monster already down
+            // to its ring that still has nothing to cast is let go.
+            if !self.plan_kept_the_monster_in_play || !flag3 {
                 self.invalidate_for_pass(self.target_id);
             }
             return AttackPassOutcome::Retry;
