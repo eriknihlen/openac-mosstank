@@ -112,3 +112,28 @@ fn the_rule_named_is_the_one_the_looters_decision_names() {
     assert_eq!(lines.len(), 1, "{lines:?}");
     assert!(lines[0].contains("Their Rule - Test Ring"), "{}", lines[0]);
 }
+
+#[test]
+fn either_click_switch_describes_what_the_mouse_selects_and_nothing_else() {
+    for switch in [
+        "ItemInfo.DescribeOnLeftClick",
+        "ItemInfo.DescribeOnRightClick",
+    ] {
+        let (mut world, mut plugin) = ring_world(&[switch]);
+        for source in [
+            selection_source::KEYBOARD,
+            selection_source::SYSTEM,
+            selection_source::PLUGIN,
+        ] {
+            select_by(&mut world, &mut plugin, source);
+        }
+        assert!(
+            info_lines(&world).is_empty(),
+            "{switch}: {:?}",
+            world.chat()
+        );
+
+        select_by(&mut world, &mut plugin, selection_source::MOUSE);
+        assert_eq!(info_lines(&world).len(), 1, "{switch}: {:?}", world.chat());
+    }
+}

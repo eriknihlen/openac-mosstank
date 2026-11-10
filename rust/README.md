@@ -154,7 +154,12 @@ The name is a link that selects the item again. An item not appraised yet
 is appraised first. It is off until you turn it on, as in UtilityBelt:
 `/ub opt set ItemInfo.Enabled true` and
 `/ub opt set ItemInfo.DescribeOnSelect true` (or tick both on the UB
-settings page). `ItemInfo.ShowValueAndBurden` adds the value and burden;
+settings page). `DescribeOnSelect` describes every selection, however it
+was made. To describe only what you click instead, turn on
+`ItemInfo.DescribeOnLeftClick` or `ItemInfo.DescribeOnRightClick`: the
+client says that the mouse made a selection but not with which button, so
+either switch describes every selection made with the mouse, whichever
+button. `ItemInfo.ShowValueAndBurden` adds the value and burden;
 `ItemInfo.ShowDoorInfo` and `ItemInfo.ShowNpcInfo` describe doors and NPCs
 too. UtilityBelt's buffed weapon values, damage calculations and retail
 comparisons are not part of it (see `docs/divergences.md`, UB-13).

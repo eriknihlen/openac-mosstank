@@ -266,18 +266,6 @@ fn build_accepted_only() -> Vec<UbSettingDefinition> {
             "Kept for macros; the looter has no test mode here.",
             false,
         ),
-        // The client tells a plugin that the selection changed, not which
-        // mouse button changed it: a click with either button is a selection.
-        switch(
-            "ItemInfo.DescribeOnLeftClick",
-            "Kept for macros; a left click is a selection here (ItemInfo.DescribeOnSelect).",
-            false,
-        ),
-        switch(
-            "ItemInfo.DescribeOnRightClick",
-            "Kept for macros; a right click is a selection here (ItemInfo.DescribeOnSelect).",
-            false,
-        ),
         switch(
             "ItemInfo.DescribeOnLoot",
             "Kept for macros; the looter does not describe what it takes here.",
@@ -873,6 +861,18 @@ fn add_behaviour_tools(rows: &mut Vec<UbSettingDefinition>) {
     rows.push(switch(
         "ItemInfo.DescribeOnSelect",
         "Describe items when selected: the name, the loot rule it matches and its stats, in chat.",
+        false,
+    ));
+    // The client says that the mouse made a selection, not with which
+    // button: each click switch describes a selection the mouse made.
+    rows.push(switch(
+        "ItemInfo.DescribeOnLeftClick",
+        "Describe items selected with the mouse (the client does not say which button).",
+        false,
+    ));
+    rows.push(switch(
+        "ItemInfo.DescribeOnRightClick",
+        "Describe items selected with the mouse (the client does not say which button).",
         false,
     ));
     rows.push(switch(

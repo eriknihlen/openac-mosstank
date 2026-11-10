@@ -1343,10 +1343,11 @@ impl Tank {
             // What was selected is described in chat (UB's ItemInfo).
             Event::SelectionChanged(change) => {
                 cx.with_ub(|commands, call| {
-                    commands
-                        .tools_mut()
-                        .item_info
-                        .on_selection_changed(call, change.selected);
+                    commands.tools_mut().item_info.on_selection_changed(
+                        call,
+                        change.selected,
+                        change.source,
+                    );
                 });
             }
             _ => {}

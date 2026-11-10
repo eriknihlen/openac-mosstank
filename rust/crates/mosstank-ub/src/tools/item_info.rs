@@ -12,15 +12,17 @@
 //! holds no appraisal for is appraised first and described when the answer
 //! comes (or, failing an answer, with what is known).
 //!
-//! The rows are `ItemInfo.Enabled` and `ItemInfo.DescribeOnSelect` (both off
-//! as the original ships them), `ShowValueAndBurden`, `ShowDoorInfo` and
-//! `ShowNpcInfo`. The client says that the selection changed, not which
-//! mouse button changed it, so the left- and right-click switches are kept
-//! for macros only; so are the describe-on-loot switch, the buffed-value, damage and retail-comparison
-//! switches, whose weapon tables are not converted.
+//! The rows are `ItemInfo.Enabled`, `DescribeOnSelect`, `DescribeOnLeftClick`
+//! and `DescribeOnRightClick` (all off as the original ships them),
+//! `ShowValueAndBurden`, `ShowDoorInfo` and `ShowNpcInfo`. `DescribeOnSelect`
+//! describes any selection. The client says that the mouse made a
+//! selection, not with which button, so each click switch describes a
+//! selection the mouse made. The describe-on-loot switch, and the
+//! buffed-value, damage and retail-comparison switches, whose weapon tables
+//! are not converted, are kept for macros only.
 
 use ac_plugin_abi::items::{InventoryItem, ItemStatus};
-use ac_plugin_abi::world::{ItemProperties, ObjectClass, WorldObject};
+use ac_plugin_abi::world::{ItemProperties, ObjectClass, WorldObject, selection_source};
 use mosstank_loot::requirements::{item_double, item_int};
 use openac_plugin_compat::number::{self, MidpointRounding};
 
@@ -33,6 +35,12 @@ pub const TOOL: &str = "ItemInfo";
 pub const ENABLED_SETTING: &str = "ItemInfo.Enabled";
 /// Describe what is selected.
 pub const DESCRIBE_ON_SELECT_SETTING: &str = "ItemInfo.DescribeOnSelect";
+/// Describe what the mouse selects (UtilityBelt: a selection right after a
+/// left click; the client does not say which button).
+pub const DESCRIBE_ON_LEFT_CLICK_SETTING: &str = "ItemInfo.DescribeOnLeftClick";
+/// Describe what the mouse selects (UtilityBelt: a selection right after a
+/// right click; the client does not say which button).
+pub const DESCRIBE_ON_RIGHT_CLICK_SETTING: &str = "ItemInfo.DescribeOnRightClick";
 /// Add the value and the burden.
 pub const SHOW_VALUE_AND_BURDEN_SETTING: &str = "ItemInfo.ShowValueAndBurden";
 /// Describe doors too.
@@ -118,9 +126,12 @@ struct Pending {
 
 /// The switch and the triggers that decide whether a selection is described.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(clippy::struct_excessive_bools)]
 struct Switches {
     enabled: bool,
     on_select: bool,
+    on_left_click: bool,
+    on_right_click: bool,
 }
 
 impl Switches {
@@ -128,7 +139,20 @@ impl Switches {
         Self {
             enabled: call.flag(ENABLED_SETTING),
             on_select: call.flag(DESCRIBE_ON_SELECT_SETTING),
+            on_left_click: call.flag(DESCRIBE_ON_LEFT_CLICK_SETTING),
+            on_right_click: call.flag(DESCRIBE_ON_RIGHT_CLICK_SETTING),
         }
+    }
+
+    /// A selection `source` made is described: any with `DescribeOnSelect`,
+    /// one the mouse made with either click switch (UtilityBelt's needs the
+    /// button it names pressed just before; the client says only that the
+    /// mouse made it).
+    fn describe(self, source: u8) -> bool {
+        self.enabled
+            && (self.on_select
+                || ((self.on_left_click || self.on_right_click)
+                    && source == selection_source::MOUSE))
     }
 }
 
@@ -156,16 +180,22 @@ impl ItemInfoController {
         self.pending = None;
     }
 
-    /// The selection changed (`Core_ItemSelected`): describes the object
-    /// selected now, or asks for its appraisal and describes it when that
-    /// comes. A new selection replaces the one waiting.
-    pub fn on_selection_changed(&mut self, call: &mut UbCall<'_>, selected: Option<u32>) {
+    /// The selection changed (`Core_ItemSelected`), made by `source` (one of
+    /// [`selection_source`]): describes the object selected now, or asks for
+    /// its appraisal and describes it when that comes. A new selection
+    /// replaces the one waiting.
+    pub fn on_selection_changed(
+        &mut self,
+        call: &mut UbCall<'_>,
+        selected: Option<u32>,
+        source: u8,
+    ) {
         self.pending = None;
         let Some(object_id) = selected.filter(|id| *id != 0) else {
             return;
         };
         let switches = Switches::read(call);
-        if !switches.enabled || !switches.on_select {
+        if !switches.describe(source) {
             return;
         }
         let Some(object) = call.host.object(object_id) else {

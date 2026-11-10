@@ -5,7 +5,9 @@ mod common;
 
 use ac_plugin_abi::items::InventoryItem;
 use ac_plugin_abi::magic::SpellInfo;
-use ac_plugin_abi::world::{ArmorProfile, ItemProperties, ObjectClass, WeaponProfile, WorldObject};
+use ac_plugin_abi::world::{
+    ArmorProfile, ItemProperties, ObjectClass, WeaponProfile, WorldObject, selection_source,
+};
 use common::Rig;
 use mosstank_settings::ub::UbSettingValue;
 use mosstank_ub::catalog::UbCatalog;
@@ -109,12 +111,17 @@ fn breastplate_spells(rig: &mut Rig) {
     ]);
 }
 
+/// A selection made with a key.
 fn select(rig: &mut Rig, object_id: u32) {
+    select_by(rig, object_id, selection_source::KEYBOARD);
+}
+
+fn select_by(rig: &mut Rig, object_id: u32, source: u8) {
     rig.with_call(|call, commands| {
         commands
             .tools_mut()
             .item_info
-            .on_selection_changed(call, Some(object_id));
+            .on_selection_changed(call, Some(object_id), source);
     });
 }
 
@@ -227,7 +234,7 @@ fn a_new_selection_replaces_the_one_waiting() {
         commands
             .tools_mut()
             .item_info
-            .on_selection_changed(call, None);
+            .on_selection_changed(call, None, selection_source::KEYBOARD);
     });
     rig.host.meta.objects[0].has_appraisal_data = true;
     tick(&mut rig, 0.1);
@@ -261,6 +268,77 @@ fn switching_the_tool_or_its_trigger_off_drops_the_selection_waiting() {
         tick(&mut rig, 0.1);
         assert!(rig.messages().is_empty(), "{setting}: {:?}", rig.messages());
     }
+}
+
+/// The tool on with only `trigger` to start it.
+fn triggered_by(trigger: &str) -> Rig {
+    let mut rig = Rig::new();
+    switch_on(&mut rig, item_info::ENABLED_SETTING);
+    switch_on(&mut rig, trigger);
+    rig
+}
+
+#[test]
+fn a_click_switch_describes_a_selection_the_mouse_made_and_no_other() {
+    // The client says the mouse made a selection, not with which button:
+    // either click switch describes what the mouse selects.
+    for trigger in [
+        item_info::DESCRIBE_ON_LEFT_CLICK_SETTING,
+        item_info::DESCRIBE_ON_RIGHT_CLICK_SETTING,
+    ] {
+        let mut rig = triggered_by(trigger);
+        let (object, item, properties) = breastplate(true);
+        let id = object.object_id;
+        carry(&mut rig, object, item, properties);
+
+        for source in [
+            selection_source::SYSTEM,
+            selection_source::KEYBOARD,
+            selection_source::PLUGIN,
+        ] {
+            select_by(&mut rig, id, source);
+        }
+        assert!(rig.messages().is_empty(), "{trigger}: {:?}", rig.messages());
+
+        select_by(&mut rig, id, selection_source::MOUSE);
+        assert_eq!(rig.messages().len(), 1, "{trigger}");
+    }
+}
+
+#[test]
+fn describe_on_select_describes_a_selection_whatever_made_it() {
+    let mut rig = triggered_by(item_info::DESCRIBE_ON_SELECT_SETTING);
+    let (object, item, properties) = breastplate(true);
+    let id = object.object_id;
+    carry(&mut rig, object, item, properties);
+
+    for source in [
+        selection_source::SYSTEM,
+        selection_source::KEYBOARD,
+        selection_source::MOUSE,
+        selection_source::PLUGIN,
+    ] {
+        select_by(&mut rig, id, source);
+    }
+
+    assert_eq!(rig.messages().len(), 4);
+}
+
+#[test]
+fn a_click_switch_changing_drops_the_selection_waiting() {
+    let mut rig = triggered_by(item_info::DESCRIBE_ON_LEFT_CLICK_SETTING);
+    let (object, item, properties) = breastplate(false);
+    let id = object.object_id;
+    carry(&mut rig, object, item, properties);
+    select_by(&mut rig, id, selection_source::MOUSE);
+    assert_eq!(rig.host.identified, [id]);
+
+    // Switching the other click on changes the switches too.
+    switch_on(&mut rig, item_info::DESCRIBE_ON_RIGHT_CLICK_SETTING);
+    rig.host.meta.objects[0].has_appraisal_data = true;
+    tick(&mut rig, 0.1);
+
+    assert!(rig.messages().is_empty(), "{:?}", rig.messages());
 }
 
 #[test]
