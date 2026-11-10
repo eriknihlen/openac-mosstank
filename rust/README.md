@@ -165,6 +165,10 @@ button. `ItemInfo.ShowValueAndBurden` adds the value and burden;
 too. UtilityBelt's buffed weapon values, damage calculations and retail
 comparisons are not part of it (see `docs/divergences.md`, UB-13).
 
+The Mag tab's item info (`Mag.ItemInfoOnIdent.Enabled`, on by default) is
+a port of a separate plugin and writes its own line for the same item, so
+with both on one click prints both lines; turn one off if you want one.
+
 ## The Mag tab and the Inventory window
 
 The **Mag** tab holds Mag-Tools' tracker pages (Combat, Mana and Inv. Items),
