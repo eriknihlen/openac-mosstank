@@ -6,9 +6,12 @@ use ac_plugin_abi::combat::{AttackHeight, CombatMode, CombatSnapshot, CombatStat
 use ac_plugin_abi::items::{EquipmentStatus, InventoryItem};
 use ac_plugin_abi::magic::{CastGate, SpellInfo};
 use ac_plugin_abi::navigation::MovementIntent;
+use ac_plugin_abi::types::ChatLine;
 use mosstank_automation::Automation;
+use mosstank_automation::combat_text::{self, CombatResultTextClass, log_text_type};
 use mosstank_automation::components::uses_blacklisted_component;
 use mosstank_automation::locks::{ActionLockKind, item_use_lock};
+use mosstank_dotnet::text::ordinal;
 use mosstank_settings::model::CombatSettings;
 use mosstank_settings::monster::{MonsterActionFlags, MonsterRuleActions};
 
@@ -56,7 +59,9 @@ impl CombatController {
         combat: &CombatSnapshot,
     ) -> DebuffArmOutcome {
         if self.debuffs.has_pending() {
-            let status = if cx.automation.is_casting() {
+            let status = if self.debuffs.is_in_flight() {
+                format!("Waiting for {} to land", self.debuffs.pending_name())
+            } else if cx.automation.is_casting() {
                 format!("Casting {}", self.debuffs.pending_name())
             } else {
                 format!("Waiting for {}", self.debuffs.pending_name())
@@ -176,12 +181,13 @@ impl CombatController {
         }
 
         let revision = cx.automation.last_cast_completion().revision;
-        self.debuffs.begin(
+        self.debuffs.begin_cast(
             target.object_id,
             choice.identity,
             choice.spell.clone(),
             self.now,
             revision,
+            choice.path_kind.is_some(),
         );
         self.announce_cast_attempt(cx.automation, target.object_id, &choice.spell);
         let target_name = display_name(target);
@@ -673,9 +679,91 @@ impl CombatController {
             ));
             return;
         }
+        // A projectile is announced once it is known to have landed.
+        if completion.awaiting_landing {
+            self.set_status(format!("Waiting for {} to land", completion.spell_name));
+            return;
+        }
         if let Some(spell) = completion.spell {
             self.announce_cast_success(automation, completion.target_object_id, &spell);
         }
+    }
+
+    /// A result line for the flying debuff projectile: its own success
+    /// line means it is up; a resist means it reached the monster.
+    pub(super) fn observe_debuff_landing(&mut self, cx: &mut Ctx<'_>, message: &ChatLine) {
+        let Some((target_object_id, spell_name)) = self
+            .debuffs
+            .in_flight()
+            .map(|(target, spell)| (target, spell.name.clone()))
+        else {
+            return;
+        };
+        if message.log_text_type != log_text_type::MAGIC {
+            return;
+        }
+        let result = combat_text::classify(&message.text);
+        match result.class {
+            CombatResultTextClass::Success => {
+                if !ordinal::equals_ignore_case(
+                    debuff::normalize(result.spell_name.trim()),
+                    debuff::normalize(spell_name.trim()),
+                ) {
+                    return;
+                }
+                // Corruption's bolts fan out: one landing on another
+                // monster is not this one's.
+                if !self.names_debuff_target(target_object_id, &result.target_name) {
+                    return;
+                }
+                if let Some((target, spell)) = self.debuffs.land(self.now) {
+                    self.failures.reset_attempts(target);
+                    self.announce_cast_success(cx.automation, target, &spell);
+                }
+            }
+            CombatResultTextClass::Fail => {
+                // "<monster> resists your spell": another monster's resist
+                // is not this projectile's.
+                if !self.names_debuff_target(target_object_id, &result.target_name) {
+                    return;
+                }
+                self.debuffs.reached();
+            }
+            _ => {}
+        }
+    }
+
+    /// Whether a result line's monster is the debuff's (a line naming none,
+    /// or a monster with no name, is taken as it).
+    fn names_debuff_target(&self, target_object_id: u32, named: &str) -> bool {
+        let named = named.trim().trim_end_matches('.');
+        let target_name = self.find_target(target_object_id).name;
+        named.is_empty()
+            || target_name.trim().is_empty()
+            || ordinal::equals_ignore_case(named, target_name.trim())
+    }
+
+    /// The flying debuff projectile never reported landing: a miss against
+    /// its monster, toward the blacklist as an attack spell's would be.
+    pub(super) fn expire_debuff_flight(&mut self, cx: &mut Ctx<'_>) {
+        let Some((missed, spell)) = self.debuffs.expire_in_flight(self.now) else {
+            return;
+        };
+        let target = self.find_target(missed);
+        // Gone (dead or out of the scan): nothing was missed.
+        if target.object_id == 0 {
+            return;
+        }
+        self.log_line(
+            MacroLogChannel::CastInfo,
+            &format!(
+                "SpellCaster: {} never landed on {} ({missed})",
+                spell.name,
+                display_name(&target)
+            ),
+        );
+        let tripped = self.failures.record_miss(missed, self.now, cx.settings);
+        self.announce_blacklist(cx, tripped, missed, &target.name);
     }
 
     pub(super) fn announce_cast_attempt(
@@ -697,19 +785,12 @@ impl CombatController {
         target_object_id: u32,
         spell: &SpellInfo,
     ) {
-        if !(self.cast_sharing_enabled)()
-            || spell.duration_seconds <= 0.0
-            || spell.duration_seconds.is_nan()
-        {
+        let duration = debuff::duration_seconds(spell);
+        if !(self.cast_sharing_enabled)() || duration <= 0.0 {
             return;
         }
         let skill = effective_skill_for(automation, spell);
-        automation.announce_cast_success(
-            target_object_id,
-            spell.spell_id,
-            skill,
-            f64::from(spell.duration_seconds),
-        );
+        automation.announce_cast_success(target_object_id, spell.spell_id, skill, duration);
     }
 
     /// Reads the server's answer to a learned debuff on the host frame.

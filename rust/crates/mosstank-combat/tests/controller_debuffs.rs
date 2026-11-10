@@ -1205,3 +1205,195 @@ fn with_sharing_off_nothing_is_announced() {
 }
 
 // Not applicable: tests/AcDream.Plugins.MossTank.Tests/CombatControllerTests.cs :: FailedTrustReadDoesNotConsumeAnEligiblePeerCast: the client list read cannot fail through the SDK, so there is no failed read to retry (register COMBAT-4)
+
+/// Corruption VII as the client's spell table has it: an enchantment
+/// projectile with no duration of its own, the thirty seconds only in its
+/// description (here in a family no flight shape lists).
+fn corruption() -> SpellInfo {
+    SpellInfo {
+        family: 9001,
+        is_projectile: true,
+        duration_seconds: 0.0,
+        description: "Sends 5 bolts of corruption outward from the caster. Each bolt does 294 points of damage over 30 seconds.".to_owned(),
+        ..debuff(60, "Corruption VII")
+    }
+}
+
+fn corruption_fight(settings: CombatSettings) -> Fight {
+    let mut rule = debuff_only(MonsterActionFlags::CORRUPTION);
+    rule.maximum_range = 40.0;
+    rule.scan_interval_seconds = 0.05;
+    rule.blacklist_monster_attempt_count = settings.blacklist_monster_attempt_count;
+    rule.blacklist_monster_timeout_seconds = settings.blacklist_monster_timeout_seconds;
+    rule.use_projectile_awareness = settings.use_projectile_awareness;
+    Fight::new(magic(drudge(), vec![corruption()]), rule)
+}
+
+fn magic_line(sequence: u64, text: &str) -> ChatLine {
+    ChatLine {
+        sequence,
+        text: text.to_owned(),
+        log_text_type: 0x07,
+        ..ChatLine::default()
+    }
+}
+
+#[test]
+fn a_projectile_debuff_outside_the_shape_families_is_still_kept_off_walls() {
+    let mut fight = corruption_fight(CombatSettings {
+        use_projectile_awareness: true,
+        ..CombatSettings::default()
+    });
+    fight.surface.projectile_path = ProjectilePathResult {
+        status: ProjectilePathStatus::Blocked,
+        collision_checks: 3,
+        ..ProjectilePathResult::default()
+    };
+
+    fight.toggle();
+    fight.tick(0.25);
+
+    assert!(!fight.surface.cast_spell_ids.contains(&60));
+}
+
+#[test]
+fn a_projectile_debuff_is_up_only_once_its_landing_line_comes() {
+    let mut fight = corruption_fight(CombatSettings::default());
+
+    fight.toggle();
+    fight.tick(0.25);
+    assert_eq!(fight.surface.cast_spell_ids, [60]);
+
+    // The server finished the cast: the projectile is flying, not landed.
+    fight.surface.last_cast_completion = completion(1, 60, 10, 0);
+    fight.tick(0.25);
+    assert!(fight.surface.peers.successes.is_empty());
+    assert!(fight.status().contains("land"), "{}", fight.status());
+
+    fight.surface.chat_messages = vec![magic_line(1, "You cast Corruption VII on Drudge.")];
+    fight.tick(0.25);
+    assert_eq!(fight.surface.peers.successes, [(10, 60, 0, 30.0)]);
+
+    // Up for the thirty seconds its description gives: not cast again.
+    for _ in 0..100 {
+        fight.tick(0.25);
+    }
+    assert_eq!(fight.surface.cast_spell_ids, [60]);
+
+    // Run out: cast again.
+    for _ in 0..30 {
+        fight.tick(0.25);
+    }
+    assert_eq!(fight.surface.cast_spell_ids, [60, 60]);
+}
+
+#[test]
+fn a_corruption_bolt_landing_on_another_monster_is_not_this_ones() {
+    let mut fight = corruption_fight(CombatSettings::default());
+
+    fight.toggle();
+    fight.tick(0.25);
+    fight.surface.last_cast_completion = completion(1, 60, 10, 0);
+    fight.tick(0.25);
+    fight.surface.chat_messages = vec![magic_line(
+        1,
+        "You cast Corruption VII on Tusker Guard, refreshing Corruption VII",
+    )];
+    fight.tick(0.25);
+
+    assert!(fight.surface.peers.successes.is_empty());
+    assert!(fight.status().contains("land"), "{}", fight.status());
+}
+
+#[test]
+fn a_resisted_projectile_debuff_is_cast_again_without_a_miss() {
+    let mut fight = corruption_fight(CombatSettings {
+        blacklist_monster_attempt_count: 0,
+        blacklist_monster_timeout_seconds: 300.0,
+        ..CombatSettings::default()
+    });
+
+    fight.toggle();
+    fight.tick(0.25);
+    fight.surface.last_cast_completion = completion(1, 60, 10, 0);
+    fight.tick(0.25);
+    fight.surface.chat_messages = vec![magic_line(1, "Drudge resists your spell")];
+    fight.tick(0.25);
+    fight.tick(0.25);
+
+    assert!(fight.has_target());
+    assert_eq!(fight.surface.cast_spell_ids, [60, 60]);
+}
+
+#[test]
+fn a_projectile_debuff_that_never_lands_counts_toward_the_blacklist() {
+    let mut fight = corruption_fight(CombatSettings {
+        blacklist_monster_attempt_count: 4,
+        blacklist_monster_timeout_seconds: 120.0,
+        ..CombatSettings::default()
+    });
+
+    fight.toggle();
+    for revision in 1..=5 {
+        fight.tick(0.25);
+        assert!(fight.has_target(), "cast {revision}");
+        assert_eq!(
+            fight.surface.cast_spell_ids.len(),
+            usize::try_from(revision).unwrap()
+        );
+        fight.surface.last_cast_completion = completion(revision, 60, 10, 0);
+        // Into the wall: no result line before the landing budget runs out.
+        for _ in 0..16 {
+            fight.tick(0.25);
+            if fight.surface.cast_spell_ids.len() > usize::try_from(revision).unwrap() {
+                break;
+            }
+        }
+    }
+
+    assert!(!fight.has_target());
+    assert!(
+        fight
+            .surface
+            .posted_system_messages
+            .iter()
+            .any(|message| message.contains("Cannot hit Drudge (10)")),
+        "{:?}",
+        fight.surface.posted_system_messages
+    );
+    assert_eq!(fight.surface.cast_spell_ids.len(), 5);
+}
+
+#[test]
+fn the_incantation_landing_line_marks_the_curse_up() {
+    let mut surface = magic(
+        vec![target(10, "Tamed Armoredillo", 5.0, 0.0)],
+        vec![SpellInfo {
+            family: 9001,
+            is_projectile: true,
+            tier: 8,
+            ..debuff(61, "Incantation of Corruption")
+        }],
+    );
+    surface.combat_snapshot = in_mode(CombatMode::Magic);
+    let mut rule = debuff_only(MonsterActionFlags::CORRUPTION);
+    rule.maximum_range = 40.0;
+    let mut fight = Fight::new(surface, rule);
+
+    fight.toggle();
+    fight.tick(0.25);
+    assert_eq!(fight.surface.cast_spell_ids, [61]);
+    fight.surface.last_cast_completion = completion(1, 61, 10, 0);
+    fight.tick(0.25);
+    fight.surface.chat_messages = vec![magic_line(
+        1,
+        "You cast Incantation of Corruption on Tamed Armoredillo",
+    )];
+    fight.tick(0.25);
+
+    assert_eq!(fight.surface.peers.successes, [(10, 61, 0, 60.0)]);
+    for _ in 0..40 {
+        fight.tick(0.25);
+    }
+    assert_eq!(fight.surface.cast_spell_ids, [61]);
+}
