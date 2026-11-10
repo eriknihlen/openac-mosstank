@@ -13,7 +13,6 @@ use mosstank_settings::ub::UbSettingValue;
 use mosstank_ub::catalog::UbCatalog;
 use mosstank_ub::tools::item_info::{self, APPRAISAL_TIMEOUT_SECONDS};
 
-const LINK: &str = "<Tell:IIDString:438347936:select|";
 const SILVER: u32 = 63;
 
 fn switch_on(rig: &mut Rig, name: &str) {
@@ -152,13 +151,10 @@ fn selecting_an_appraised_item_names_the_rule_it_matches_and_its_stats() {
 
     select(&mut rig, id);
 
-    let signed = id as i32;
     assert_eq!(
         rig.single_message(),
-        format!(
-            "[UB] ItemInfo: {LINK}{signed}>Keep armor - Silver Breastplate</Tell>, Soldier's Set, \
-             AL 512, AR, Tinks 2, Epic Strength, Major Impenetrability, Wield Lvl 150, Craft 7, [D 2] "
-        )
+        "[UB] ItemInfo: Keep armor - Silver Breastplate, Soldier's Set, AL 512, AR, Tinks 2, \
+         Epic Strength, Major Impenetrability, Wield Lvl 150, Craft 7, [D 2] "
     );
     assert!(rig.host.identified.is_empty());
     // The looter was asked about the item described.
@@ -174,11 +170,11 @@ fn an_item_no_rule_names_is_named_alone() {
 
     select(&mut rig, id);
 
+    // The client shows a plugin's tags as written, so the name is plain
+    // text, not UtilityBelt's select link.
     assert!(
-        rig.single_message().starts_with(&format!(
-            "[UB] ItemInfo: {LINK}{}>Silver Breastplate</Tell>, ",
-            id as i32
-        )),
+        rig.single_message()
+            .starts_with("[UB] ItemInfo: Silver Breastplate, "),
         "{}",
         rig.single_message()
     );
@@ -201,7 +197,7 @@ fn an_item_not_yet_appraised_is_appraised_and_described_when_the_answer_comes() 
     rig.host.meta.objects[0].has_appraisal_data = true;
     tick(&mut rig, 0.1);
     assert_eq!(rig.messages().len(), 1);
-    assert!(rig.messages()[0].contains("Silver Breastplate</Tell>, "));
+    assert!(rig.messages()[0].contains("Silver Breastplate, "));
 
     tick(&mut rig, 0.1);
     assert_eq!(rig.messages().len(), 1, "said once");
@@ -374,10 +370,7 @@ fn doors_and_npcs_are_described_only_when_asked_for() {
 
     switch_on(&mut rig, item_info::SHOW_DOOR_INFO_SETTING);
     select(&mut rig, 50);
-    assert_eq!(
-        rig.single_message(),
-        format!("[UB] ItemInfo: {LINK}50>Door</Tell> ")
-    );
+    assert_eq!(rig.single_message(), "[UB] ItemInfo: Door ");
 }
 
 #[test]
@@ -433,9 +426,7 @@ fn a_weapon_shows_its_damage_type_mastery_damage_and_bonuses() {
 
     assert_eq!(
         rig.single_message(),
-        format!(
-            "[UB] ItemInfo: {LINK}60>Steel Long Sword</Tell> (Slashing Sword), 27.50-50, 0.45v, +3, \
-             8%a (13), 15%md, Major Heart Thirst, Infected Caress, Value 12,345, BU 350 "
-        )
+        "[UB] ItemInfo: Steel Long Sword (Slashing Sword), 27.50-50, 0.45v, +3, \
+         8%a (13), 15%md, Major Heart Thirst, Infected Caress, Value 12,345, BU 350 "
     );
 }

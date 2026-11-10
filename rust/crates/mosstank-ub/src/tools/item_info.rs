@@ -1,16 +1,19 @@
 //! UtilityBelt's ItemInfo (`Tools/ItemInfo.cs`, its description classes
 //! after Mag-Tools' `ItemInfoOnIdent`): selecting an object writes one chat
 //! line with its name, the loot rule the looter's own decision on it names
-//! (none without a loot profile in force), and what it is made of: armor level, imbues, damage, the spells
-//! worth knowing about, what it takes to wield, workmanship, ratings.
+//! (none without a loot profile in force), and what it is made of: armor
+//! level, imbues, damage, the spells worth knowing about, what it takes to
+//! wield, workmanship, ratings.
 //!
 //! ```text
-//! [UB] ItemInfo: <Tell:IIDString:...:select|id>Keep armor - Silver Breastplate</Tell>, AL 512, Tinks 2, ...
+//! [UB] ItemInfo: Keep armor - Silver Breastplate, AL 512, Tinks 2, ...
 //! ```
 //!
-//! The name is a link that selects the object again. An object the client
-//! holds no appraisal for is appraised first and described when the answer
-//! comes (or, failing an answer, with what is known).
+//! UtilityBelt makes the name a link that selects the object again; the
+//! client shows a plugin's tags other than a coordinate as written, so the
+//! name is plain text here. An object the client holds no appraisal for is
+//! appraised first and described when the answer comes (or, failing an
+//! answer, with what is known).
 //!
 //! The rows are `ItemInfo.Enabled`, `DescribeOnSelect`, `DescribeOnLeftClick`
 //! and `DescribeOnRightClick` (all off as the original ships them),
@@ -47,9 +50,6 @@ pub const SHOW_VALUE_AND_BURDEN_SETTING: &str = "ItemInfo.ShowValueAndBurden";
 pub const SHOW_DOOR_INFO_SETTING: &str = "ItemInfo.ShowDoorInfo";
 /// Describe non-player characters too.
 pub const SHOW_NPC_INFO_SETTING: &str = "ItemInfo.ShowNpcInfo";
-
-/// The id the reference puts in its chat links (`Util.GetChatId`).
-const CHAT_LINK_ID: i32 = mosstank_vendor::controller::REFERENCE_CHAT_LINK_ID;
 
 /// How long an appraisal is waited for before the object is described with
 /// what is known.
@@ -279,8 +279,8 @@ fn display(call: &mut UbCall<'_>, object: &WorldObject) {
     call.post_ub(&chat::tool(TOOL, &line));
 }
 
-/// The line after `ItemInfo: `: the name as a link (after the rule's name
-/// when a rule matches), then the description.
+/// The line after `ItemInfo: `: the name (after the rule's name when a
+/// rule is named), then the description.
 #[must_use]
 pub fn describe(call: &mut UbCall<'_>, object: &WorldObject) -> String {
     let properties = call.host.properties(object.object_id).unwrap_or_default();
@@ -306,8 +306,6 @@ pub fn describe(call: &mut UbCall<'_>, object: &WorldObject) -> String {
     } else {
         format!("{rule_name} - {name}")
     };
-    #[allow(clippy::cast_possible_wrap)]
-    let signed = object.object_id as i32;
     let show_value_and_burden = call.flag(SHOW_VALUE_AND_BURDEN_SETTING);
     let mut spell = |spell_id: u32| {
         call.host.spell(spell_id).map(|info| SpellFacts {
@@ -323,7 +321,9 @@ pub fn describe(call: &mut UbCall<'_>, object: &WorldObject) -> String {
         show_value_and_burden,
     }
     .text(&mut spell);
-    format!("<Tell:IIDString:{CHAT_LINK_ID}:select|{signed}>{label}</Tell>{description} ")
+    // UtilityBelt wraps the label in a select link; the client shows a
+    // plugin's tags other than a coordinate as written, so it is plain.
+    format!("{label}{description} ")
 }
 
 /// What an object the character neither carries nor sees in an open

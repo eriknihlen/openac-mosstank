@@ -150,7 +150,8 @@ loot rule the looter would decide it by in the loot profile you have loaded:
 [UB] ItemInfo: Keep armor - Silver Breastplate, Soldier's Set, AL 512, AR, Tinks 2, Epic Strength, Major Impenetrability, Wield Lvl 150, Craft 7, [D 2]
 ```
 
-The name is a link that selects the item again. An item not appraised yet
+UtilityBelt makes the name a link; here it is plain text, as the client
+shows the tags in a plugin's chat line as written. An item not appraised yet
 is appraised first. It is off until you turn it on, as in UtilityBelt:
 `/ub opt set ItemInfo.Enabled true` and
 `/ub opt set ItemInfo.DescribeOnSelect true` (or tick both on the UB
