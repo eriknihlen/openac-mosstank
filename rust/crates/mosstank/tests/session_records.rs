@@ -132,6 +132,185 @@ fn the_debug_log_gets_every_new_history_line_in_order() {
     }
 }
 
+// ---- /vt debuglog (MossTank's own; no C# source) ------------------------
+
+const DEBUG_LOG_PLACE: &str = "the session's plugin log \
+     (logs\\<server>\\<character>\\<session>\\plugins\\acdream.mosstank.log)";
+
+/// The header and the history so far, as starting the debug log writes them.
+fn debug_log_start_lines(plugin: &MossTank) -> Vec<String> {
+    let character = character("Barris");
+    let mut lines = vec![format!(
+        "MossTank {}; character={}; world={}",
+        mosstank::VERSION,
+        character.name,
+        character.world
+    )];
+    lines.extend(tank(plugin).action_history_lines().iter().cloned());
+    lines
+}
+
+/// `/vt debuglog on` starts the log as the panel's button does: the header
+/// and the history, then live lines, and the button shows it.
+#[test]
+fn debuglog_on_starts_the_log_as_the_button_does() {
+    let mut world = World::with_character("Barris");
+    let mut plugin = world.enable();
+    world.clear_chat();
+    world.vt(&mut plugin, "debuglog on");
+
+    assert_eq!(world.logs(LogLevel::Debug), debug_log_start_lines(&plugin));
+    assert_eq!(tank(&plugin).debug_log_button_text(), "Debug log: ON");
+    assert_eq!(tank(&plugin).debug_log_location(), DEBUG_LOG_PLACE);
+    assert_eq!(
+        world.chat(),
+        vec![format!("[MossTank] MossTank debug log: {DEBUG_LOG_PLACE}")]
+    );
+    let started = world.logs(LogLevel::Debug).len();
+    toggle_combat(&mut world, &mut plugin);
+    assert!(
+        world.logs(LogLevel::Debug)[started..]
+            .iter()
+            .any(|line| line.starts_with("Combat: "))
+    );
+}
+
+/// A second `on` (a login command run again, say) leaves the log as it is:
+/// the history is not written twice.
+#[test]
+fn debuglog_on_again_changes_nothing_and_says_so() {
+    let mut world = World::with_character("Barris");
+    let mut plugin = world.enable();
+    world.vt(&mut plugin, "debuglog on");
+    let logged = world.logs(LogLevel::Debug);
+    world.clear_chat();
+
+    world.vt(&mut plugin, "debuglog ON");
+
+    assert_eq!(world.logs(LogLevel::Debug), logged);
+    assert_eq!(tank(&plugin).debug_log_button_text(), "Debug log: ON");
+    assert_eq!(
+        world.chat(),
+        vec![format!(
+            "[MossTank] MossTank debug log is already on: {DEBUG_LOG_PLACE}"
+        )]
+    );
+}
+
+/// `/vt debuglog off` stops the log as the button does, and the button
+/// shows it; the button then starts it again.
+#[test]
+fn debuglog_off_stops_the_log_as_the_button_does() {
+    let mut world = World::with_character("Barris");
+    let mut plugin = world.enable();
+    world.vt(&mut plugin, "debuglog on");
+    world.clear_chat();
+
+    world.vt(&mut plugin, "debuglog off");
+
+    let stopped = world.logs(LogLevel::Debug);
+    assert_eq!(stopped.last().map(String::as_str), Some("Logging stopped."));
+    assert_eq!(tank(&plugin).debug_log_button_text(), "Debug log: off");
+    assert_eq!(world.chat(), vec!["[MossTank] MossTank debug log stopped."]);
+    toggle_combat(&mut world, &mut plugin);
+    on_tick(&mut world, &mut plugin, 1.0);
+    assert_eq!(world.logs(LogLevel::Debug), stopped);
+
+    world.with_tank(&mut plugin, |tank, client| tank.toggle_debug_log(client));
+    assert_eq!(tank(&plugin).debug_log_button_text(), "Debug log: ON");
+    let restarted = world.logs(LogLevel::Debug)[stopped.len()..].to_vec();
+    assert_eq!(restarted, debug_log_start_lines(&plugin));
+}
+
+/// `off` while it is off writes nothing to the log and says so.
+#[test]
+fn debuglog_off_again_changes_nothing_and_says_so() {
+    let mut world = World::with_character("Barris");
+    let mut plugin = world.enable();
+    world.clear_chat();
+
+    world.vt(&mut plugin, "debuglog off");
+
+    assert!(world.logs(LogLevel::Debug).is_empty());
+    assert_eq!(tank(&plugin).debug_log_button_text(), "Debug log: off");
+    assert_eq!(
+        world.chat(),
+        vec!["[MossTank] MossTank debug log is already off."]
+    );
+}
+
+/// `/vt debuglog` alone says whether the log is on and where it writes,
+/// and changes nothing.
+#[test]
+fn debuglog_alone_reports_the_state_and_the_place() {
+    let mut world = World::with_character("Barris");
+    let mut plugin = world.enable();
+    world.clear_chat();
+
+    world.vt(&mut plugin, "debuglog");
+    assert_eq!(
+        world.chat(),
+        vec![format!(
+            "[MossTank] MossTank debug log: off; /vt debuglog on writes it to {DEBUG_LOG_PLACE}"
+        )]
+    );
+    assert!(world.logs(LogLevel::Debug).is_empty());
+
+    world.with_tank(&mut plugin, |tank, client| tank.toggle_debug_log(client));
+    let logged = world.logs(LogLevel::Debug);
+    world.clear_chat();
+    world.vt(&mut plugin, "debuglog");
+    assert_eq!(
+        world.chat(),
+        vec![format!(
+            "[MossTank] MossTank debug log: ON, writing to {DEBUG_LOG_PLACE}"
+        )]
+    );
+    assert_eq!(world.logs(LogLevel::Debug), logged);
+}
+
+/// Any other argument gets the syntax line and changes nothing.
+#[test]
+fn debuglog_with_a_bad_argument_prints_the_syntax() {
+    let mut world = World::with_character("Barris");
+    let mut plugin = world.enable();
+    for line in ["debuglog maybe", "debuglog on now"] {
+        world.clear_chat();
+        world.vt(&mut plugin, line);
+        assert_eq!(
+            world.chat(),
+            vec!["[MossTank] Syntax: /vt debuglog [on/off]"],
+            "{line}"
+        );
+        assert!(world.logs(LogLevel::Debug).is_empty(), "{line}");
+        assert_eq!(tank(&plugin).debug_log_button_text(), "Debug log: off");
+    }
+}
+
+/// `/vt help debuglog` gives its usage, and `/vt help` lists it.
+#[test]
+fn debuglog_has_its_help() {
+    let mut world = World::with_character("Barris");
+    let mut plugin = world.enable();
+    world.clear_chat();
+    world.vt(&mut plugin, "help debuglog");
+    let chat = world.chat();
+    assert_eq!(
+        chat[0], "[MossTank] Syntax: /vt debuglog [on/off]",
+        "{chat:?}"
+    );
+    world.clear_chat();
+    world.vt(&mut plugin, "help");
+    assert!(
+        world
+            .chat()
+            .iter()
+            .any(|line| line.contains("documented:") && line.contains("debuglog")),
+        "{:?}",
+        world.chat()
+    );
+}
+
 // Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.ActionHistory.cs :: ActivityIncludesNavigationAndDoesNotRepeatUnchangedState
 #[test]
 fn activity_includes_navigation_and_does_not_repeat_unchanged_state() {

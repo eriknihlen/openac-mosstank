@@ -72,6 +72,7 @@ const CASES: &[(&str, &str)] = &[
     (VT, "dumpmats"),
     (VT, "getdb"),
     (VT, "gamedb"),
+    (VT, "debuglog"),
     (VT, "nextwp"),
     (VT, "prevwp"),
     (VT, "metainterval"),

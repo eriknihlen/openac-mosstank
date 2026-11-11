@@ -841,6 +841,12 @@ pub static VTANK_ENTRIES: &[UbCommandUsage] = &[
         ],
     },
     UbCommandUsage {
+        name: "debuglog",
+        usage: "/vt debuglog [on/off]",
+        summary: "Turns MossTank's debug log on or off (the Debug log button at the top of MossTank's window), or says whether it is on. On writes a header and the action history so far, then every new line, to the session's plugin log; a login command /vt debuglog on keeps it on from every login.",
+        examples: &[],
+    },
+    UbCommandUsage {
         name: "gamedb",
         usage: "/vt gamedb [update | interval [hours]]",
         summary: "Shows the game information database in use, checks openac-gamedata for a newer one now, or shows or sets how many hours a check stays fresh (MossTank checks at login when it is older; 0 checks at every login).",

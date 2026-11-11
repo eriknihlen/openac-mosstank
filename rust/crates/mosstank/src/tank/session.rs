@@ -34,6 +34,9 @@ pub(crate) const META_STATE_STATUS_KEY: &str = "metaState";
 const DEBUG_LOG_LOCATION: &str = "the session's plugin log \
      (logs\\<server>\\<character>\\<session>\\plugins\\acdream.mosstank.log)";
 
+/// `/vt debuglog`'s syntax line.
+const DEBUG_LOG_SYNTAX: &str = "Syntax: /vt debuglog [on/off]";
+
 /// `/vt gamedb`'s syntax line.
 pub(crate) const GAME_DB_SYNTAX: &str = "Syntax: /vt gamedb [update | interval [hours]]";
 
@@ -203,12 +206,17 @@ impl Core {
         }
     }
 
+    /// Whether the debug log is on.
+    pub(crate) fn debug_logging(&self) -> bool {
+        self.session.history.borrow().debug_log.is_some()
+    }
+
     /// `Debug log: off` or `Debug log: ON` (`DebugLogButtonText`).
     pub(crate) fn debug_log_button_text(&self) -> &'static str {
-        if self.session.history.borrow().debug_log.is_none() {
-            "Debug log: off"
-        } else {
+        if self.debug_logging() {
             "Debug log: ON"
+        } else {
+            "Debug log: off"
         }
     }
 
@@ -216,7 +224,7 @@ impl Core {
     /// (`DebugLogLocation`). The plugin cannot know the session folder's
     /// path, so the place is named, not spelled out.
     pub(crate) fn debug_log_location(&self) -> &'static str {
-        if self.session.history.borrow().debug_log.is_some() {
+        if self.debug_logging() {
             DEBUG_LOG_LOCATION
         } else {
             "Save detailed macro activity in the session's plugin log."
@@ -608,18 +616,62 @@ impl TankCx<'_> {
         self.core.observe_activity("Item mana", &item_mana);
     }
 
-    /// `ToggleDebugLogging`.
+    /// `ToggleDebugLogging`: the panel's button.
     pub(crate) fn toggle_debug_logging(&mut self) {
-        let running = self.core.session.history.borrow().debug_log.is_some();
-        if running {
-            self.core
-                .session
-                .history
-                .borrow_mut()
-                .write_debug("Logging stopped.");
-            self.core.flush_debug_log(self.client);
-            self.core.session.history.borrow_mut().debug_log = None;
-            return;
+        if !self.stop_debug_logging() {
+            self.start_debug_logging();
+        }
+    }
+
+    /// `/vt debuglog [on/off]`: starts or stops the debug log as the
+    /// button does, or says whether it is on. A second `on` leaves it as it
+    /// is, so a login command run again does not log the history twice.
+    pub(crate) fn debug_log_command(&mut self, arguments: &str) {
+        let argument = casing::to_lower_invariant(arguments.trim());
+        let on = self.core.debug_logging();
+        let line = match (argument.as_str(), on) {
+            ("", true) => format!("MossTank debug log: ON, writing to {DEBUG_LOG_LOCATION}"),
+            ("", false) => format!(
+                "MossTank debug log: off; /vt debuglog on writes it to {DEBUG_LOG_LOCATION}"
+            ),
+            ("on", true) => format!("MossTank debug log is already on: {DEBUG_LOG_LOCATION}"),
+            ("on", false) => {
+                // Starting says where it writes.
+                self.start_debug_logging();
+                return;
+            }
+            ("off", true) => {
+                self.stop_debug_logging();
+                "MossTank debug log stopped.".to_owned()
+            }
+            ("off", false) => "MossTank debug log is already off.".to_owned(),
+            _ => DEBUG_LOG_SYNTAX.to_owned(),
+        };
+        Core::write_vtank(self.client, &line);
+    }
+
+    /// Stops the debug log: its last line, then everything still pending,
+    /// goes to the host's log. False when it was not on.
+    fn stop_debug_logging(&mut self) -> bool {
+        if !self.core.debug_logging() {
+            return false;
+        }
+        self.core
+            .session
+            .history
+            .borrow_mut()
+            .write_debug("Logging stopped.");
+        self.core.flush_debug_log(self.client);
+        self.core.session.history.borrow_mut().debug_log = None;
+        true
+    }
+
+    /// Starts the debug log: a header naming the plugin and the character,
+    /// the history so far, then each new line. False when it was already
+    /// on, which leaves it as it is.
+    fn start_debug_logging(&mut self) -> bool {
+        if self.core.debug_logging() {
+            return false;
         }
         let character = self.client.rules().character();
         {
@@ -641,6 +693,7 @@ impl TankCx<'_> {
             self.client.rules(),
             &format!("MossTank debug log: {DEBUG_LOG_LOCATION}"),
         );
+        true
     }
 }
 

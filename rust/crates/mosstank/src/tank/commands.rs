@@ -138,6 +138,7 @@ pub(crate) fn execute_vtank(cx: &mut TankCx<'_>, input: &str) {
         }
         "getdb" => cx.core.start_game_info_update_command(cx.client),
         "gamedb" => cx.core.game_db_command(cx.client, &arguments),
+        "debuglog" => cx.debug_log_command(&arguments),
         "compshud" => cx.component_hud_command(&arguments),
         "log" => log_command(cx, &arguments),
         "lockdump" => {
