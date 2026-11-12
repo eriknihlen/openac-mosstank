@@ -691,6 +691,8 @@ impl TankCx<'_> {
             Some("a profile count owns the character")
         } else if owners.vendor {
             Some("a vendor run owns the character")
+        } else if owners.equip {
+            Some("an equip run owns the character")
         } else if self.core.transaction_suspension_held {
             Some("a cast, a wand cast or a kit is in flight")
         } else if self.core.combat.turn_holds_pass() {

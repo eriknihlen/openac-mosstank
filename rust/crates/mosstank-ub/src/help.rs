@@ -311,7 +311,7 @@ pub static ENTRIES: &[UbCommandUsage] = &[
     },
     UbCommandUsage {
         name: "equip",
-        usage: "/ub equip {list | load [p] | test [p] | create [p]}",
+        usage: "/ub equip {list | load [p] | test [p] | create [p] | dequip | cycle}",
         summary: "Manages equipment profiles.",
         examples: &[
             UbCommandExample {
@@ -325,6 +325,14 @@ pub static ENTRIES: &[UbCommandUsage] = &[
             UbCommandExample {
                 command: "/ub equip test profile.utl",
                 description: "Test equipping profile.utl",
+            },
+            UbCommandExample {
+                command: "/ub equip dequip",
+                description: "Takes off everything worn and wielded.",
+            },
+            UbCommandExample {
+                command: "/ub equip cycle",
+                description: "Takes off everything worn and wielded, then puts it back on.",
             },
         ],
     },

@@ -115,3 +115,53 @@ fn a_running_give_is_named_as_what_holds_the_pass() {
         "{lines:?}"
     );
 }
+
+// Not a port of a C# test: `/ub equip dequip` pauses the macro while it
+// takes the gear off, and the pause is named as the equip run.
+#[test]
+fn a_running_dequip_pauses_the_macro_and_is_named_as_what_holds_the_pass() {
+    use ac_plugin_abi::items::EquipmentItem;
+    use ac_plugin_abi::world::ObjectClass;
+
+    const SWORD: u32 = 0x8000_0020;
+    const WEAPON_SLOT: u32 = 0x0100_0000;
+    let mut world = World::with_character("Barris");
+    let player = world.fake.character.as_ref().expect("in the world").id;
+    world.set_reply::<calls::ItemsOwned>(&vec![InventoryItem {
+        object_id: SWORD,
+        name: "Sword".to_owned(),
+        container_id: player,
+        wielder_id: player,
+        valid_locations: WEAPON_SLOT,
+        equipped_location: WEAPON_SLOT,
+        stack_size: 1,
+        object_class: ObjectClass::MeleeWeapon,
+        ..InventoryItem::default()
+    }]);
+    world.set_reply::<calls::EquipmentOwned>(&vec![EquipmentItem {
+        object_id: SWORD,
+        name: "Sword".to_owned(),
+        valid_locations: WEAPON_SLOT,
+        equipped_location: WEAPON_SLOT,
+        container_id: player,
+        wielder_id: player,
+        ..EquipmentItem::default()
+    }]);
+    world.set_reply::<calls::ItemsMoveJoinStack>(&ItemResult::of(ItemStatus::Started));
+    let mut plugin = world.enable();
+    world.tick(&mut plugin);
+    world.with_tank(&mut plugin, |tank, client| {
+        tank.set_macro_running(client, true);
+    });
+    world.command(&mut plugin, "ub", "equip dequip");
+    world.ticks(&mut plugin, ticks_for(1.0));
+
+    assert_eq!(1, world.requests::<calls::ItemsMoveJoinStack>().len());
+    let lines = plugin.tank().expect("enabled").action_history_lines();
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.ends_with("Pause: an equip run owns the character")),
+        "{lines:?}"
+    );
+}

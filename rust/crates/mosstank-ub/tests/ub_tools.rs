@@ -1217,6 +1217,145 @@ fn a_run_with_no_progress_bails_and_releases_the_lock() {
     );
 }
 
+// ---- Not ports of C# tests: /ub equip dequip and /ub equip cycle -----------------
+//
+// The reference tool has neither verb; dequip takes off everything worn and
+// wielded, cycle takes it all off and puts the same pieces back.
+
+fn is_item_locked(equip: &EquipRig) -> bool {
+    equip
+        .rig
+        .locks
+        .borrow_mut()
+        .is_locked(ActionLockKind::ItemUse)
+}
+
+#[test]
+fn dequip_takes_off_everything_worn_and_wielded_and_puts_nothing_on() {
+    let mut equip = EquipRig::new();
+    equip.owned(vec![
+        wearable(SWORD, "Sword", WEAPON_SLOT, WEAPON_SLOT),
+        wearable(HAUBERK, "Hauberk", HAUBERK_SLOT, HAUBERK_SLOT),
+        wearable(BRACELET, "Bracelet", BRACELET_SLOT, 0),
+    ]);
+    equip.appraised.extend([SWORD, HAUBERK, BRACELET]);
+
+    assert!(equip.command("dequip").unwrap().is_empty());
+    assert!(equip.running());
+
+    assert!(equip.tick(0.1));
+    assert!(is_item_locked(&equip));
+    assert_eq!(vec![(SWORD, PLAYER)], equip.move_calls());
+    assert!(equip.tick(0.1));
+    assert_eq!(1, equip.move_calls().len());
+    equip.observe(SWORD, 0, true);
+
+    assert!(equip.tick(0.1));
+    assert_eq!(vec![(SWORD, PLAYER), (HAUBERK, PLAYER)], equip.move_calls());
+    equip.observe(HAUBERK, 0, true);
+
+    assert!(!equip.tick(0.1));
+    assert!(!equip.running());
+    assert!(!is_item_locked(&equip));
+    assert!(equip.equip_calls().is_empty());
+    assert!(
+        equip
+            .messages()
+            .iter()
+            .any(|line| line.starts_with("[UB] Equipment Manager: Finished dequipping items in ")),
+        "{:?}",
+        equip.messages()
+    );
+}
+
+#[test]
+fn cycle_takes_everything_off_then_puts_the_same_pieces_back_in_lore_order() {
+    const SPARE: u32 = 16;
+    let mut equip = EquipRig::new();
+    equip.owned(vec![
+        wearable(SWORD, "Sword", WEAPON_SLOT, WEAPON_SLOT),
+        wearable(BRACELET, "Bracelet", BRACELET_SLOT, BRACELET_SLOT),
+        wearable(HAUBERK, "Hauberk", HAUBERK_SLOT, HAUBERK_SLOT),
+        wearable(SPARE, "Spare Hauberk", HAUBERK_SLOT, 0),
+    ]);
+    equip
+        .rig
+        .host
+        .meta
+        .properties
+        .insert(BRACELET, props(&[(LORE_REQUIREMENT_PROPERTY, 50)]));
+    equip.appraised.extend([SWORD, BRACELET, HAUBERK, SPARE]);
+
+    assert!(equip.command("cycle").unwrap().is_empty());
+    for worn in [SWORD, BRACELET, HAUBERK] {
+        assert!(equip.tick(0.1));
+        assert!(is_item_locked(&equip));
+        assert_eq!(Some(&(worn, PLAYER)), equip.move_calls().last());
+        equip.observe(worn, 0, true);
+    }
+    assert!(equip.equip_calls().is_empty());
+
+    // Back on, the lore-gated bracelet last.
+    for (piece, slot) in [
+        (SWORD, WEAPON_SLOT),
+        (HAUBERK, HAUBERK_SLOT),
+        (BRACELET, BRACELET_SLOT),
+    ] {
+        assert!(equip.tick(0.1));
+        assert_eq!(Some(&(piece, 0)), equip.equip_calls().last());
+        equip.observe(piece, slot, false);
+    }
+
+    assert!(!equip.tick(0.1));
+    assert!(!equip.running());
+    assert!(!is_item_locked(&equip));
+    assert_eq!(3, equip.move_calls().len());
+    assert_eq!(3, equip.equip_calls().len());
+    assert!(!equip.equip_calls().iter().any(|(item, _)| *item == SPARE));
+    assert!(
+        equip
+            .messages()
+            .iter()
+            .any(|line| line.starts_with("[UB] Equipment Manager: Finished equipping items in "))
+    );
+}
+
+#[test]
+fn cycle_appraises_a_worn_piece_first_so_it_knows_the_lore_it_needs() {
+    let mut equip = EquipRig::new();
+    equip.owned(vec![wearable(
+        BRACELET,
+        "Bracelet",
+        BRACELET_SLOT,
+        BRACELET_SLOT,
+    )]);
+
+    assert!(equip.command("cycle").unwrap().is_empty());
+    assert!(equip.tick(0.1));
+    assert_eq!(vec![BRACELET], equip.rig.host.identified);
+    assert!(equip.move_calls().is_empty());
+
+    equip.appraised.insert(BRACELET);
+    assert!(equip.tick(0.1));
+    assert_eq!(vec![(BRACELET, PLAYER)], equip.move_calls());
+}
+
+#[test]
+fn dequip_and_cycle_are_refused_while_the_combat_controller_has_a_target() {
+    let mut equip = EquipRig::new();
+    equip.owned(vec![wearable(SWORD, "Sword", WEAPON_SLOT, WEAPON_SLOT)]);
+    equip.appraised.insert(SWORD);
+    equip.rig.services.combat_has_target = true;
+
+    for verb in ["dequip", "cycle"] {
+        let lines = equip.command(verb).unwrap();
+        assert!(!equip.running(), "{verb}");
+        assert!(lines[0].to_lowercase().contains("monster"), "{lines:?}");
+    }
+    assert!(!equip.tick(0.1));
+    assert!(equip.move_calls().is_empty());
+}
+
 // Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.UbSettingsTab.cs :: EquipCommandsRouteThroughThePanelToChat
 #[test]
 fn equip_commands_route_through_the_panel_to_chat() {

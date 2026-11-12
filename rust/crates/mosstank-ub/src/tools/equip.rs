@@ -3,6 +3,9 @@
 //! set comes off, then the set goes on with the lore-gated pieces last, so
 //! a piece that raises lore is worn before the piece that needs it. It also
 //! writes such a profile from what is worn now, and lists and dry-runs them.
+//! Two verbs the reference tool lacks need no profile: `dequip` takes off
+//! everything worn and wielded, and `cycle` takes it all off and puts the
+//! same pieces back on, in the same lore order.
 //!
 //! The combat controller owns what is wielded while a monster is fought, so
 //! this is a prologue owner only: it refuses to start while the combat
@@ -74,8 +77,14 @@ enum Phase {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Mode {
+    /// A profile's set goes on; the rest comes off.
     Load,
+    /// A profile's set is listed; nothing moves.
     Test,
+    /// Everything worn comes off.
+    Dequip,
+    /// Everything worn comes off and goes back on.
+    Cycle,
 }
 
 /// The equipment profile run.
@@ -166,7 +175,7 @@ impl EquipProfileController {
         self.observations.push_back(observation);
     }
 
-    /// The `/ub equip` verbs: list, load, test and create. `None` when the
+    /// The `/ub equip` verbs: list, load, test, create, dequip and cycle. `None` when the
     /// line does not parse, which the caller answers with the full help.
     pub fn command(&mut self, call: &mut UbCall<'_>, arguments: &str) -> Option<Vec<String>> {
         match self.command_lines(call, arguments) {
@@ -203,6 +212,8 @@ impl EquipProfileController {
                 self.refusal_lines(call)
             }),
             "create" => Some(vec![self.create(call, rest)?]),
+            "dequip" => Some(self.start_worn_lines(call, Mode::Dequip)),
+            "cycle" => Some(self.start_worn_lines(call, Mode::Cycle)),
             _ => None,
         })
     }
@@ -242,27 +253,69 @@ impl EquipProfileController {
         )
     }
 
+    /// Whether a run may start now; false, with the reason kept, when not.
+    fn may_start(&mut self, call: &mut UbCall<'_>) -> bool {
+        if call.host.character().is_none() {
+            return self.refuse("Equip profile refused: not in the world.", false);
+        }
+        if self.is_running() {
+            return self.refuse(
+                "Equip profile refused: a run is already in progress.",
+                false,
+            );
+        }
+        if call.services.combat_has_target() {
+            return self.refuse(
+                "Equip profile refused: the macro has a monster target and owns what is \
+                 wielded; stop the macro or wait for the fight to end.",
+                false,
+            );
+        }
+        true
+    }
+
+    /// `dequip` and `cycle`: what is worn now is the set, and no profile is
+    /// read. A start says nothing; a refusal is the tool's error.
+    fn start_worn_lines(&mut self, call: &mut UbCall<'_>, mode: Mode) -> Vec<String> {
+        if self.try_start_worn(call, mode) {
+            Vec::new()
+        } else {
+            self.refusal_lines(call)
+        }
+    }
+
+    fn try_start_worn(&mut self, call: &mut UbCall<'_>, mode: Mode) -> bool {
+        if !self.may_start(call) {
+            return false;
+        }
+        self.rules.clear();
+        self.profile_key.clear();
+        // A cycle puts back what it takes off; a dequip has nothing to put on.
+        let worn = worn_items(call);
+        let count = worn.len();
+        self.begin(
+            mode,
+            if mode == Mode::Cycle {
+                worn
+            } else {
+                Vec::new()
+            },
+        );
+        self.status = match mode {
+            Mode::Cycle => format!("Equip cycle started: {count} worn piece(s)."),
+            _ => format!("Equip dequip started: {count} worn piece(s)."),
+        };
+        true
+    }
+
     fn try_start(
         &mut self,
         call: &mut UbCall<'_>,
         profile_name: &str,
         mode: Mode,
     ) -> Result<bool, StorageError> {
-        if call.host.character().is_none() {
-            return Ok(self.refuse("Equip profile refused: not in the world.", false));
-        }
-        if self.is_running() {
-            return Ok(self.refuse(
-                "Equip profile refused: a run is already in progress.",
-                false,
-            ));
-        }
-        if call.services.combat_has_target() {
-            return Ok(self.refuse(
-                "Equip profile refused: the macro has a monster target and owns what is \
-                 wielded; stop the macro or wait for the fight to end.",
-                false,
-            ));
+        if !self.may_start(call) {
+            return Ok(false);
         }
         let file_name = file_name(call, profile_name);
         let key = call.services.ub_store().resolve_profile_key(
@@ -285,10 +338,21 @@ impl EquipProfileController {
             return Ok(self.refuse(&format!("Equip profile could not be read: {key}"), false));
         };
         self.rules = rules;
-
-        self.mode = mode;
         self.profile_key.clone_from(&key);
-        self.candidates = equippable_items(call);
+        let candidates = equippable_items(call);
+        self.begin(mode, candidates);
+        let count = self.candidates.len();
+        self.status = match mode {
+            Mode::Test => format!("Equip profile test started: {key} ({count} candidate(s))."),
+            _ => format!("Equip profile started: {key} ({count} candidate(s))."),
+        };
+        Ok(true)
+    }
+
+    /// Sets a run going over these candidates, from its first phase.
+    fn begin(&mut self, mode: Mode, candidates: Vec<InventoryItem>) {
+        self.mode = mode;
+        self.candidates = candidates;
         self.to_equip.clear();
         self.profile_items.clear();
         self.identify_attempts.clear();
@@ -303,16 +367,10 @@ impl EquipProfileController {
         self.since_progress = 0.0;
         self.run_seconds = 0.0;
         self.phase = Phase::Identifying;
-        let count = self.candidates.len();
-        self.status = match mode {
-            Mode::Test => format!("Equip profile test started: {key} ({count} candidate(s))."),
-            Mode::Load => format!("Equip profile started: {key} ({count} candidate(s))."),
-        };
-        Ok(true)
     }
 
     /// Advances the run; true while it owns the character. The locks are
-    /// re-armed on every frame of a load so a slow appraisal round cannot let
+    /// re-armed on every frame of a run that moves gear so a slow appraisal round cannot let
     /// them lapse mid-run.
     pub fn tick(&mut self, call: &mut UbCall<'_>, elapsed_seconds: f64, can_act: bool) -> bool {
         let step = elapsed_seconds.max(0.0);
@@ -329,7 +387,7 @@ impl EquipProfileController {
         }
         self.run_seconds += step;
         self.since_progress += step;
-        if self.mode == Mode::Load {
+        if self.mode != Mode::Test {
             call.locks
                 .borrow_mut()
                 .arm(ActionLockKind::ItemUse, LOCK_SECONDS);
@@ -488,26 +546,33 @@ impl EquipProfileController {
     }
 
     fn needs_identify(&self, call: &mut UbCall<'_>, item: &InventoryItem) -> bool {
+        // A cycle has no rules; it needs each piece's lore to order them.
+        if self.mode == Mode::Cycle {
+            return true;
+        }
         let properties = properties_of(call, item.object_id);
         call.host
             .loot_needs_identify(item, &properties, &self.rules)
     }
 
-    /// The pieces the profile keeps, in the order they go on: by the lore
-    /// they require, lowest first (a stable sort, so equal ones keep pack
-    /// order).
+    /// The pieces that go on, in the order they go on: by the lore they
+    /// require, lowest first (a stable sort, so equal ones keep pack order).
+    /// A load's are the ones its profile keeps, which also stay on; a
+    /// cycle's are every candidate, all of which come off first.
     fn build_queue(&mut self, call: &mut UbCall<'_>) {
         let owned = call.host.owned_items_shared();
         let mut chosen: Vec<(u32, i32)> = Vec::new();
         for item in &self.candidates {
             let properties = properties_of(call, item.object_id);
-            let decision = call
-                .host
-                .loot_decide(item, &properties, &self.rules, &owned);
-            if !decision.is_some_and(|decision| {
-                matches!(decision.action, LootAction::Keep | LootAction::KeepUpTo)
-            }) {
-                continue;
+            if self.mode != Mode::Cycle {
+                let decision = call
+                    .host
+                    .loot_decide(item, &properties, &self.rules, &owned);
+                if !decision.is_some_and(|decision| {
+                    matches!(decision.action, LootAction::Keep | LootAction::KeepUpTo)
+                }) {
+                    continue;
+                }
             }
             let lore = properties.int(LORE_REQUIREMENT_PROPERTY).unwrap_or(0);
             chosen.push((item.object_id, lore));
@@ -517,7 +582,9 @@ impl EquipProfileController {
         self.profile_items.clear();
         for (object_id, _) in chosen {
             self.to_equip.push_back(object_id);
-            self.profile_items.insert(object_id);
+            if self.mode != Mode::Cycle {
+                self.profile_items.insert(object_id);
+            }
         }
     }
 
@@ -610,7 +677,8 @@ impl EquipProfileController {
             }
         }
         let notice = format!(
-            "Finished equipping items in {}s",
+            "Finished {} items in {}s",
+            self.verb(),
             number::format_f64(self.run_seconds, "0.0").expect("a number format the kit prints")
         );
         self.stop(call, Some(notice));
@@ -636,9 +704,18 @@ impl EquipProfileController {
         }
     }
 
-    /// Clears the run and lets go of the locks; whether it was a load.
+    /// What the finished line says the run did.
+    fn verb(&self) -> &'static str {
+        if self.mode == Mode::Dequip {
+            "dequipping"
+        } else {
+            "equipping"
+        }
+    }
+
+    /// Clears the run and lets go of the locks; whether it moved gear.
     fn clear_run(&mut self, locks: &mut ActionLockTable) -> bool {
-        let was_load = self.mode == Mode::Load && self.phase != Phase::Idle;
+        let was_load = self.mode != Mode::Test && self.phase != Phase::Idle;
         self.phase = Phase::Idle;
         self.to_equip.clear();
         self.profile_items.clear();
@@ -653,7 +730,8 @@ impl EquipProfileController {
 
     /// Ends a run. Every end of a load says "Equipment Manager: Finished
     /// equipping items in <n>s", as a think when EquipmentManager.Think is
-    /// on, as the reference's does; a dry run ends in silence.
+    /// on, as the reference's does (a cycle the same, a dequip "dequipping");
+    /// a dry run ends in silence.
     fn stop(&mut self, call: &mut UbCall<'_>, notice: Option<String>) {
         let was_load = self.clear_run(&mut call.locks.borrow_mut());
         let Some(notice) = notice else {
@@ -665,7 +743,8 @@ impl EquipProfileController {
             // The seconds as the reference writes a double: every digit
             // that counts, no fixed decimal places ("2s", "2.35s").
             let line = format!(
-                "Equipment Manager: Finished equipping items in {}s",
+                "Equipment Manager: Finished {} items in {}s",
+                self.verb(),
                 number::format_f64(self.run_seconds, "G15")
                     .expect("a number format the kit prints")
             );
@@ -845,6 +924,16 @@ fn equippable_items(call: &mut UbCall<'_>) -> Vec<InventoryItem> {
                         | ObjectClass::WandStaffOrb
                 )
         })
+        .cloned()
+        .collect()
+}
+
+/// What is worn or wielded now, in pack order.
+fn worn_items(call: &mut UbCall<'_>) -> Vec<InventoryItem> {
+    call.host
+        .owned_items_shared()
+        .iter()
+        .filter(|item| item.equipped_location != 0)
         .cloned()
         .collect()
 }
