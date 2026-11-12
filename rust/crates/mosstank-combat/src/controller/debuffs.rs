@@ -17,6 +17,7 @@ use mosstank_settings::model::CombatSettings;
 use mosstank_settings::monster::{MonsterActionFlags, MonsterRuleActions};
 
 use super::equip::resolve_inventory_offhand_object_id;
+use super::magic::can_cast_hunt_spell;
 use super::swing::projectile_status;
 use super::{CombatController, Ctx, POWER_RELEASE_EPSILON, PendingItemDebuff, is_known_dead};
 use crate::MacroLogChannel;
@@ -641,6 +642,17 @@ impl CombatController {
         for line in lines {
             self.log_line(MacroLogChannel::DebuffChoice, &line);
         }
+        // A learned debuff is the strongest tier the character can cast now:
+        // the pack pays for it and the skill clears the hunt margin.
+        let hunt_excess = cx.settings.hunt_skill_excess_over_difficulty;
+        let sources: Vec<CombatDebuffSource> = sources
+            .into_iter()
+            .filter(|source| {
+                source.kind != CombatDebuffSourceKind::LearnedSpell
+                    || (self.has_casting_components(cx.automation, source.spell.spell_id)
+                        && can_cast_hunt_spell(cx.automation, &source.spell, hunt_excess))
+            })
+            .collect();
         self.pass_debuff_sources
             .insert((identity, target.object_id), sources.clone());
         sources

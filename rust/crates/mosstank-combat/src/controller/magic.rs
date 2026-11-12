@@ -86,9 +86,13 @@ impl Usability<'_> {
     }
 }
 
-/// The skill margin the attack-spell tier walk asks for (range is not
-/// part of it).
-fn can_cast_hunt_spell(automation: &mut dyn Automation, spell: &SpellInfo, excess: i32) -> bool {
+/// The skill margin the attack-spell and debuff tier walks ask for (range
+/// is not part of it).
+pub(super) fn can_cast_hunt_spell(
+    automation: &mut dyn Automation,
+    spell: &SpellInfo,
+    excess: i32,
+) -> bool {
     if spell.school == 0 {
         return true;
     }

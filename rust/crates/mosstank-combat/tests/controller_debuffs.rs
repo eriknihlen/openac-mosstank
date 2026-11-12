@@ -364,6 +364,66 @@ fn a_debuff_spell_out_of_reach_is_not_chosen() {
     assert_eq!(debuff_at_distance(20.0, 6.0), (83, 10));
 }
 
+/// Fire Vulnerability Other VII (82) and VI (85) known; a fire Vuln rule.
+fn fire_vulns(skill_current: Option<u32>) -> Fight {
+    let mut surface = magic(
+        drudge(),
+        vec![
+            debuff(82, "Fire Vulnerability Other VII"),
+            SpellInfo {
+                tier: 6,
+                difficulty: 225,
+                ..debuff(85, "Fire Vulnerability Other VI")
+            },
+        ],
+    );
+    if let Some(current) = skill_current {
+        // A Vulnerability is life magic.
+        surface
+            .character_skills
+            .push(skill(33, "Life Magic", Training::Specialized, current));
+    }
+    Fight::new(surface, fire_vulnerability_rule())
+}
+
+// The learned debuff is the strongest tier the character can cast, as the
+// attack's tier walk picks (owner, 2026-11-12: out of Mana Scarabs the bot
+// kept casting the level 7 Vuln and failing on components).
+#[test]
+fn a_debuff_tier_the_pack_cannot_pay_for_is_not_picked() {
+    let mut fight = fire_vulns(None);
+    fight.surface.missing_component_spell_ids.insert(82);
+    fight.toggle();
+    fight.tick(0.25);
+    assert_eq!(fight.surface.last_targeted_cast, (85, 10));
+}
+
+#[test]
+fn no_debuff_is_cast_when_the_pack_pays_for_no_tier() {
+    let mut fight = fire_vulns(None);
+    fight.surface.missing_component_spell_ids.insert(82);
+    fight.surface.missing_component_spell_ids.insert(85);
+    fight.toggle();
+    fight.tick(0.25);
+    assert!(!fight.surface.cast_spell_ids.contains(&82));
+    assert!(!fight.surface.cast_spell_ids.contains(&85));
+}
+
+// The tier also needs the hunt margin over its difficulty (default 25).
+#[test]
+fn a_debuff_tier_short_of_the_hunt_margin_is_not_picked() {
+    // 260 clears VI (225 + 25) but not VII (250 + 25).
+    let mut fight = fire_vulns(Some(260));
+    fight.toggle();
+    fight.tick(0.25);
+    assert_eq!(fight.surface.last_targeted_cast, (85, 10));
+
+    let mut fight = fire_vulns(Some(275));
+    fight.toggle();
+    fight.tick(0.25);
+    assert_eq!(fight.surface.last_targeted_cast, (82, 10));
+}
+
 /// `Imperil Other VII` as the C# rig has it, in the spell table's line (an
 /// Imperil is life magic).
 fn imperil_90() -> SpellInfo {
