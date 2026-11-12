@@ -1265,6 +1265,95 @@ fn an_item_recharge_holds_the_item_slot_until_the_server_answers() {
     assert!(!locks.borrow_mut().is_locked(ActionLockKind::ItemUse));
 }
 
+// A use the server refuses (0x1D, too busy: a recall, a cast) is tried
+// again after VTank's three seconds, not at once (owner, 2026-11-12: Mrbow
+// sent the kit seven times in three seconds during a hometown recall).
+#[test]
+fn a_refused_item_use_waits_three_seconds_before_it_is_tried_again() {
+    let (mut surface, combat) = hungry();
+    let settings = VitalSettings::default();
+    let (mut controller, _locks) = with_locks();
+
+    self_tick(&mut controller, &mut surface, &settings, &combat);
+    assert_eq!(surface.used_item_ids, [10]);
+    surface.last_item_completion = ItemUseCompletion {
+        weenie_error: 0x1D,
+        ..receipt(1, 10)
+    };
+    // The answer, then 2.7 s of passes: no second use.
+    for _ in 0..10 {
+        self_tick(&mut controller, &mut surface, &settings, &combat);
+    }
+    assert_eq!(surface.used_item_ids, [10]);
+    // Past the three seconds.
+    tick(
+        &mut controller,
+        &mut surface,
+        &settings,
+        &combat,
+        0.5,
+        true,
+        false,
+        false,
+    );
+    assert_eq!(surface.used_item_ids, [10, 10]);
+}
+
+#[test]
+fn a_clean_item_answer_keeps_the_short_retry() {
+    let (mut surface, combat) = hungry();
+    let settings = VitalSettings::default();
+    let (mut controller, _locks) = with_locks();
+
+    self_tick(&mut controller, &mut surface, &settings, &combat);
+    surface.last_item_completion = receipt(1, 10);
+    self_tick(&mut controller, &mut surface, &settings, &combat);
+    self_tick(&mut controller, &mut surface, &settings, &combat);
+    assert_eq!(surface.used_item_ids, [10, 10]);
+}
+
+// A dead character recharges nothing until it is alive again (owner,
+// 2026-11-12: Mrbow cast Stamina to Health at 0 health until the respawn).
+#[test]
+fn a_dead_character_recharges_nothing_until_it_lives_again() {
+    let (mut surface, combat) = hungry();
+    surface.current_health = 0;
+    let settings = VitalSettings::default();
+    let (mut controller, _locks) = with_locks();
+
+    assert!(!self_tick(
+        &mut controller,
+        &mut surface,
+        &settings,
+        &combat
+    ));
+    assert!(surface.used_item_ids.is_empty());
+    assert_eq!(controller.status(), "Dead");
+
+    surface.current_health = 20;
+    assert!(self_tick(&mut controller, &mut surface, &settings, &combat));
+    assert_eq!(surface.used_item_ids, [10]);
+}
+
+#[test]
+fn a_death_drops_the_use_in_flight() {
+    let (mut surface, combat) = hungry();
+    let settings = VitalSettings::default();
+    let (mut controller, locks) = with_locks();
+
+    self_tick(&mut controller, &mut surface, &settings, &combat);
+    assert!(controller.item_use_in_flight());
+    surface.current_health = 0;
+    assert!(!self_tick(
+        &mut controller,
+        &mut surface,
+        &settings,
+        &combat
+    ));
+    assert!(!controller.item_use_in_flight());
+    assert!(!locks.borrow_mut().is_locked(ActionLockKind::ItemUse));
+}
+
 // Source: tests/AcDream.Plugins.MossTank.Tests/VitalRechargeTests.cs :: AnUnansweredUseStopsClaimingThePassWhenItsWindowRunsOut
 #[test]
 fn an_unanswered_use_stops_claiming_the_pass_when_its_window_runs_out() {

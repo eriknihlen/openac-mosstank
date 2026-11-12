@@ -28,6 +28,17 @@ pub const IDLE_STATUS: &str = "Vitals idle";
 /// How long an unanswered use is waited out before it is given up, seconds.
 const PENDING_TIMEOUT_SECONDS: f64 = 15.0;
 
+/// The wait after a cleanly answered recharge, seconds.
+const RETRY_AFTER_ANSWER_SECONDS: f64 = 0.25;
+
+/// The wait after an item use the server refused (too busy in a recall or
+/// a cast), seconds: the reference's kit use waits this long for the use
+/// to start before it lets the rule pick again.
+const RETRY_AFTER_REFUSAL_SECONDS: f64 = 3.0;
+
+/// The status while the character is dead.
+const DEAD_STATUS: &str = "Dead";
+
 /// The cast tracker as the rules share it.
 pub use mosstank_automation::cast_tracker::SharedCastTracker;
 
@@ -47,6 +58,8 @@ struct Pending {
     choice: VitalRechargeChoice,
     /// The newest receipt stamp this wait has already looked at.
     revision: i64,
+    /// Whether the server's answer to an item use carried an error.
+    refused: bool,
 }
 
 /// One server-receipt-driven recharge state machine.
@@ -194,6 +207,19 @@ impl VitalRechargeController {
             self.clear_boosts();
             IDLE_STATUS.clone_into(&mut self.status);
             self.sync_vitals_request(turn.automation, false);
+            return false;
+        }
+        // A dead character can use and cast nothing: nothing is begun or
+        // waited on until the respawn gives it health again.
+        let (health, max_health, _) = turn.automation.character().health;
+        if max_health > 0 && health == 0 {
+            self.release_item_use();
+            self.pending = None;
+            self.pending_seconds = 0.0;
+            self.frame_observed_seconds = 0.0;
+            self.retry_delay = 0.0;
+            self.clear_boosts();
+            DEAD_STATUS.clone_into(&mut self.status);
             return false;
         }
         self.observe_pending(turn, pending_elapsed);
@@ -348,7 +374,11 @@ impl VitalRechargeController {
                 choice.target_object_id
             )
         };
-        self.pending = Some(Pending { choice, revision });
+        self.pending = Some(Pending {
+            choice,
+            revision,
+            refused: false,
+        });
         turn.automation.log_info(&line);
         true
     }
@@ -544,10 +574,15 @@ impl VitalRechargeController {
                 let vital = choice.vital;
                 self.clear_boost(vital);
             }
+            let refused = self.pending.as_ref().is_some_and(|p| p.refused);
             self.release_item_use();
             self.pending = None;
             self.pending_seconds = 0.0;
-            self.retry_delay = 0.25;
+            self.retry_delay = if refused {
+                RETRY_AFTER_REFUSAL_SECONDS
+            } else {
+                RETRY_AFTER_ANSWER_SECONDS
+            };
             return;
         }
         if self.pending_seconds < PENDING_TIMEOUT_SECONDS {
@@ -588,6 +623,10 @@ impl VitalRechargeController {
             return false;
         }
         pending.revision = used.revision;
-        used.source_id == pending.choice.item_object_id
+        if used.source_id != pending.choice.item_object_id {
+            return false;
+        }
+        pending.refused = used.weenie_error != 0;
+        true
     }
 }
