@@ -89,9 +89,15 @@ impl Default for Surface {
     }
 }
 
+/// `spells` is the spellbook; the client's self-buff list leaves out what
+/// the caster cannot cast on itself (every "Other" line), as OpenAC's does.
 impl SpellCatalog for Surface {
     fn known_self_buffs(&mut self) -> Vec<SpellInfo> {
-        self.spells.clone()
+        self.spells
+            .iter()
+            .filter(|spell| spell.is_self_targeted)
+            .cloned()
+            .collect()
     }
 
     fn try_get(&mut self, spell_id: u32) -> Option<SpellInfo> {
@@ -100,6 +106,14 @@ impl SpellCatalog for Surface {
             .chain(&self.lookup)
             .find(|spell| spell.spell_id == spell_id)
             .cloned()
+    }
+
+    fn is_known(&mut self, spell_id: u32) -> bool {
+        self.spells.iter().any(|spell| spell.spell_id == spell_id)
+    }
+
+    fn all(&mut self) -> Vec<SpellInfo> {
+        self.spells.iter().chain(&self.lookup).cloned().collect()
     }
 }
 
@@ -1114,6 +1128,43 @@ fn helper_tier_walk_traces_its_pick_and_rejections() {
         line.contains("Incantation of Revitalize Self comp set"),
         "{line}"
     );
+}
+
+/// The client's self-buff list never holds an "Other" spell (the caster
+/// cannot be its target), so the helper's tiers come from the spellbook.
+#[test]
+fn helper_casts_an_other_line_spell_the_self_buff_list_leaves_out() {
+    let other = |id: u32, name: &str, quality: i32, tier: i32| SpellInfo {
+        tier,
+        is_self_targeted: false,
+        ..spell(id, name, 79, quality)
+    };
+    let mut surface = Surface {
+        mode: CombatMode::Magic,
+        spells: vec![
+            spell(1161, "Heal Self VI", 67, 250),
+            other(1165, "Heal Other V", 200, 5),
+            other(1166, "Heal Other VI", 250, 6),
+        ],
+        lookup: vec![other(spell_id::AdjaSGift, "Adja's Gift", 300, 7)],
+        in_fellowship: true,
+        skills: vec![skill(33, 400)],
+        fellows: vec![fellow(71, "Hurt", 50, 10.0)],
+        ..Surface::default()
+    };
+    assert!(surface.known_self_buffs().iter().all(|s| s.family != 79));
+    let choice = plan_helper(
+        &mut surface,
+        &VitalSettings {
+            helper_health: 0.9,
+            ..VitalSettings::default()
+        },
+        &CombatSettings::default(),
+    )
+    .expect("a helper plan");
+    assert_eq!(choice.vital, VitalKind::Health);
+    assert_eq!(choice.spell_id, 1166);
+    assert_eq!(choice.target_object_id, 71);
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/VitalRechargeTests.cs :: HelperTrustsOnlyFreshlyStreamedVitals

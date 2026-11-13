@@ -1078,20 +1078,16 @@ impl CastabilityReport for HelperReport<'_> {
 /// The helper spell: the best castable tier of the reference's family that
 /// stays on the reference's own line (a family holds both the Self and the
 /// Other line; only the component set tells them apart), with the hunting
-/// skill margin.
+/// skill margin. The tiers are the family's spells the character knows,
+/// from the spellbook: the client's self-buff list leaves out every spell
+/// the caster cannot be the target of, which is every "Other" line.
 fn try_resolve_helper_spell(
     automation: &mut dyn Automation,
     reference: &SpellInfo,
     combat: &CombatSettings,
     report: &mut HelperReport<'_>,
 ) -> Option<SpellInfo> {
-    let mut tiers: Vec<SpellInfo> = automation
-        .spells()
-        .known_self_buffs_shared()
-        .iter()
-        .filter(|candidate| candidate.family == reference.family)
-        .cloned()
-        .collect();
+    let mut tiers = known_family_spells(automation, reference.family);
     tiers.sort_by(|a, b| {
         b.tier
             .cmp(&a.tier)
@@ -1128,6 +1124,18 @@ fn try_resolve_helper_spell(
         combat.hunt_skill_excess_over_difficulty,
         Some(&mut castability),
     )
+}
+
+/// The spells of `family` the character knows, from the whole table.
+fn known_family_spells(automation: &mut dyn Automation, family: u32) -> Vec<SpellInfo> {
+    let table = automation.spells().table();
+    table
+        .spells()
+        .iter()
+        .filter(|spell| spell.family == family)
+        .filter(|spell| automation.spells().is_known(spell.spell_id))
+        .cloned()
+        .collect()
 }
 
 /// The pick, then every rejected tier above it with its reason (all of them
