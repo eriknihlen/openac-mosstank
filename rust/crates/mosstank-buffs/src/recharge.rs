@@ -299,6 +299,99 @@ fn trace_kits(
     }
 }
 
+/// The helper's last decision, in plain words for the player (`/vt
+/// team`): whom it chose and with what, or why it helped nobody.
+#[derive(Debug, Clone, PartialEq)]
+pub enum HelperDecision {
+    /// A fellow (or peer) gets `using` for `vital`.
+    Helping {
+        /// The vital restored.
+        vital: VitalKind,
+        /// Who gets it.
+        target: String,
+        /// The spell or item used.
+        using: String,
+    },
+    /// The profile's help switch is off.
+    HelpOff,
+    /// Not in a fellowship, and network peers are not helped.
+    NotInFellowship,
+    /// Nobody to help in sight (the client sees no other member).
+    NobodyInSight,
+    /// Every member is above its thresholds.
+    NobodyBelowThreshold,
+    /// A member reads below a threshold, but its vitals are older than
+    /// [`FELLOW_VITALS_TRUST_SECONDS`] (or were never streamed).
+    VitalsTooOld {
+        /// The member.
+        name: String,
+    },
+    /// A member is below a threshold, but out of reach.
+    OutOfRange {
+        /// The member.
+        name: String,
+        /// How far, metres.
+        distance: f32,
+    },
+    /// A member needs help, but no tier of the line can be cast.
+    NoCastableSpell {
+        /// The vital.
+        vital: VitalKind,
+        /// The member.
+        name: String,
+        /// The line's reference spell.
+        line: String,
+    },
+    /// The character's own vital comes first.
+    OwnVitalFirst(VitalKind),
+    /// An item use holds the slot the helper waits on.
+    ItemSlotBusy,
+}
+
+impl HelperDecision {
+    /// When the three vitals give different reasons, the one nearest to a
+    /// heal is kept.
+    fn weight(&self) -> u8 {
+        match self {
+            Self::NoCastableSpell { .. } => 3,
+            Self::OutOfRange { .. } => 2,
+            Self::VitalsTooOld { .. } => 1,
+            _ => 0,
+        }
+    }
+}
+
+impl std::fmt::Display for HelperDecision {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let lower = |vital: VitalKind| vital_name(vital).to_lowercase();
+        match self {
+            Self::Helping {
+                vital,
+                target,
+                using,
+            } => write!(f, "{using} on {target} ({})", lower(*vital)),
+            Self::HelpOff => f.write_str("helping others is off"),
+            Self::NotInFellowship => f.write_str("not in a fellowship"),
+            Self::NobodyInSight => f.write_str("no other member in sight"),
+            Self::NobodyBelowThreshold => f.write_str("no member below its threshold"),
+            Self::VitalsTooOld { name } => write!(
+                f,
+                "{name} is low, but the vitals are over {FELLOW_VITALS_TRUST_SECONDS} s old"
+            ),
+            Self::OutOfRange { name, distance } => {
+                write!(f, "{name} is low, but {distance:.0} m away")
+            }
+            Self::NoCastableSpell { vital, name, line } => write!(
+                f,
+                "{name} needs {}, but no {line} tier can be cast",
+                lower(*vital)
+            ),
+            Self::OwnVitalFirst(vital) => write!(f, "own {} first", lower(*vital)),
+            Self::ItemSlotBusy => f.write_str("waiting for an item use"),
+        }
+    }
+}
+
 /// The fellow (or peer) to help and how (`TryPlanHelper`): health, then
 /// stamina, then mana, each the lowest in its own reach below its own
 /// threshold. `trace` receives the helper spell walk's pick and
@@ -309,12 +402,35 @@ pub fn try_plan_helper(
     combat: &CombatSettings,
     trace: Option<&mut dyn FnMut(&str)>,
 ) -> Option<VitalRechargeChoice> {
+    plan_helper(automation, settings, combat, trace).0
+}
+
+/// [`try_plan_helper`], with its decision in plain words: whom it helps
+/// with what, or why nobody.
+pub fn plan_helper(
+    automation: &mut dyn Automation,
+    settings: &VitalSettings,
+    combat: &CombatSettings,
+    trace: Option<&mut dyn FnMut(&str)>,
+) -> (Option<VitalRechargeChoice>, HelperDecision) {
+    if !settings.help_others {
+        return (None, HelperDecision::HelpOff);
+    }
     let in_fellowship = automation.in_fellowship();
-    if !settings.help_others || (!in_fellowship && !settings.help_network_peers) {
-        return None;
+    if !in_fellowship && !settings.help_network_peers {
+        return (None, HelperDecision::NotInFellowship);
     }
     let mut report = HelperReport { trace };
     let members = helper_candidates(automation, settings, in_fellowship);
+    if members.is_empty() {
+        return (None, HelperDecision::NobodyInSight);
+    }
+    let mut why = HelperDecision::NobodyBelowThreshold;
+    let mut note = |reason: HelperDecision| {
+        if reason.weight() > why.weight() {
+            why = reason;
+        }
+    };
     for (vital, threshold, distance, base_spell) in [
         (
             VitalKind::Health,
@@ -336,18 +452,35 @@ pub fn try_plan_helper(
         ),
     ] {
         #[allow(clippy::cast_possible_truncation)]
-        let Some(fellow) = lowest(&members, vital, threshold, distance as f32) else {
-            continue;
+        let fellow = match lowest(&members, vital, threshold, distance as f32) {
+            Ok(fellow) => fellow,
+            Err(reason) => {
+                note(reason);
+                continue;
+            }
+        };
+        let helping = |using: &str| HelperDecision::Helping {
+            vital,
+            target: fellow.name.clone(),
+            using: using.to_owned(),
         };
         if vital == VitalKind::Health
             && let Some(choice) = try_healers_heart(automation, settings, combat, fellow)
         {
-            return Some(choice);
+            let decision = helping(&choice.name);
+            return (Some(choice), decision);
         }
+        let no_spell = |line: &str| HelperDecision::NoCastableSpell {
+            vital,
+            name: fellow.name.clone(),
+            line: line.to_owned(),
+        };
         let Some(basis) = automation.spells().try_get(base_spell) else {
+            note(no_spell(vital_name(vital)));
             continue;
         };
         let Some(spell) = try_resolve_helper_spell(automation, &basis, combat, &mut report) else {
+            note(no_spell(&basis.name));
             continue;
         };
         let mut choice = VitalRechargeChoice::new(
@@ -359,9 +492,9 @@ pub fn try_plan_helper(
             Some(CombatMode::Magic),
         );
         choice.target_object_id = fellow.object_id;
-        return Some(choice);
+        return (Some(choice), helping(&spell.name));
     }
-    None
+    (None, why)
 }
 
 /// The Healer's Heart (or the Legendary Seed of Mornings, which outranks
@@ -1017,22 +1150,18 @@ fn peer_distance(here: &Position, there: &Position) -> f32 {
 }
 
 /// The member lowest on the vital below the threshold, within reach, with
-/// vitals streamed recently enough to trust.
+/// vitals streamed recently enough to trust; else why nobody qualified (a
+/// member out of reach before one with old vitals).
 fn lowest(
     members: &[FellowMember],
     vital: VitalKind,
     threshold: f64,
     maximum_distance: f32,
-) -> Option<&FellowMember> {
+) -> Result<&FellowMember, HelperDecision> {
     let mut best: Option<&FellowMember> = None;
     let mut best_fraction = f64::INFINITY;
+    let mut why = HelperDecision::NobodyBelowThreshold;
     for member in members {
-        let Some(age) = member.vitals_age_seconds else {
-            continue;
-        };
-        if age >= FELLOW_VITALS_TRUST_SECONDS || member.distance > maximum_distance {
-            continue;
-        }
         let (current, maximum) = match vital {
             VitalKind::Health => (member.current_health, member.max_health),
             VitalKind::Stamina => (member.current_stamina, member.max_stamina),
@@ -1042,12 +1171,33 @@ fn lowest(
             continue;
         }
         let fraction = f64::from(current) / f64::from(maximum);
-        if fraction < threshold && fraction < best_fraction {
+        if fraction >= threshold {
+            continue;
+        }
+        let fresh = member
+            .vitals_age_seconds
+            .is_some_and(|age| age < FELLOW_VITALS_TRUST_SECONDS);
+        if !fresh {
+            if why.weight() < 1 {
+                why = HelperDecision::VitalsTooOld {
+                    name: member.name.clone(),
+                };
+            }
+            continue;
+        }
+        if member.distance > maximum_distance {
+            why = HelperDecision::OutOfRange {
+                name: member.name.clone(),
+                distance: member.distance,
+            };
+            continue;
+        }
+        if fraction < best_fraction {
             best = Some(member);
             best_fraction = fraction;
         }
     }
-    best
+    best.ok_or(why)
 }
 
 /// The helper spell walk's report: its warnings, and its pick in the buff

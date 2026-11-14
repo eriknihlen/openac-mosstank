@@ -19,7 +19,9 @@ use mosstank_combat::gate::{GateTurn, Prepare, SharedCombatModeGate};
 use mosstank_dotnet::text::ordinal;
 use mosstank_settings::model::{CombatSettings, VitalKind, VitalSettings};
 
-use crate::recharge::{self, VitalRechargeChoice, VitalRechargeSourceKind, vital_name};
+use crate::recharge::{
+    self, HelperDecision, VitalRechargeChoice, VitalRechargeSourceKind, vital_name,
+};
 use crate::vitals::{self, Vitals};
 
 /// The status when nothing is being done.
@@ -76,6 +78,7 @@ pub struct VitalRechargeController {
     mana_boost_remaining: f64,
     vitals_requested: bool,
     helper_trace_lines: HashSet<String>,
+    last_helper_decision: Option<HelperDecision>,
     status: String,
     action_locks: SharedActionLocks,
     pending_hold_until: f64,
@@ -104,6 +107,7 @@ impl VitalRechargeController {
             mana_boost_remaining: 0.0,
             vitals_requested: false,
             helper_trace_lines: HashSet::new(),
+            last_helper_decision: None,
             status: IDLE_STATUS.to_owned(),
             action_locks: ActionLockTable::shared(),
             pending_hold_until: 0.0,
@@ -132,6 +136,13 @@ impl VitalRechargeController {
     #[must_use]
     pub fn status(&self) -> &str {
         &self.status
+    }
+
+    /// The helper's last decision (whom it helped with what, or why
+    /// nobody), for `/vt team`; `None` before its first look.
+    #[must_use]
+    pub fn last_helper_decision(&self) -> Option<&HelperDecision> {
+        self.last_helper_decision.as_ref()
     }
 
     /// Whether a kit, food or caster item this controller used is still
@@ -270,15 +281,18 @@ impl VitalRechargeController {
                 .is_locked(ActionLockKind::ItemUse)
             {
                 helper = self.plan_helper(turn);
+            } else if helpers {
+                self.last_helper_decision = Some(HelperDecision::ItemSlotBusy);
             }
             if helper.is_none() {
                 "Vitals ready".clone_into(&mut self.status);
                 return false;
             }
         }
-        if helpers && need.is_some() {
+        if helpers && let Some(need) = need {
             // The helper rows' turn; a self need belongs to the self row and
             // was already offered there this pass.
+            self.last_helper_decision = Some(HelperDecision::OwnVitalFirst(need));
             "Vitals ready".clone_into(&mut self.status);
             return false;
         }
@@ -409,8 +423,9 @@ impl VitalRechargeController {
     fn plan_helper(&mut self, turn: &mut VitalTurn<'_>) -> Option<VitalRechargeChoice> {
         let mut traced: Vec<String> = Vec::new();
         let mut sink = |line: &str| traced.push(line.to_owned());
-        let choice =
-            recharge::try_plan_helper(turn.automation, turn.settings, turn.combat, Some(&mut sink));
+        let (choice, decision) =
+            recharge::plan_helper(turn.automation, turn.settings, turn.combat, Some(&mut sink));
+        self.last_helper_decision = Some(decision);
         for line in traced {
             if self.helper_trace_lines.insert(line.clone()) {
                 turn.automation.log_info(&line);
@@ -433,6 +448,7 @@ impl VitalRechargeController {
         // plugin-side memory of it is stale here.
         self.vitals_requested = false;
         self.helper_trace_lines.clear();
+        self.last_helper_decision = None;
         IDLE_STATUS.clone_into(&mut self.status);
     }
 

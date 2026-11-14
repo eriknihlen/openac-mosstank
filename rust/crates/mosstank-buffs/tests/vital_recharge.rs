@@ -18,7 +18,7 @@ use mosstank_automation::combat_text::log_text_type;
 use mosstank_automation::locks::{ActionLockKind, ActionLockTable, SharedActionLocks};
 use mosstank_automation::{Automation, SpellCatalog};
 use mosstank_buffs::recharge::{
-    self, FELLOW_VITALS_TRUST_SECONDS, VitalRechargeChoice, VitalRechargeMethod,
+    self, FELLOW_VITALS_TRUST_SECONDS, HelperDecision, VitalRechargeChoice, VitalRechargeMethod,
     VitalRechargeSourceKind,
 };
 use mosstank_buffs::recharge_controller::{VitalRechargeController, VitalTurn};
@@ -1165,6 +1165,183 @@ fn helper_casts_an_other_line_spell_the_self_buff_list_leaves_out() {
     assert_eq!(choice.vital, VitalKind::Health);
     assert_eq!(choice.spell_id, 1166);
     assert_eq!(choice.target_object_id, 71);
+}
+
+/// A fellowship of one hurt fellow, `Hurt` (id 71, health 50 of 100, 10 m
+/// away), and a Life mage who knows Heal Other VI.
+fn hurt_fellowship() -> Surface {
+    Surface {
+        mode: CombatMode::Magic,
+        spells: vec![SpellInfo {
+            tier: 6,
+            is_self_targeted: false,
+            ..spell(1166, "Heal Other VI", 79, 250)
+        }],
+        lookup: vec![SpellInfo {
+            is_self_targeted: false,
+            ..spell(spell_id::AdjaSGift, "Adja's Gift", 79, 300)
+        }],
+        in_fellowship: true,
+        skills: vec![skill(33, 400)],
+        fellows: vec![fellow(71, "Hurt", 50, 10.0)],
+        ..Surface::default()
+    }
+}
+
+fn decide(surface: &mut Surface, settings: &VitalSettings) -> HelperDecision {
+    recharge::plan_helper(surface, settings, &CombatSettings::default(), None).1
+}
+
+fn helping_below(threshold: f64) -> VitalSettings {
+    VitalSettings {
+        helper_health: threshold,
+        ..VitalSettings::default()
+    }
+}
+
+/// The helper says in plain words whom it helps with what, or why it
+/// helps nobody.
+#[test]
+fn helper_decision_says_whom_it_helps_or_why_nobody() {
+    let settings = helping_below(0.9);
+
+    let decision = decide(&mut hurt_fellowship(), &settings);
+    assert_eq!(
+        decision,
+        HelperDecision::Helping {
+            vital: VitalKind::Health,
+            target: "Hurt".to_owned(),
+            using: "Heal Other VI".to_owned(),
+        }
+    );
+    assert_eq!(decision.to_string(), "Heal Other VI on Hurt (health)");
+
+    let off = VitalSettings {
+        help_others: false,
+        ..settings.clone()
+    };
+    assert_eq!(
+        decide(&mut hurt_fellowship(), &off),
+        HelperDecision::HelpOff
+    );
+
+    let mut alone = Surface {
+        in_fellowship: false,
+        ..hurt_fellowship()
+    };
+    let decision = decide(&mut alone, &settings);
+    assert_eq!(decision, HelperDecision::NotInFellowship);
+    assert_eq!(decision.to_string(), "not in a fellowship");
+
+    let mut unseen = Surface {
+        fellows: Vec::new(),
+        ..hurt_fellowship()
+    };
+    assert_eq!(
+        decide(&mut unseen, &settings),
+        HelperDecision::NobodyInSight
+    );
+
+    assert_eq!(
+        decide(&mut hurt_fellowship(), &helping_below(0.2)),
+        HelperDecision::NobodyBelowThreshold
+    );
+
+    let mut stale = Surface {
+        fellows: vec![FellowMember {
+            vitals_age_seconds: Some(FELLOW_VITALS_TRUST_SECONDS),
+            ..fellow(71, "Hurt", 50, 10.0)
+        }],
+        ..hurt_fellowship()
+    };
+    let decision = decide(&mut stale, &settings);
+    assert_eq!(
+        decision,
+        HelperDecision::VitalsTooOld {
+            name: "Hurt".to_owned()
+        }
+    );
+    assert_eq!(
+        decision.to_string(),
+        "Hurt is low, but the vitals are over 10 s old"
+    );
+
+    let mut far = Surface {
+        fellows: vec![fellow(71, "Hurt", 50, 80.0)],
+        ..hurt_fellowship()
+    };
+    let decision = decide(&mut far, &settings);
+    assert_eq!(
+        decision,
+        HelperDecision::OutOfRange {
+            name: "Hurt".to_owned(),
+            distance: 80.0
+        }
+    );
+    assert_eq!(decision.to_string(), "Hurt is low, but 80 m away");
+
+    let mut unskilled = Surface {
+        skills: vec![skill(33, 100)],
+        ..hurt_fellowship()
+    };
+    let decision = decide(&mut unskilled, &settings);
+    assert_eq!(
+        decision,
+        HelperDecision::NoCastableSpell {
+            vital: VitalKind::Health,
+            name: "Hurt".to_owned(),
+            line: "Adja's Gift".to_owned(),
+        }
+    );
+    assert_eq!(
+        decision.to_string(),
+        "Hurt needs health, but no Adja's Gift tier can be cast"
+    );
+}
+
+/// The controller keeps the helper's last decision for `/vt team`,
+/// including the character's own need, which the self row answers first.
+#[test]
+fn helper_controller_remembers_its_last_decision() {
+    let settings = helping_below(0.9);
+    let combat = CombatSettings::default();
+    let mut surface = hurt_fellowship();
+    let mut helper = VitalRechargeController::new();
+    assert_eq!(helper.last_helper_decision(), None);
+
+    tick(
+        &mut helper,
+        &mut surface,
+        &settings,
+        &combat,
+        0.3,
+        true,
+        true,
+        true,
+    );
+    assert_eq!(
+        helper.last_helper_decision().map(ToString::to_string),
+        Some("Heal Other VI on Hurt (health)".to_owned())
+    );
+
+    surface.current_health = 10;
+    tick(
+        &mut helper,
+        &mut surface,
+        &settings,
+        &combat,
+        0.3,
+        true,
+        false,
+        true,
+    );
+    assert_eq!(
+        helper.last_helper_decision(),
+        Some(&HelperDecision::OwnVitalFirst(VitalKind::Health))
+    );
+
+    helper.reset();
+    assert_eq!(helper.last_helper_decision(), None);
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/VitalRechargeTests.cs :: HelperTrustsOnlyFreshlyStreamedVitals
