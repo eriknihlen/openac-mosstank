@@ -18,6 +18,7 @@ use crate::mover::{
     desired_heading, signed_heading_delta,
 };
 use crate::selection::{self, CombatTargetCandidate};
+use mosstank_settings::model::DebuffEachFirst;
 
 /// `+0.0;-0.0` as .NET formats a signed delta.
 fn signed_one_decimal(value: f32) -> String {
@@ -85,13 +86,16 @@ impl CombatController {
         let chosen = if cx.settings.team_focus_debuffed {
             let now = self.now;
             let debuffs = &self.debuffs;
-            let (focused, decision) = selection::focus_debuffed(
-                &candidates,
-                chosen,
-                self.target_id,
-                |id| debuffs.has_any_in_force(id, now),
+            let inputs = selection::FocusInputs {
+                remembered: self.target_id,
+                team_debuffed: |id| debuffs.has_team_debuff(id, now),
+                debuffs_first: matches!(
+                    cx.settings.debuff_each_first,
+                    DebuffEachFirst::ONE | DebuffEachFirst::PRIORITY | DebuffEachFirst::ALL
+                ),
                 order,
-            );
+            };
+            let (focused, decision) = selection::focus_debuffed(&candidates, chosen, &inputs);
             self.last_focus_decision = Some(decision);
             focused
         } else {

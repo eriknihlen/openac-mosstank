@@ -1918,3 +1918,85 @@ fn the_landed_cast_replaces_the_claim() {
     assert!(fight.controller.team_claims().is_empty());
     assert_eq!(fight.controller.team_debuffs().len(), 1);
 }
+
+// ---- Focus counts the team's debuffs, never this character's own ----
+
+/// The first debuffer's debuff lands on the monster it claimed: the second,
+/// debuffing the other monster, stays there and finishes its job.
+#[test]
+fn the_second_debuffer_stays_on_its_monster_when_the_firsts_debuff_lands() {
+    let mut first = Fight::new(two_drudges_needing_fire_vuln(), debuff_each_of_a_priority());
+    first.toggle();
+    first.tick(0.25);
+
+    let mut surface = two_drudges_needing_fire_vuln();
+    surface.peers.casts = heard_attempts(&first.surface, 0x5000_0002);
+    let mut second = Fight::new(surface, debuff_each_of_a_priority());
+    second.toggle();
+    second.observe_remote_casts();
+    second.tick(0.25);
+    assert_eq!(second.surface.last_targeted_cast, (70, 11));
+
+    let sequence = i64::try_from(second.surface.peers.casts.len()).unwrap() + 1;
+    second.surface.peers.casts.push(PeerCast {
+        sequence,
+        target_id: 10,
+        ..peer_cast(sequence, 70)
+    });
+    second.observe_remote_casts();
+    second.tick(0.25);
+    second.tick(0.25);
+    assert_eq!(second.controller.target_id(), 11);
+    assert_eq!(second.surface.last_targeted_cast, (70, 11));
+}
+
+/// A debuffer debuffing each monster of a priority first moves on to the
+/// next monster once its own debuff is up on the first.
+#[test]
+fn a_debuffer_moves_on_to_the_next_monster_after_its_own_debuff_lands() {
+    let mut fight = Fight::new(two_drudges_needing_fire_vuln(), debuff_each_of_a_priority());
+    fight.toggle();
+    fight.tick(0.25);
+    assert_eq!(fight.surface.last_targeted_cast, (70, 10));
+
+    fight.surface.last_cast_completion = completion(1, 70, 10, 0);
+    fight.tick(0.25);
+    fight.tick(0.25);
+
+    assert_eq!(fight.surface.last_targeted_cast, (70, 11));
+}
+
+/// A bot alone, its own debuff up on its monster, yields to a
+/// higher-priority arrival exactly as before focus existed.
+#[test]
+fn a_bot_alone_yields_to_a_higher_priority_arrival_whatever_it_debuffed() {
+    let mut settings = fire_vulnerability_rule();
+    settings.rules.insert(
+        0,
+        rule_with(
+            "name#^Olthoi",
+            MonsterRuleActions {
+                flags: MonsterActionFlags::ATTACK,
+                damage_type: MonsterDamageType::Fire,
+                priority: 4,
+                ..MonsterRuleActions::default()
+            },
+        ),
+    );
+    let mut fight = Fight::new(bolt_and_fire_vuln(), settings);
+    fight.toggle();
+    fight.tick(0.25);
+    assert_eq!(fight.surface.last_targeted_cast, (70, 10));
+    fight.surface.last_cast_completion = completion(1, 70, 10, 0);
+    fight.tick(0.25);
+    fight.tick(0.25);
+    assert_eq!(fight.controller.target_id(), 10);
+
+    fight.surface.targets = vec![
+        target(10, "Drudge", 5.0, 0.0),
+        target(30, "Olthoi Soldier", 15.0, 0.0),
+    ];
+    fight.tick(0.25);
+
+    assert_eq!(fight.controller.target_id(), 30);
+}

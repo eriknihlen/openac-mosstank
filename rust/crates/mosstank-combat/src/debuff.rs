@@ -466,6 +466,9 @@ pub struct DebuffClaim {
 pub struct DebuffTracker {
     applied: HashMap<(u32, DebuffIdentity), Applied>,
     claims: Vec<DebuffClaim>,
+    /// Each monster's latest teammate debuff: when the last of the debuffs
+    /// a teammate landed on it runs out. This character's own never count.
+    team: HashMap<u32, f64>,
     pending: Option<Pending>,
     in_flight: Option<InFlight>,
     observed_completion_revision: i64,
@@ -477,6 +480,7 @@ impl Default for DebuffTracker {
         Self {
             applied: HashMap::new(),
             claims: Vec::new(),
+            team: HashMap::new(),
             pending: None,
             in_flight: None,
             observed_completion_revision: 0,
@@ -852,6 +856,8 @@ impl DebuffTracker {
             claim.target_object_id != target_object_id || claim.identity != identity
         });
         let expires_at = now + seconds_remaining;
+        let team = self.team.entry(target_object_id).or_insert(f64::MIN);
+        *team = team.max(expires_at);
         let key = (target_object_id, identity);
         let Some(existing) = self.applied.get(&key).copied() else {
             self.applied.insert(
@@ -921,12 +927,13 @@ impl DebuffTracker {
         entries
     }
 
-    /// Whether any debuff landed on the monster is in force.
+    /// Whether a debuff a teammate landed on the monster is in force (this
+    /// character's own debuffs never count).
     #[must_use]
-    pub fn has_any_in_force(&self, target_object_id: u32, now: f64) -> bool {
-        self.applied
-            .iter()
-            .any(|(&(target, _), applied)| target == target_object_id && now < applied.expires_at)
+    pub fn has_team_debuff(&self, target_object_id: u32, now: f64) -> bool {
+        self.team
+            .get(&target_object_id)
+            .is_some_and(|&expires_at| now < expires_at)
     }
 
     /// Drops the unanswered cast.
@@ -941,12 +948,14 @@ impl DebuffTracker {
             .retain(|(target, _), _| live_targets.contains(target));
         self.claims
             .retain(|claim| live_targets.contains(&claim.target_object_id));
+        self.team.retain(|target, _| live_targets.contains(target));
     }
 
     /// Forgets everything.
     pub fn reset(&mut self) {
         self.applied.clear();
         self.claims.clear();
+        self.team.clear();
         self.pending = None;
         self.in_flight = None;
         self.observed_completion_revision = 0;

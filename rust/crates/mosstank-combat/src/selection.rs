@@ -265,6 +265,9 @@ pub enum FocusDecision {
     NoTarget,
     /// The player's locked selection, which focus does not override.
     Locked(String),
+    /// The usual choice, which this character still owes a debuff to while
+    /// it debuffs first: focus neither takes it off nor keeps it away.
+    Debuffing(String),
     /// Stayed on a monster whose team debuff still holds.
     Kept(String),
     /// The usual order chose a monster the team debuffed.
@@ -286,6 +289,7 @@ impl std::fmt::Display for FocusDecision {
             Self::Off => f.write_str("focus on debuffed monsters is off"),
             Self::NoTarget => f.write_str("nothing to fight"),
             Self::Locked(name) => write!(f, "{name}, the locked selection"),
+            Self::Debuffing(name) => write!(f, "{name}, which this character still debuffs"),
             Self::Kept(name) => write!(f, "staying on {name}, whose team debuff holds"),
             Self::Took(name) => write!(f, "{name}, debuffed by the team"),
             Self::Switched { from, to } => {
@@ -302,24 +306,43 @@ impl std::fmt::Display for FocusDecision {
     }
 }
 
+/// What the focus works from beside the candidates.
+#[allow(missing_debug_implementations)]
+pub struct FocusInputs<D, O> {
+    /// The monster focus chose last, kept apart from the target slot (a
+    /// retry or a refused swing empties the slot): 0 for none.
+    pub remembered: u32,
+    /// Whether a debuff a teammate landed is in force on a monster; this
+    /// character's own debuffs never count, so a character with no
+    /// teammates chooses exactly as it would without focus.
+    pub team_debuffed: D,
+    /// Whether the character debuffs first (`DebuffEachFirst`): the usual
+    /// choice then wins while this character still owes it a debuff.
+    pub debuffs_first: bool,
+    /// The usual order.
+    pub order: O,
+}
+
 /// The focus on what the team debuffed, over the usual choice `chosen`
-/// among `candidates` (`order` is the usual order; `debuffed` says whether
-/// a team debuff is in force on a monster; `current` is the monster being
-/// fought).
+/// among `candidates`.
 ///
 /// Only one move is ever made: from a monster with no team debuff to one
-/// with. A current target that is still a candidate and still carries a
-/// team debuff is kept, whatever else appears (a higher priority, a nearer
-/// or a more debuffed monster), so the fight never flip-flops. The usual
-/// order picks among several debuffed monsters. The player's locked
-/// selection is never overridden.
-pub fn focus_debuffed(
+/// with. The monster focus chose last, still a candidate and still
+/// carrying a team debuff, is kept, whatever else appears (a higher
+/// priority, a nearer or a more debuffed monster), so the fight never
+/// flip-flops. The usual order picks among several debuffed monsters. The
+/// player's locked selection, and a usual choice this character still owes
+/// a debuff to while it debuffs first, are never overridden.
+pub fn focus_debuffed<D, O>(
     candidates: &[CombatTargetCandidate],
     chosen: CombatTargetCandidate,
-    current: u32,
-    debuffed: impl Fn(u32) -> bool,
-    order: impl Fn(&[CombatTargetCandidate]) -> CombatTargetCandidate,
-) -> (CombatTargetCandidate, FocusDecision) {
+    inputs: &FocusInputs<D, O>,
+) -> (CombatTargetCandidate, FocusDecision)
+where
+    D: Fn(u32) -> bool,
+    O: Fn(&[CombatTargetCandidate]) -> CombatTargetCandidate,
+{
+    let debuffed = &inputs.team_debuffed;
     if chosen.object_id() == 0 {
         return (chosen, FocusDecision::NoTarget);
     }
@@ -327,11 +350,16 @@ pub fn focus_debuffed(
         let name = chosen.target.name.clone();
         return (chosen, FocusDecision::Locked(name));
     }
-    if current != 0
-        && debuffed(current)
+    if inputs.debuffs_first && chosen.needs_debuff {
+        let name = chosen.target.name.clone();
+        return (chosen, FocusDecision::Debuffing(name));
+    }
+    let remembered = inputs.remembered;
+    if remembered != 0
+        && debuffed(remembered)
         && let Some(kept) = candidates
             .iter()
-            .find(|candidate| candidate.object_id() == current)
+            .find(|candidate| candidate.object_id() == remembered)
     {
         return (kept.clone(), FocusDecision::Kept(kept.target.name.clone()));
     }
@@ -348,7 +376,7 @@ pub fn focus_debuffed(
         let name = chosen.target.name.clone();
         return (chosen, FocusDecision::NoneDebuffed(name));
     }
-    let taken = order(&marked);
+    let taken = (inputs.order)(&marked);
     let decision = FocusDecision::Switched {
         from: chosen.target.name.clone(),
         to: taken.target.name.clone(),
