@@ -382,7 +382,7 @@ impl VitalRechargeController {
             )
         } else {
             format!(
-                "Vitals: {} \u{2192} {} at fellow 0x{:08X}",
+                "Vitals: {} \u{2192} {} at teammate 0x{:08X}",
                 vital_name(choice.vital),
                 choice.name,
                 choice.target_object_id
