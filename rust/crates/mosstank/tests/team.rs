@@ -126,6 +126,7 @@ fn vt_team_lists_the_switches_the_members_and_the_last_decisions() {
         "Healer (network peer, this computer): health 40%"
     ));
     assert!(said(&world, "Faraway (network peer, imported): health 40%"));
+    assert!(said(&world, "Claims: none."));
     assert!(said(&world, "Team debuffs: none in force."));
     assert!(said(&world, "Last helper decision: none yet."));
 }

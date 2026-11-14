@@ -438,10 +438,34 @@ struct Applied {
     expires_at: f64,
 }
 
+/// How long a teammate's cast attempt holds a debuff off a monster for
+/// everyone else, seconds: as long as the reference counts an attempt
+/// another client logged.
+pub const CLAIM_SECONDS: f64 = 6.0;
+
+/// A teammate's cast attempt on a monster: the debuff counts as up there,
+/// at the attempt's tier or below, until it lands or the claim runs out.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DebuffClaim {
+    /// The monster.
+    pub target_object_id: u32,
+    /// The debuff.
+    pub identity: DebuffIdentity,
+    /// Who is casting it.
+    pub caster_id: u32,
+    /// The spell attempted.
+    pub spell_id: u32,
+    /// Its tier.
+    pub tier: i32,
+    /// When the claim runs out (the controller's clock, seconds).
+    pub expires_at: f64,
+}
+
 /// The session's debuffs: one is up only once the server said it landed.
 #[derive(Debug, Clone)]
 pub struct DebuffTracker {
     applied: HashMap<(u32, DebuffIdentity), Applied>,
+    claims: Vec<DebuffClaim>,
     pending: Option<Pending>,
     in_flight: Option<InFlight>,
     observed_completion_revision: i64,
@@ -452,6 +476,7 @@ impl Default for DebuffTracker {
     fn default() -> Self {
         Self {
             applied: HashMap::new(),
+            claims: Vec::new(),
             pending: None,
             in_flight: None,
             observed_completion_revision: 0,
@@ -513,6 +538,10 @@ impl DebuffTracker {
         now: f64,
         tolerance_seconds: f64,
     ) -> bool {
+        // A teammate casting it at this tier or better has it in hand.
+        if self.is_claimed(target_object_id, identity, spell, now) {
+            return false;
+        }
         let Some(applied) = self.applied.get(&(target_object_id, identity)) else {
             return true;
         };
@@ -520,6 +549,60 @@ impl DebuffTracker {
             return true;
         }
         now >= applied.expires_at - tolerance_seconds.max(0.0)
+    }
+
+    /// Whether a teammate's attempt at this spell's tier or better is
+    /// claiming the debuff on the monster.
+    #[must_use]
+    pub fn is_claimed(
+        &self,
+        target_object_id: u32,
+        identity: DebuffIdentity,
+        spell: &SpellInfo,
+        now: f64,
+    ) -> bool {
+        self.claims.iter().any(|claim| {
+            claim.target_object_id == target_object_id
+                && claim.identity == identity
+                && claim.tier >= spell.tier
+                && now < claim.expires_at
+        })
+    }
+
+    /// A teammate is casting a debuff at a monster: it counts as up there
+    /// for [`CLAIM_SECONDS`].
+    pub fn record_claim(
+        &mut self,
+        target_object_id: u32,
+        identity: DebuffIdentity,
+        spell: &SpellInfo,
+        caster_id: u32,
+        now: f64,
+    ) {
+        self.expire_claims(now);
+        self.claims.push(DebuffClaim {
+            target_object_id,
+            identity,
+            caster_id,
+            spell_id: spell.spell_id,
+            tier: spell.tier,
+            expires_at: now + CLAIM_SECONDS,
+        });
+    }
+
+    /// The claims still running.
+    #[must_use]
+    pub fn claims(&self, now: f64) -> Vec<DebuffClaim> {
+        self.claims
+            .iter()
+            .filter(|claim| now < claim.expires_at)
+            .copied()
+            .collect()
+    }
+
+    /// Forgets the claims that ran out.
+    pub fn expire_claims(&mut self, now: f64) {
+        self.claims.retain(|claim| now < claim.expires_at);
     }
 
     /// Whether the debuff is up at this spell's tier or better.
@@ -764,6 +847,10 @@ impl DebuffTracker {
         if seconds_remaining.is_nan() || seconds_remaining <= 0.0 {
             return false;
         }
+        // The landed cast is the real record of what its caster claimed.
+        self.claims.retain(|claim| {
+            claim.target_object_id != target_object_id || claim.identity != identity
+        });
         let expires_at = now + seconds_remaining;
         let key = (target_object_id, identity);
         let Some(existing) = self.applied.get(&key).copied() else {
@@ -852,11 +939,14 @@ impl DebuffTracker {
     pub fn retain_targets(&mut self, live_targets: &HashSet<u32>) {
         self.applied
             .retain(|(target, _), _| live_targets.contains(target));
+        self.claims
+            .retain(|claim| live_targets.contains(&claim.target_object_id));
     }
 
     /// Forgets everything.
     pub fn reset(&mut self) {
         self.applied.clear();
+        self.claims.clear();
         self.pending = None;
         self.in_flight = None;
         self.observed_completion_revision = 0;

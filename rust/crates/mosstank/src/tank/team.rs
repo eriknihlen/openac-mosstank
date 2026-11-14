@@ -121,6 +121,19 @@ fn report(cx: &mut TankCx<'_>) {
         lines.push(member_line(member, here.as_ref()));
     }
 
+    let claims = cx.core.combat.team_claims();
+    if claims.is_empty() {
+        lines.push("Claims: none.".to_owned());
+    }
+    for claim in claims {
+        let spell = spell_name(cx.client, claim.spell_id);
+        let monster = monster_name(&claim.target_name, claim.target_id);
+        lines.push(format!(
+            "Claim: {} ({spell}) on {monster} by 0x{:08X}, {:.0} s left",
+            claim.debuff, claim.caster_id, claim.seconds_left
+        ));
+    }
+
     let debuffs = cx.core.combat.team_debuffs();
     if debuffs.is_empty() {
         lines.push("Team debuffs: none in force.".to_owned());

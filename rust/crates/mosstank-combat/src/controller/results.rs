@@ -597,10 +597,10 @@ impl CombatController {
         let table_live = self.enabled && !self.combat_policy_suspended;
         for cast in casts {
             self.remote_cast_cursor = self.remote_cast_cursor.max(cast.sequence);
+            // An attempt carries no time; a landed cast needs some left.
             if cast.caster_id == me
-                || !cast.landed
-                || cast.seconds_remaining.is_nan()
-                || cast.seconds_remaining <= 0.0
+                || (cast.landed
+                    && (cast.seconds_remaining.is_nan() || cast.seconds_remaining <= 0.0))
             {
                 continue;
             }
@@ -613,6 +613,10 @@ impl CombatController {
             let Some(spell) = cx.automation.spells().try_get(cast.spell_id) else {
                 continue;
             };
+            if !cast.landed {
+                self.take_in_claim(cx.automation, &cast, &spell, table_live);
+                continue;
+            }
             cx.automation
                 .report_cast(cast.target_id, cast.spell_id, cast.seconds_remaining);
             if !table_live {
@@ -641,6 +645,36 @@ impl CombatController {
                 ),
             );
         }
+    }
+
+    /// A teammate's cast attempt: the debuff it is casting counts as up on
+    /// its monster for a few seconds, so this character debuffs another
+    /// monster or casts another debuff meanwhile.
+    fn take_in_claim(
+        &mut self,
+        automation: &mut dyn Automation,
+        cast: &ac_plugin_abi::peers::PeerCast,
+        spell: &SpellInfo,
+        table_live: bool,
+    ) {
+        if !table_live {
+            return;
+        }
+        let Some((identity, _)) = self.debuff_lines(automation).classify(spell) else {
+            return;
+        };
+        self.debuffs
+            .record_claim(cast.target_id, identity, spell, cast.caster_id, self.now);
+        self.log_line(
+            MacroLogChannel::SpellCast,
+            &format!(
+                "Peer claim: {} on {} by 0x{:08X}, {} s",
+                spell.name,
+                cast.target_id,
+                cast.caster_id,
+                format_f64(crate::debuff::CLAIM_SECONDS, "0").unwrap_or_default()
+            ),
+        );
     }
 
     /// A held wand's cast watched to its end on every frame the attack's

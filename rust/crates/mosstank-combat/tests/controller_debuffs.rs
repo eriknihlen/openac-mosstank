@@ -16,7 +16,7 @@ use common::{
     wielded_caster, wielded_planned_weapon,
 };
 use mosstank_data::damage::MonsterDamageType;
-use mosstank_settings::model::{CombatSettings, TargetSelectionMethod};
+use mosstank_settings::model::{CombatSettings, DebuffEachFirst, TargetSelectionMethod};
 use mosstank_settings::monster::{MonsterActionFlags, MonsterRuleActions};
 
 fn magic(targets: Vec<CombatTarget>, known: Vec<SpellInfo>) -> FakeAutomation {
@@ -798,10 +798,7 @@ fn rejected_only_peer_batch_advances_cursor_without_reading_the_fellowship() {
         caster_id: SELF_ID,
         ..peer_cast(1, 70)
     });
-    surface.peers.casts.push(PeerCast {
-        landed: false,
-        ..peer_cast(2, 70)
-    });
+    // (An attempt, which the C# also skipped, is a teammate's claim now.)
     surface.peers.casts.push(PeerCast {
         seconds_remaining: 0.0,
         ..peer_cast(3, 70)
@@ -1765,4 +1762,159 @@ fn the_self_cast_twin_of_a_debuff_is_never_thrown_at_a_monster() {
 
         assert!(fight.surface.cast_spell_ids.is_empty(), "{twin}");
     }
+}
+
+// ---- Claims: a teammate's cast attempt ----
+//
+// A teammate's attempt on a monster counts as that debuff being up there
+// for six seconds (at the attempt's tier or below), so this character
+// picks another monster or another debuff; the landed cast replaces it.
+
+fn two_drudges_needing_fire_vuln() -> FakeAutomation {
+    magic(
+        vec![
+            target(10, "Drudge", 5.0, 0.0),
+            target(11, "Drudge", 8.0, 0.0),
+        ],
+        vec![
+            magic_spell(100, "Flame Bolt VII", 300),
+            debuff(70, "Fire Vulnerability Other VII"),
+        ],
+    )
+}
+
+/// What the first bot announced, as the second hears it through the hub.
+fn heard_attempts(from: &FakeAutomation, caster_id: u32) -> Vec<PeerCast> {
+    from.peers
+        .attempts
+        .iter()
+        .enumerate()
+        .map(|(index, &(target_id, spell_id, skill))| PeerCast {
+            sequence: i64::try_from(index).unwrap() + 1,
+            client_id: 7,
+            caster_id,
+            target_id,
+            spell_id,
+            effective_skill: skill,
+            seconds_remaining: 0.0,
+            landed: false,
+            ..PeerCast::default()
+        })
+        .collect()
+}
+
+fn debuff_each_of_a_priority() -> CombatSettings {
+    CombatSettings {
+        debuff_each_first: DebuffEachFirst::PRIORITY,
+        ..fire_vulnerability_rule()
+    }
+}
+
+/// New: two bots, two monsters that both need the same vulnerability. The
+/// first casts at the nearer; the second hears the attempt and debuffs the
+/// other one.
+#[test]
+fn a_teammates_attempt_sends_the_second_debuffer_to_the_other_monster() {
+    let mut first = Fight::new(two_drudges_needing_fire_vuln(), debuff_each_of_a_priority());
+    first.toggle();
+    first.tick(0.25);
+    assert_eq!(first.surface.last_targeted_cast, (70, 10));
+
+    let mut surface = two_drudges_needing_fire_vuln();
+    surface.peers.casts = heard_attempts(&first.surface, 0x5000_0002);
+    let mut second = Fight::new(surface, debuff_each_of_a_priority());
+    second.toggle();
+    second.observe_remote_casts();
+    second.tick(0.25);
+
+    assert_eq!(second.surface.last_targeted_cast, (70, 11));
+    // An attempt is not a landed debuff: the client's tracker is not told.
+    assert!(second.surface.reported.is_empty());
+}
+
+/// New: debuffing one monster at a time, the second bot leaves the claimed
+/// debuff alone and attacks.
+#[test]
+fn a_teammates_attempt_stands_the_same_debuff_down_on_that_monster() {
+    let mut surface = bolt_and_fire_vuln();
+    surface.peers.casts.push(PeerCast {
+        landed: false,
+        seconds_remaining: 0.0,
+        ..peer_cast(1, 70)
+    });
+    let mut fight = Fight::new(surface, fire_vulnerability_rule());
+
+    fight.toggle();
+    fight.observe_remote_casts();
+    fight.tick(0.25);
+
+    assert_eq!(fight.surface.last_targeted_cast, (100, 10));
+    assert!(!fight.surface.cast_spell_ids.contains(&70));
+}
+
+/// New: a claim holds for six seconds, then the debuff is due again.
+#[test]
+fn a_claim_runs_out_after_six_seconds() {
+    let mut surface = bolt_and_fire_vuln();
+    surface.peers.casts.push(PeerCast {
+        landed: false,
+        seconds_remaining: 0.0,
+        ..peer_cast(1, 70)
+    });
+    let mut fight = Fight::new(surface, fire_vulnerability_rule());
+    fight.toggle();
+    fight.observe_remote_casts();
+    fight.tick(0.25);
+    assert!(!fight.surface.cast_spell_ids.contains(&70));
+    assert_eq!(fight.controller.team_claims().len(), 1);
+
+    for _ in 0..24 {
+        fight.tick(0.25);
+    }
+
+    assert!(fight.surface.cast_spell_ids.contains(&70));
+    assert!(fight.controller.team_claims().is_empty());
+}
+
+/// New: a claim at a lower tier does not hold off a stronger debuff.
+#[test]
+fn a_weaker_claim_does_not_hold_off_a_stronger_debuff() {
+    let mut surface = bolt_and_fire_vuln();
+    surface.spell_lookup.push(SpellInfo {
+        tier: 3,
+        ..debuff(69, "Fire Vulnerability Other III")
+    });
+    surface.peers.casts.push(PeerCast {
+        landed: false,
+        seconds_remaining: 0.0,
+        ..peer_cast(1, 69)
+    });
+    let mut fight = Fight::new(surface, fire_vulnerability_rule());
+
+    fight.toggle();
+    fight.observe_remote_casts();
+    fight.tick(0.25);
+
+    assert_eq!(fight.surface.last_targeted_cast, (70, 10));
+}
+
+/// New: the landed cast replaces the claim with the real record.
+#[test]
+fn the_landed_cast_replaces_the_claim() {
+    let mut surface = bolt_and_fire_vuln();
+    surface.peers.casts.push(PeerCast {
+        landed: false,
+        seconds_remaining: 0.0,
+        ..peer_cast(1, 70)
+    });
+    let mut fight = Fight::new(surface, fire_vulnerability_rule());
+    fight.toggle();
+    fight.observe_remote_casts();
+    assert_eq!(fight.controller.team_claims().len(), 1);
+
+    fight.surface.peers.casts.push(peer_cast(2, 70));
+    fight.observe_remote_casts();
+
+    assert!(fight.controller.team_claims().is_empty());
+    assert_eq!(fight.controller.team_debuffs().len(), 1);
 }

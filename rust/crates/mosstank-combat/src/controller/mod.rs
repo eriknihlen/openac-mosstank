@@ -128,6 +128,23 @@ pub struct TeamDebuffReport {
     pub seconds_left: f64,
 }
 
+/// A teammate's cast attempt claiming a debuff on a monster, for `/vt team`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TeamClaimReport {
+    /// The monster.
+    pub target_id: u32,
+    /// Its name, blank when the scan no longer holds it.
+    pub target_name: String,
+    /// The debuff in words.
+    pub debuff: String,
+    /// The spell attempted.
+    pub spell_id: u32,
+    /// The teammate casting it.
+    pub caster_id: u32,
+    /// Seconds the claim has left.
+    pub seconds_left: f64,
+}
+
 /// What one call works with.
 #[allow(missing_debug_implementations)]
 pub struct CombatTurn<'a> {
@@ -734,6 +751,23 @@ impl CombatController {
                     seconds_left,
                 },
             )
+            .collect()
+    }
+
+    /// The teammates' cast attempts still claiming a debuff, for `/vt team`.
+    #[must_use]
+    pub fn team_claims(&self) -> Vec<TeamClaimReport> {
+        self.debuffs
+            .claims(self.now)
+            .into_iter()
+            .map(|claim| TeamClaimReport {
+                target_id: claim.target_object_id,
+                target_name: self.find_target(claim.target_object_id).name,
+                debuff: crate::debuff::label(claim.identity),
+                spell_id: claim.spell_id,
+                caster_id: claim.caster_id,
+                seconds_left: claim.expires_at - self.now,
+            })
             .collect()
     }
 
