@@ -194,6 +194,12 @@ const UNANSWERED_SWING_SECONDS: f64 = 4.5;
 const SWING_CLOSING_PROGRESS_METERS: f32 = 0.5;
 /// Seconds navigation is held after a kill.
 const POST_KILL_NAVIGATION_LOCK_SECONDS: f64 = 3.0;
+/// How long a monster the fight failed to attack (its pass yielded nothing
+/// and the choice was made again) is left out of the focus on team
+/// debuffs, seconds. A value chosen here: long enough that a monster
+/// blocked on one pass in two cannot pull the fight back and forth, short
+/// enough that a monster which came clear is focused on again soon.
+pub(super) const FOCUS_REFUSAL_HOLD_SECONDS: f64 = 5.0;
 /// The power bar's release tolerance.
 const POWER_RELEASE_EPSILON: f32 = 0.005;
 /// The breakable turn's tolerance, degrees.
@@ -259,6 +265,11 @@ pub struct CombatController {
     /// Why the last target choice kept or left what it was on, as the
     /// team's debuffs had it (`TeamFocusDebuffed`).
     last_focus_decision: Option<crate::selection::FocusDecision>,
+    /// The monster focus chose last (0 for none), kept apart from the
+    /// target slot so a retry that empties the slot does not forget it.
+    focus_id: u32,
+    /// When the fight last failed to attack each monster, for the focus.
+    focus_refused: HashMap<u32, f64>,
     target_rule: Option<ResolvedMonsterRule>,
     target_name: String,
     target_distance: f32,
@@ -406,6 +417,8 @@ impl CombatController {
             acquisition_range: 0.0,
             target_id: 0,
             last_focus_decision: None,
+            focus_id: 0,
+            focus_refused: HashMap::new(),
             target_rule: None,
             target_name: String::new(),
             target_distance: 0.0,
@@ -1183,6 +1196,7 @@ impl CombatController {
                 let (id, name) = (self.target_id, self.target_name.clone());
                 self.report_given_up_target(cx.automation, id, &name, &cannot);
             }
+            self.focus_refused.insert(self.target_id, self.now);
             self.clear_target(cx.automation);
         }
         self.log_line(

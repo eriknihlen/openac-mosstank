@@ -9,7 +9,10 @@ use mosstank_automation::Automation;
 use openac_plugin_compat::number::{format_f32, format_f64};
 
 use super::equip::wielded_pair;
-use super::{BREAKABLE_TURN_TOLERANCE_DEGREES, CombatController, Ctx, is_known_dead};
+use super::{
+    BREAKABLE_TURN_TOLERANCE_DEGREES, CombatController, Ctx, FOCUS_REFUSAL_HOLD_SECONDS,
+    is_known_dead,
+};
 use crate::MacroLogChannel;
 use crate::debuff;
 use crate::failure::CombatSuppressionReason;
@@ -85,9 +88,19 @@ impl CombatController {
         let chosen = order(&candidates);
         let chosen = if cx.settings.team_focus_debuffed {
             let now = self.now;
+            // A monster the fight failed to attack a moment ago is no
+            // candidate for focus: going back to it at once would make the
+            // fight alternate between it and the usual choice.
+            self.focus_refused
+                .retain(|_, at| now - *at < FOCUS_REFUSAL_HOLD_SECONDS);
+            let focusable: Vec<CombatTargetCandidate> = candidates
+                .iter()
+                .filter(|candidate| !self.focus_refused.contains_key(&candidate.object_id()))
+                .cloned()
+                .collect();
             let debuffs = &self.debuffs;
             let inputs = selection::FocusInputs {
-                remembered: self.target_id,
+                remembered: self.focus_id,
                 team_debuffed: |id| debuffs.has_team_debuff(id, now),
                 debuffs_first: matches!(
                     cx.settings.debuff_each_first,
@@ -95,10 +108,21 @@ impl CombatController {
                 ),
                 order,
             };
-            let (focused, decision) = selection::focus_debuffed(&candidates, chosen, &inputs);
+            let (focused, decision) = selection::focus_debuffed(&focusable, chosen, &inputs);
+            // The memory outlives the target slot, which a retry empties.
+            match &decision {
+                selection::FocusDecision::Kept(_)
+                | selection::FocusDecision::Took(_)
+                | selection::FocusDecision::Switched { .. } => {
+                    self.focus_id = focused.object_id();
+                }
+                selection::FocusDecision::Locked(_) | selection::FocusDecision::Debuffing(_) => {}
+                _ => self.focus_id = 0,
+            }
             self.last_focus_decision = Some(decision);
             focused
         } else {
+            self.focus_id = 0;
             self.last_focus_decision = Some(selection::FocusDecision::Off);
             chosen
         };

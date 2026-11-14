@@ -332,7 +332,9 @@ pub struct FocusInputs<D, O> {
 /// priority, a nearer or a more debuffed monster), so the fight never
 /// flip-flops. The usual order picks among several debuffed monsters. The
 /// player's locked selection, and a usual choice this character still owes
-/// a debuff to while it debuffs first, are never overridden.
+/// a debuff to while it debuffs first, are never overridden. `candidates`
+/// are the ones focus may take or keep: the caller leaves out a monster
+/// the fight just failed to attack.
 pub fn focus_debuffed<D, O>(
     candidates: &[CombatTargetCandidate],
     chosen: CombatTargetCandidate,

@@ -242,3 +242,64 @@ fn a_claim_alone_does_not_draw_the_fighter() {
 
     assert_eq!(pass(&mut fight, two_drudges(3.0, 9.0)), 10);
 }
+
+fn casting_bolts(targets: Vec<CombatTarget>) -> FakeAutomation {
+    FakeAutomation {
+        combat_snapshot: common::in_mode(ac_plugin_abi::combat::CombatMode::Magic),
+        targets,
+        equipment_items: vec![common::wielded_caster(990)],
+        known_attack_spells: vec![ac_plugin_abi::magic::SpellInfo {
+            is_projectile: true,
+            ..common::spell(100, "Incantation of Flame Bolt")
+        }],
+        spell_lookup: vec![debuff(FESTER, "Fester Other VII")],
+        ..FakeAutomation::default()
+    }
+}
+
+/// A team-debuffed monster that cannot be reached on every other pass (its
+/// flight path blocked), for fifty passes: the fighter does not alternate
+/// between it and the undebuffed one. A monster the fight just failed to
+/// attack is not focused on for a few seconds, and the focus outlives the
+/// target slot the retry empties.
+#[test]
+fn a_debuffed_monster_blocked_every_other_pass_does_not_make_the_fighter_alternate() {
+    let mut fight = Fight::new(
+        casting_bolts(two_drudges(3.0, 9.0)),
+        common::fire_attack_rule(CombatSettings {
+            maximum_range: 40.0,
+            selection_method: TargetSelectionMethod::RANGE,
+            use_projectile_awareness: true,
+            team_focus_debuffed: true,
+            ..CombatSettings::default()
+        }),
+    );
+    fight.toggle();
+    landed(&mut fight, 20, FESTER, 600.0);
+    let blocked = ac_plugin_abi::projectile::ProjectilePathResult {
+        status: ac_plugin_abi::projectile::ProjectilePathStatus::Blocked,
+        collision_checks: 3,
+        blocking_object_id: 0x5000_0001,
+        ..ac_plugin_abi::projectile::ProjectilePathResult::default()
+    };
+    let mut seen = Vec::new();
+    for step in 0..50_i64 {
+        if step % 2 == 1 {
+            fight.surface.projectile_paths.insert(20, blocked.clone());
+        } else {
+            fight.surface.projectile_paths.remove(&20);
+        }
+        // The last bolt is over.
+        fight.surface.last_cast_completion = ac_plugin_abi::magic::CastCompletion {
+            revision: step + 1,
+            spell_id: 100,
+            target_id: fight.surface.last_targeted_cast.1,
+            weenie_error: 0,
+        };
+        fight.surface.targets = two_drudges(3.0, 9.0);
+        fight.tick(0.25);
+        seen.push(fight.surface.last_targeted_cast.1);
+    }
+    let switches = seen.windows(2).filter(|pair| pair[0] != pair[1]).count();
+    assert!(switches <= 4, "{switches} switches: {seen:?}");
+}
