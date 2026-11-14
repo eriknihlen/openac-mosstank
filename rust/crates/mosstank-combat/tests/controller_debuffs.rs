@@ -2030,3 +2030,47 @@ fn a_backlog_read_after_a_restart_takes_in_landed_casts_but_not_attempts() {
     fight.observe_remote_casts();
     assert_eq!(fight.controller.team_claims().len(), 1);
 }
+
+/// A landed cast `fight` hears from a teammate.
+fn hear_landed(fight: &mut Fight, target_id: u32) {
+    let sequence = i64::try_from(fight.surface.peers.casts.len()).unwrap() + 1;
+    fight.surface.peers.casts.push(PeerCast {
+        target_id,
+        ..peer_cast(sequence, 70)
+    });
+    fight.observe_remote_casts();
+}
+
+/// Two debuffers, each with its own debuff landed on its own monster and
+/// each hearing the other's: neither walks over to the other's monster.
+#[test]
+fn two_debuffers_whose_debuffs_both_landed_each_stay_on_their_own_monster() {
+    let mut first = Fight::new(two_drudges_needing_fire_vuln(), debuff_each_of_a_priority());
+    start_listening(&mut first);
+    first.tick(0.25);
+    assert_eq!(first.surface.last_targeted_cast, (70, 10));
+
+    let mut second = Fight::new(two_drudges_needing_fire_vuln(), debuff_each_of_a_priority());
+    start_listening(&mut second);
+    second.surface.peers.casts = heard_attempts(&first.surface, 0x5000_0002);
+    second.observe_remote_casts();
+    second.tick(0.25);
+    assert_eq!(second.surface.last_targeted_cast, (70, 11));
+    first.surface.peers.casts = heard_attempts(&second.surface, 0x5000_0003);
+    first.observe_remote_casts();
+
+    // Both land, and each hears the other's.
+    first.surface.last_cast_completion = completion(1, 70, 10, 0);
+    first.tick(0.25);
+    second.surface.last_cast_completion = completion(1, 70, 11, 0);
+    second.tick(0.25);
+    hear_landed(&mut first, 11);
+    hear_landed(&mut second, 10);
+
+    for _ in 0..8 {
+        first.tick(0.25);
+        second.tick(0.25);
+        assert_eq!(first.controller.target_id(), 10);
+        assert_eq!(second.controller.target_id(), 11);
+    }
+}

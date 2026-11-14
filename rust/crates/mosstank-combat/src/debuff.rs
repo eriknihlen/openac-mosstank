@@ -927,6 +927,15 @@ impl DebuffTracker {
         entries
     }
 
+    /// Whether any debuff is in force on the monster, this character's own
+    /// or a teammate's.
+    #[must_use]
+    pub fn has_any_in_force(&self, target_object_id: u32, now: f64) -> bool {
+        self.applied
+            .iter()
+            .any(|(&(target, _), applied)| target == target_object_id && now < applied.expires_at)
+    }
+
     /// Whether a debuff a teammate landed on the monster is in force (this
     /// character's own debuffs never count).
     #[must_use]

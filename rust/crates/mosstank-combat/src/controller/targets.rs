@@ -101,7 +101,9 @@ impl CombatController {
             let debuffs = &self.debuffs;
             let inputs = selection::FocusInputs {
                 remembered: self.focus_id,
+                current: self.target_id,
                 team_debuffed: |id| debuffs.has_team_debuff(id, now),
+                any_debuffed: |id| debuffs.has_any_in_force(id, now),
                 debuffs_first: matches!(
                     cx.settings.debuff_each_first,
                     DebuffEachFirst::ONE | DebuffEachFirst::PRIORITY | DebuffEachFirst::ALL
