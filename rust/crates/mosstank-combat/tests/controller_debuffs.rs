@@ -1803,6 +1803,23 @@ fn heard_attempts(from: &FakeAutomation, caster_id: u32) -> Vec<PeerCast> {
         .collect()
 }
 
+/// Starts the macro and reads the team's casts once: the backlog read from
+/// the start of the list is old, so what is pushed after this is heard as
+/// it happens.
+fn start_listening(fight: &mut Fight) {
+    fight.toggle();
+    fight.observe_remote_casts();
+}
+
+/// An attempt heard as it happens.
+fn attempt(sequence: i64, spell_id: u32) -> PeerCast {
+    PeerCast {
+        landed: false,
+        seconds_remaining: 0.0,
+        ..peer_cast(sequence, spell_id)
+    }
+}
+
 fn debuff_each_of_a_priority() -> CombatSettings {
     CombatSettings {
         debuff_each_first: DebuffEachFirst::PRIORITY,
@@ -1820,10 +1837,9 @@ fn a_teammates_attempt_sends_the_second_debuffer_to_the_other_monster() {
     first.tick(0.25);
     assert_eq!(first.surface.last_targeted_cast, (70, 10));
 
-    let mut surface = two_drudges_needing_fire_vuln();
-    surface.peers.casts = heard_attempts(&first.surface, 0x5000_0002);
-    let mut second = Fight::new(surface, debuff_each_of_a_priority());
-    second.toggle();
+    let mut second = Fight::new(two_drudges_needing_fire_vuln(), debuff_each_of_a_priority());
+    start_listening(&mut second);
+    second.surface.peers.casts = heard_attempts(&first.surface, 0x5000_0002);
     second.observe_remote_casts();
     second.tick(0.25);
 
@@ -1836,15 +1852,10 @@ fn a_teammates_attempt_sends_the_second_debuffer_to_the_other_monster() {
 /// debuff alone and attacks.
 #[test]
 fn a_teammates_attempt_stands_the_same_debuff_down_on_that_monster() {
-    let mut surface = bolt_and_fire_vuln();
-    surface.peers.casts.push(PeerCast {
-        landed: false,
-        seconds_remaining: 0.0,
-        ..peer_cast(1, 70)
-    });
-    let mut fight = Fight::new(surface, fire_vulnerability_rule());
+    let mut fight = Fight::new(bolt_and_fire_vuln(), fire_vulnerability_rule());
 
-    fight.toggle();
+    start_listening(&mut fight);
+    fight.surface.peers.casts.push(attempt(1, 70));
     fight.observe_remote_casts();
     fight.tick(0.25);
 
@@ -1855,14 +1866,9 @@ fn a_teammates_attempt_stands_the_same_debuff_down_on_that_monster() {
 /// New: a claim holds for six seconds, then the debuff is due again.
 #[test]
 fn a_claim_runs_out_after_six_seconds() {
-    let mut surface = bolt_and_fire_vuln();
-    surface.peers.casts.push(PeerCast {
-        landed: false,
-        seconds_remaining: 0.0,
-        ..peer_cast(1, 70)
-    });
-    let mut fight = Fight::new(surface, fire_vulnerability_rule());
-    fight.toggle();
+    let mut fight = Fight::new(bolt_and_fire_vuln(), fire_vulnerability_rule());
+    start_listening(&mut fight);
+    fight.surface.peers.casts.push(attempt(1, 70));
     fight.observe_remote_casts();
     fight.tick(0.25);
     assert!(!fight.surface.cast_spell_ids.contains(&70));
@@ -1884,14 +1890,10 @@ fn a_weaker_claim_does_not_hold_off_a_stronger_debuff() {
         tier: 3,
         ..debuff(69, "Fire Vulnerability Other III")
     });
-    surface.peers.casts.push(PeerCast {
-        landed: false,
-        seconds_remaining: 0.0,
-        ..peer_cast(1, 69)
-    });
     let mut fight = Fight::new(surface, fire_vulnerability_rule());
 
-    fight.toggle();
+    start_listening(&mut fight);
+    fight.surface.peers.casts.push(attempt(1, 69));
     fight.observe_remote_casts();
     fight.tick(0.25);
 
@@ -1901,14 +1903,9 @@ fn a_weaker_claim_does_not_hold_off_a_stronger_debuff() {
 /// New: the landed cast replaces the claim with the real record.
 #[test]
 fn the_landed_cast_replaces_the_claim() {
-    let mut surface = bolt_and_fire_vuln();
-    surface.peers.casts.push(PeerCast {
-        landed: false,
-        seconds_remaining: 0.0,
-        ..peer_cast(1, 70)
-    });
-    let mut fight = Fight::new(surface, fire_vulnerability_rule());
-    fight.toggle();
+    let mut fight = Fight::new(bolt_and_fire_vuln(), fire_vulnerability_rule());
+    start_listening(&mut fight);
+    fight.surface.peers.casts.push(attempt(1, 70));
     fight.observe_remote_casts();
     assert_eq!(fight.controller.team_claims().len(), 1);
 
@@ -1929,10 +1926,9 @@ fn the_second_debuffer_stays_on_its_monster_when_the_firsts_debuff_lands() {
     first.toggle();
     first.tick(0.25);
 
-    let mut surface = two_drudges_needing_fire_vuln();
-    surface.peers.casts = heard_attempts(&first.surface, 0x5000_0002);
-    let mut second = Fight::new(surface, debuff_each_of_a_priority());
-    second.toggle();
+    let mut second = Fight::new(two_drudges_needing_fire_vuln(), debuff_each_of_a_priority());
+    start_listening(&mut second);
+    second.surface.peers.casts = heard_attempts(&first.surface, 0x5000_0002);
     second.observe_remote_casts();
     second.tick(0.25);
     assert_eq!(second.surface.last_targeted_cast, (70, 11));
@@ -1999,4 +1995,38 @@ fn a_bot_alone_yields_to_a_higher_priority_arrival_whatever_it_debuffed() {
     fight.tick(0.25);
 
     assert_eq!(fight.controller.target_id(), 30);
+}
+
+/// The list of the team's casts is read again from its start when the
+/// macro starts (or combat comes back): the landed casts in that backlog
+/// are taken in, its attempts are old and claim nothing; an attempt heard
+/// after it does.
+#[test]
+fn a_backlog_read_after_a_restart_takes_in_landed_casts_but_not_attempts() {
+    let mut surface = bolt_and_fire_vuln();
+    surface.targets.push(target(11, "Drudge", 8.0, 0.0));
+    surface.peers.casts.push(PeerCast {
+        landed: false,
+        seconds_remaining: 0.0,
+        ..peer_cast(1, 70)
+    });
+    surface.peers.casts.push(PeerCast {
+        target_id: 11,
+        ..peer_cast(2, 70)
+    });
+    let mut fight = Fight::new(surface, fire_vulnerability_rule());
+
+    fight.toggle();
+    fight.observe_remote_casts();
+    assert!(fight.controller.team_claims().is_empty());
+    assert_eq!(fight.controller.team_debuffs().len(), 1);
+
+    fight.surface.peers.casts.push(PeerCast {
+        landed: false,
+        seconds_remaining: 0.0,
+        target_id: 11,
+        ..peer_cast(3, 70)
+    });
+    fight.observe_remote_casts();
+    assert_eq!(fight.controller.team_claims().len(), 1);
 }

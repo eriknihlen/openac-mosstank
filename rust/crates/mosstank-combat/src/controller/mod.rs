@@ -248,6 +248,9 @@ pub struct CombatController {
     failures: CombatFailureTracker,
     health: MonsterHealthTracker,
     remote_cast_cursor: i64,
+    /// The next read of the team's casts is the backlog from the start of
+    /// the list (the cursor went back to 0): its attempts are old.
+    replaying_backlog: bool,
     /// Whom casts are shared with, as the vital settings said on the last
     /// call that had them.
     team: TeamSharing,
@@ -404,6 +407,7 @@ impl CombatController {
             failures: CombatFailureTracker::new(),
             health: MonsterHealthTracker::new(),
             remote_cast_cursor: 0,
+            replaying_backlog: true,
             team: TeamSharing::default(),
             targets: Vec::new(),
             combat_spell_snapshot: None,
@@ -990,6 +994,7 @@ impl CombatController {
         self.paused = false;
         self.combat_policy_suspended = !cx.settings.enabled;
         self.remote_cast_cursor = 0;
+        self.replaying_backlog = true;
         self.until_scan = 0.0;
         self.set_status(if cx.settings.enabled {
             "Scanning for targets"
@@ -1075,6 +1080,7 @@ impl CombatController {
         if self.combat_policy_suspended {
             self.combat_policy_suspended = false;
             self.remote_cast_cursor = 0;
+            self.replaying_backlog = true;
             self.until_scan = 0.0;
             self.set_status("Scanning for targets");
         }

@@ -588,6 +588,10 @@ impl CombatController {
             return;
         }
         let casts = cx.automation.peer_casts(self.remote_cast_cursor);
+        // Read from the start of the list (the macro started, or combat came
+        // back), the casts are a backlog: the landed ones still say what is
+        // up, but an attempt in it is old and claims nothing.
+        let backlog = std::mem::take(&mut self.replaying_backlog);
         if casts.is_empty() {
             return;
         }
@@ -614,7 +618,9 @@ impl CombatController {
                 continue;
             };
             if !cast.landed {
-                self.take_in_claim(cx.automation, &cast, &spell, table_live);
+                if !backlog {
+                    self.take_in_claim(cx.automation, &cast, &spell, table_live);
+                }
                 continue;
             }
             cx.automation

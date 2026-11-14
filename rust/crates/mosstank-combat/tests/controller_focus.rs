@@ -227,6 +227,8 @@ fn a_higher_priority_arrival_still_wins_without_a_team_debuff_or_with_focus_off(
 fn a_claim_alone_does_not_draw_the_fighter() {
     let mut fight = Fight::new(swinging(two_drudges(3.0, 9.0)), settings(true));
     fight.toggle();
+    // The backlog at the start is read first: the attempt below is live.
+    fight.observe_remote_casts();
     assert_eq!(pass(&mut fight, two_drudges(3.0, 9.0)), 10);
 
     fight.surface.peers.casts.push(PeerCast {
