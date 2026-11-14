@@ -7,7 +7,7 @@ use ac_plugin_abi::character::Training;
 use ac_plugin_abi::combat::{CombatMode, CombatTarget};
 use ac_plugin_abi::items::{EquipmentItem, EquipmentObservation, ItemUseCompletion};
 use ac_plugin_abi::magic::{CastCompletion, SpellInfo};
-use ac_plugin_abi::peers::{NetworkClient, PeerCast};
+use ac_plugin_abi::peers::PeerCast;
 use ac_plugin_abi::projectile::{ProjectilePathResult, ProjectilePathStatus};
 use ac_plugin_abi::types::ChatLine;
 use common::{
@@ -74,25 +74,6 @@ fn peer_cast(sequence: i64, spell_id: u32) -> PeerCast {
         seconds_remaining: 45.0,
         landed: true,
         ..PeerCast::default()
-    }
-}
-
-/// `NetworkClient`.
-fn network_client(client_id: u32, name: &str, tags: &[&str]) -> NetworkClient {
-    NetworkClient {
-        client_id,
-        player_id: 0x5000_0000 + client_id,
-        name: name.to_owned(),
-        world_name: "Coldeve".to_owned(),
-        tags: tags.iter().map(|tag| (*tag).to_owned()).collect(),
-        current_health: 100,
-        current_mana: 100,
-        current_stamina: 100,
-        max_health: 100,
-        max_mana: 100,
-        max_stamina: 100,
-        heading: 0.0,
-        ..NetworkClient::default()
     }
 }
 
@@ -802,18 +783,16 @@ fn knowing_only_lures_casts_nothing_at_the_creature() {
     assert!(!fight.surface.cast_spell_ids.contains(&80));
 }
 
-// ---- Casts other clients on this computer reported ----
-
-fn bind_sharing(fight: &mut Fight, enabled: bool, tag: Option<&'static str>) {
-    fight.controller.bind_cast_sharing(
-        Box::new(move || enabled),
-        Box::new(move || tag.map(str::to_owned)),
-    );
-}
+// ---- Casts the team reported ----
+//
+// The team is the fellowship (`HelpFellows`) and the network peers
+// (`HelpNetworkPeers`); there is no tag (owner, 2026-11-14).
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/CombatControllerTests.cs :: RejectedOnlyPeerBatchAdvancesCursorWithoutReadingTrustSnapshot
+/// The C# read the tag's trust snapshot; with the tag gone, a batch with
+/// nothing to take in does not read the fellowship either.
 #[test]
-fn rejected_only_peer_batch_advances_cursor_without_reading_trust_snapshot() {
+fn rejected_only_peer_batch_advances_cursor_without_reading_the_fellowship() {
     let mut surface = FakeAutomation::default();
     surface.peers.casts.push(PeerCast {
         caster_id: SELF_ID,
@@ -836,96 +815,73 @@ fn rejected_only_peer_batch_advances_cursor_without_reading_trust_snapshot() {
         ..peer_cast(5, 70)
     });
     let mut fight = Fight::new(surface, fire_vulnerability_rule());
-    let tag_reads = std::rc::Rc::new(std::cell::Cell::new(0));
-    let reads = tag_reads.clone();
-    fight.controller.bind_cast_sharing(
-        Box::new(|| true),
-        Box::new(move || {
-            reads.set(reads.get() + 1);
-            Some("debuffs".to_owned())
-        }),
-    );
+    fight.vitals.help_network_peers = false;
 
     fight.observe_remote_casts();
     fight.observe_remote_casts();
 
     assert_eq!(fight.surface.peers.capture_requests, [0, 5]);
     assert_eq!(fight.surface.peers.client_capture_count, 0);
-    assert_eq!(tag_reads.get(), 0);
+    assert_eq!(fight.surface.peers.fellowship_reads, 0);
     assert!(fight.surface.reported.is_empty());
 }
 
-// Source: tests/AcDream.Plugins.MossTank.Tests/CombatControllerTests.cs :: MixedPeerBatchTakesOneTrustSnapshotAndNextBatchRechecksTags
-#[test]
-fn mixed_peer_batch_takes_one_trust_snapshot_and_next_batch_rechecks_tags() {
+/// Two landed casts, one by a fellow and one by a peer outside the
+/// fellowship.
+fn fellow_and_stranger_casts() -> FakeAutomation {
     let mut surface = FakeAutomation {
         spell_lookup: vec![debuff(70, "Fire Vulnerability Other VII")],
         ..FakeAutomation::default()
     };
+    surface.peers.fellows.push(0x5000_0002);
+    surface.peers.casts.push(peer_cast(1, 70));
+    surface.peers.casts.push(PeerCast {
+        client_id: 8,
+        caster_id: 0x5000_0009,
+        target_id: 11,
+        ..peer_cast(2, 70)
+    });
     surface
-        .peers
-        .clients
-        .push(network_client(7, "Healer", &["heals"]));
-    surface
-        .peers
-        .clients
-        .push(network_client(8, "Debuffer", &["Debuffs"]));
-    surface.peers.casts.push(PeerCast {
-        landed: false,
-        ..peer_cast(1, 70)
-    });
-    surface.peers.casts.push(peer_cast(2, 70));
-    surface.peers.casts.push(PeerCast {
-        client_id: 8,
-        ..peer_cast(3, 70)
-    });
-    surface.peers.casts.push(PeerCast {
-        client_id: 8,
-        ..peer_cast(4, 70)
-    });
-    let mut fight = Fight::new(surface, fire_vulnerability_rule());
-    bind_sharing(&mut fight, true, Some("debuffs"));
-
-    fight.observe_remote_casts();
-    assert_eq!(fight.surface.peers.client_capture_count, 1);
-    assert_eq!(fight.surface.reported.len(), 2);
-    fight.surface.peers.clients.clear();
-    fight.surface.peers.casts.push(PeerCast {
-        client_id: 8,
-        ..peer_cast(5, 70)
-    });
-    fight.observe_remote_casts();
-    fight.observe_remote_casts();
-    assert_eq!(fight.surface.peers.client_capture_count, 2);
-    assert_eq!(fight.surface.reported.len(), 2);
-    assert_eq!(fight.surface.peers.capture_requests, [0, 4, 5]);
 }
 
-// Source: tests/AcDream.Plugins.MossTank.Tests/CombatControllerTests.cs :: UntaggedPeerBatchReadsTagOnceAndDoesNotCaptureClients
+/// New: helping the fellows alone takes in the fellows' casts and no one
+/// else's, reading the fellowship once for the batch.
 #[test]
-fn untagged_peer_batch_reads_tag_once_and_does_not_capture_clients() {
-    let mut surface = FakeAutomation {
-        spell_lookup: vec![debuff(70, "Fire Vulnerability Other VII")],
-        ..FakeAutomation::default()
-    };
-    surface.peers.casts.push(peer_cast(1, 70));
-    surface.peers.casts.push(peer_cast(2, 70));
-    let mut fight = Fight::new(surface, fire_vulnerability_rule());
-    let tag_reads = std::rc::Rc::new(std::cell::Cell::new(0));
-    let reads = tag_reads.clone();
-    fight.controller.bind_cast_sharing(
-        Box::new(|| true),
-        Box::new(move || {
-            reads.set(reads.get() + 1);
-            None
-        }),
-    );
+fn helping_fellows_alone_takes_in_a_fellows_cast_and_not_a_strangers() {
+    let mut fight = Fight::new(fellow_and_stranger_casts(), fire_vulnerability_rule());
+    fight.vitals.help_network_peers = false;
 
     fight.observe_remote_casts();
 
-    assert_eq!(tag_reads.get(), 1);
-    assert_eq!(fight.surface.peers.client_capture_count, 0);
-    assert_eq!(fight.surface.reported.len(), 2);
+    assert_eq!(fight.surface.reported, [(10, 70, 45.0)]);
+    assert_eq!(fight.surface.peers.fellowship_reads, 1);
+    assert_eq!(fight.surface.peers.capture_requests, [0]);
+}
+
+/// New: helping the network peers takes in every peer's cast, fellow or
+/// not, without reading the fellowship.
+#[test]
+fn helping_network_peers_takes_in_every_peers_cast() {
+    let mut fight = Fight::new(fellow_and_stranger_casts(), fire_vulnerability_rule());
+    fight.vitals.help_others = false;
+
+    fight.observe_remote_casts();
+
+    assert_eq!(fight.surface.reported, [(10, 70, 45.0), (11, 70, 45.0)]);
+    assert_eq!(fight.surface.peers.fellowship_reads, 0);
+}
+
+/// New: helping the fellows alone still announces this character's casts.
+#[test]
+fn helping_the_fellows_alone_announces_the_debuff_attempt() {
+    let mut fight = Fight::new(bolt_and_fire_vuln(), fire_vulnerability_rule());
+    fight.vitals.help_network_peers = false;
+
+    fight.toggle();
+    fight.tick(0.25);
+
+    assert_eq!(fight.surface.last_targeted_cast, (70, 10));
+    assert_eq!(fight.surface.peers.attempts.len(), 1);
 }
 
 fn bolt_and_fire_vuln() -> FakeAutomation {
@@ -1084,41 +1040,16 @@ fn the_cursor_advances_and_a_cast_is_never_applied_twice() {
     assert_eq!(fight.surface.reported.len(), 2);
 }
 
-// Source: tests/AcDream.Plugins.MossTank.Tests/CombatControllerTests.cs :: RemoteCastsAreTakenOnlyFromPeersCarryingTheChosenTag
-#[test]
-fn remote_casts_are_taken_only_from_peers_carrying_the_chosen_tag() {
-    let mut surface = bolt_and_fire_vuln();
-    surface
-        .peers
-        .clients
-        .push(network_client(7, "Healer", &["heals"]));
-    surface
-        .peers
-        .clients
-        .push(network_client(8, "Debuffer", &["Debuffs", "mules"]));
-    for (sequence, client_id, seconds) in [(1, 7, 20.0), (2, 8, 30.0), (3, 9, 40.0)] {
-        surface.peers.casts.push(PeerCast {
-            client_id,
-            seconds_remaining: seconds,
-            ..peer_cast(sequence, 70)
-        });
-    }
-    let mut fight = Fight::new(surface, fire_vulnerability_rule());
-    bind_sharing(&mut fight, true, Some("debuffs"));
-
-    fight.toggle();
-    fight.observe_remote_casts();
-
-    assert_eq!(fight.surface.reported, [(10, 70, 30.0)]);
-}
-
 // Source: tests/AcDream.Plugins.MossTank.Tests/CombatControllerTests.cs :: WithSharingOffNothingIsTakenIn
+/// Sharing is off when the character helps neither the fellows nor the
+/// network peers.
 #[test]
 fn with_sharing_off_nothing_is_taken_in() {
     let mut surface = bolt_and_fire_vuln();
     surface.peers.casts.push(peer_cast(1, 70));
     let mut fight = Fight::new(surface, fire_vulnerability_rule());
-    bind_sharing(&mut fight, false, None);
+    fight.vitals.help_others = false;
+    fight.vitals.help_network_peers = false;
 
     fight.toggle();
     fight.observe_remote_casts();
@@ -1246,7 +1177,8 @@ fn a_wand_debuff_announces_its_attempt_and_its_confirmed_success() {
 #[test]
 fn with_sharing_off_nothing_is_announced() {
     let mut fight = Fight::new(bolt_and_fire_vuln(), fire_vulnerability_rule());
-    bind_sharing(&mut fight, false, None);
+    fight.vitals.help_others = false;
+    fight.vitals.help_network_peers = false;
 
     fight.toggle();
     fight.tick(0.25);

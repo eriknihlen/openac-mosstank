@@ -641,6 +641,11 @@ pub struct ItemEnchantRowDocument {
 /// into its place ([`SideCarDocument::write`]).
 const RULES_STAND_IN: &str = "MossTankInventoryLootRulesGoHere";
 
+/// The side-car's layout version. Version 2 turned helping the network
+/// peers on by default: before it nothing could set the switch, so every
+/// older file says off only because it was never asked, and reads as on.
+pub const CURRENT_VERSION: i32 = 2;
+
 /// The side-car (`SideCarDocument`), every property in the C#'s order.
 #[derive(Debug, Clone, PartialEq)]
 #[allow(missing_docs, clippy::struct_excessive_bools)]
@@ -671,8 +676,14 @@ pub struct SideCarDocument {
     pub buff_blacklisted_family_names: Option<Vec<Option<String>>>,
     pub buff_item_enchant_rows: Option<Vec<Option<ItemEnchantRowDocument>>>,
     pub vitals_enabled: bool,
-    /// Help network peers outside the fellowship (a MossTank extension).
+    /// Help the network peers, fellows or not (a MossTank extension; on in
+    /// a file older than version 2).
     pub vitals_help_network_peers: bool,
+    /// Show the team overlay (a MossTank extension; off when absent).
+    pub vitals_team_overlay: bool,
+    /// Attack what the team debuffed first (a MossTank extension; on when
+    /// absent).
+    pub combat_team_focus_debuffed: bool,
     pub inventory_scan_interval_seconds: f64,
     pub inventory_give_range_meters: f64,
     pub inventory_give_delay_seconds: f64,
@@ -788,7 +799,7 @@ impl SideCarDocument {
         let inventory = &settings.inventory;
         Self {
             show_nav_lines: settings.navigation.show_nav_lines,
-            version: 1,
+            version: CURRENT_VERSION,
             // In the order the Items page shows them: the weapon walk
             // reads that order.
             item_names: some_strings(in_page_order(
@@ -855,6 +866,8 @@ impl SideCarDocument {
             ),
             vitals_enabled: settings.vitals.enabled,
             vitals_help_network_peers: settings.vitals.help_network_peers,
+            vitals_team_overlay: settings.vitals.team_overlay,
+            combat_team_focus_debuffed: settings.combat.team_focus_debuffed,
             inventory_scan_interval_seconds: inventory.scan_interval_seconds,
             inventory_give_range_meters: inventory.give_range_meters,
             inventory_give_delay_seconds: inventory.give_delay_seconds,
@@ -990,6 +1003,8 @@ impl SideCarDocument {
 
         settings.vitals.enabled = self.vitals_enabled;
         settings.vitals.help_network_peers = self.vitals_help_network_peers;
+        settings.vitals.team_overlay = self.vitals_team_overlay;
+        settings.combat.team_focus_debuffed = self.combat_team_focus_debuffed;
 
         let inventory = &mut settings.inventory;
         inventory.scan_interval_seconds = self.inventory_scan_interval_seconds.clamp(0.05, 10.0);
@@ -1174,6 +1189,14 @@ impl SideCarDocument {
                     JsonValue::Bool(self.vitals_help_network_peers),
                 ),
                 (
+                    "VitalsTeamOverlay".into(),
+                    JsonValue::Bool(self.vitals_team_overlay),
+                ),
+                (
+                    "CombatTeamFocusDebuffed".into(),
+                    JsonValue::Bool(self.combat_team_focus_debuffed),
+                ),
+                (
                     "InventoryScanIntervalSeconds".into(),
                     stj::double(self.inventory_scan_interval_seconds),
                 ),
@@ -1339,9 +1362,10 @@ impl SideCarDocument {
                     .collect::<Result<Vec<_>, JsonError>>()?,
             ),
         };
+        let version = o.int("Version", 1)?;
         Ok(Self {
             show_nav_lines: o.bool("ShowNavLines", false)?,
-            version: o.int("Version", 1)?,
+            version,
             item_names: o.strings("ItemNames")?,
             item_names_by_id,
             consumable_names: o.strings("ConsumableNames")?,
@@ -1388,7 +1412,11 @@ impl SideCarDocument {
                 },
             )?,
             vitals_enabled: o.bool("VitalsEnabled", true)?,
-            vitals_help_network_peers: o.bool("VitalsHelpNetworkPeers", false)?,
+            // Once, for a file written before the switch could be set.
+            vitals_help_network_peers: o.bool("VitalsHelpNetworkPeers", false)?
+                || version < CURRENT_VERSION,
+            vitals_team_overlay: o.bool("VitalsTeamOverlay", false)?,
+            combat_team_focus_debuffed: o.bool("CombatTeamFocusDebuffed", true)?,
             inventory_scan_interval_seconds: o.double("InventoryScanIntervalSeconds", 0.25)?,
             inventory_give_range_meters: o.double("InventoryGiveRangeMeters", 15.0)?,
             inventory_give_delay_seconds: o.double("InventoryGiveDelaySeconds", 0.0)?,

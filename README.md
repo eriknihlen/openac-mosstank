@@ -200,7 +200,30 @@ history without affecting the macro or current status, and **X** closes the wind
 
 ## Peer features
 
-Receive broadcasts defaults on so `/ub bc` works between logged-in characters on this computer in the same world. Vital Sharing still defaults off. Both choices are stored per character; an explicitly saved choice is preserved. Vital Sharing exchanges character state and cast information; Receive broadcasts allows this client to execute incoming tagged broadcast commands. Sending a broadcast does not enable reception. Network HUD, active peer healing and metas containing netclients[] or netcasts[] request their own capabilities. Requests end when the feature stops or the plugin unloads. A meta needing peers waits for the initial connection before evaluating peer-dependent rules.
+### Team play
+
+MossTank bots heal each other and share targeting, on one computer or
+several. The team is the fellowship plus your other characters the peer
+network reports (on this computer, or brought in from another by a bridge).
+Four switches, on the Vitals tab and under `/vt opt get|set|toggle` (so
+`/ub bc` can set a whole group), saved per character:
+
+- `HelpFellows` (on): heal, restam and remana fellows, and share debuff
+  targeting with them. It is VTank's `DoHelp`; both names work.
+- `HelpNetworkPeers` (on): the same for the network peers, fellows or not.
+  The old UB switch `Sharing.Vitals` (and `VTank.VitalSharing`) is accepted
+  by `/ub opt` as this switch.
+- `TeamFocusDebuffed` (on): see below.
+- `TeamOverlay` (off): the team overlay.
+
+While either help switch is on, this character tells the others its vitals,
+place and casts, and takes in theirs. `/vt team` lists the team, the debuffs
+in force on monsters, and why the helper last helped nobody; `/vt team
+overlay [on|off]` switches the overlay.
+
+## Peer features
+
+Receive broadcasts defaults on so `/ub bc` works between logged-in characters on this computer in the same world. It is stored per character; an explicitly saved choice is preserved. Receive broadcasts allows this client to execute incoming tagged broadcast commands. Sending a broadcast does not enable reception. The team (above), the network readout and metas containing netclients[] or netcasts[] request their own capabilities. Requests end when the feature stops or the plugin unloads. A meta needing peers waits for the initial connection before evaluating peer-dependent rules.
 
 ### Action history and debug files
 

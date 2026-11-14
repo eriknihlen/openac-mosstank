@@ -1033,6 +1033,8 @@ impl ProfileStore {
         let Some(canonical) = options::canonical(name) else {
             return Ok(0);
         };
+        // `HelpFellows` is the profile's `DoHelp`.
+        let canonical = options::profile_name(canonical);
         if !host.storage(Root::Profiles).is_available() {
             return Ok(0);
         }

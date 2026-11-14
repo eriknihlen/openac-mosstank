@@ -903,6 +903,12 @@ pub static VTANK_ENTRIES: &[UbCommandUsage] = &[
         examples: &[],
     },
     UbCommandUsage {
+        name: "team",
+        usage: "/vt team [overlay [on|off]]",
+        summary: "Lists the team (the fellows and your other characters on the peer network, on this computer or imported: health, distance, how old their vitals are), the debuffs and claims the team has on monsters, and why the helper and the target choice last did what they did, with the switches HelpFellows, HelpNetworkPeers, TeamFocusDebuffed and TeamOverlay (/vt opt). overlay switches the team overlay; with no word it flips it.",
+        examples: &[],
+    },
+    UbCommandUsage {
         name: "ub",
         usage: "/vt ub",
         summary: "Prints the compatibility version line.",

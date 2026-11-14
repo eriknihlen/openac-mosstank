@@ -863,7 +863,7 @@ impl CombatController {
         target_object_id: u32,
         spell: &SpellInfo,
     ) {
-        if !(self.cast_sharing_enabled)() {
+        if !self.team.any() {
             return;
         }
         let skill = effective_skill_for(automation, spell);
@@ -877,7 +877,7 @@ impl CombatController {
         spell: &SpellInfo,
     ) {
         let duration = debuff::duration_seconds(spell);
-        if !(self.cast_sharing_enabled)() || duration <= 0.0 {
+        if !self.team.any() || duration <= 0.0 {
             return;
         }
         let skill = effective_skill_for(automation, spell);

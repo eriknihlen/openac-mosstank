@@ -20,6 +20,7 @@ pub mod heading;
 pub mod locks;
 pub mod spells;
 pub mod surface;
+pub mod team;
 
 pub use locks::{ActionLockKind, ActionLockTable, SharedActionLocks};
 pub use spells::{SpellCatalog, SpellTable, StaticSpellCatalog};

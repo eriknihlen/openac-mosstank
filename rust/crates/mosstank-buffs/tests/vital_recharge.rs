@@ -993,7 +993,10 @@ fn helper_helps_non_fellow_network_peers_only_when_turned_on() {
     assert!(
         plan_helper(
             &mut surface,
-            &VitalSettings::default(),
+            &VitalSettings {
+                help_network_peers: false,
+                ..VitalSettings::default()
+            },
             &CombatSettings::default()
         )
         .is_none()
@@ -1192,9 +1195,11 @@ fn decide(surface: &mut Surface, settings: &VitalSettings) -> HelperDecision {
     recharge::plan_helper(surface, settings, &CombatSettings::default(), None).1
 }
 
+/// Helping the fellows alone, as VTank does.
 fn helping_below(threshold: f64) -> VitalSettings {
     VitalSettings {
         helper_health: threshold,
+        help_network_peers: false,
         ..VitalSettings::default()
     }
 }
@@ -2189,4 +2194,30 @@ fn the_helpers_mana_reach_is_its_own_profile_number() {
             assert_eq!(choice.vital, VitalKind::Mana);
         }
     }
+}
+
+/// New: the two team switches stand alone. Helping the network peers
+/// without the fellows heals a peer, and leaves out a fellow the network
+/// does not report, even one lower than the peer.
+#[test]
+fn helping_network_peers_alone_heals_a_peer_and_not_a_fellow_off_the_network() {
+    let mut surface = Surface {
+        peers: vec![peer(90, "Net", 60, 0.0)],
+        ..hurt_fellowship()
+    };
+    let settings = VitalSettings {
+        help_others: false,
+        help_network_peers: true,
+        helper_health: 0.9,
+        ..VitalSettings::default()
+    };
+
+    assert_eq!(
+        decide(&mut surface, &settings),
+        HelperDecision::Helping {
+            vital: VitalKind::Health,
+            target: "Net".to_owned(),
+            using: "Heal Other VI".to_owned(),
+        }
+    );
 }

@@ -74,6 +74,60 @@ pub trait AmmunitionCrafting {
     ) -> bool;
 }
 
+/// Whom this character shares casts with: what it announces, and whose
+/// casts it takes in. The team is the fellowship (`HelpFellows`, VTank's
+/// `DoHelp`) and the owner's other characters seen through the peer
+/// network (`HelpNetworkPeers`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TeamSharing {
+    /// The fellows' casts are taken in.
+    pub fellows: bool,
+    /// Every network peer's casts are taken in, fellow or not.
+    pub peers: bool,
+}
+
+impl Default for TeamSharing {
+    fn default() -> Self {
+        Self {
+            fellows: true,
+            peers: true,
+        }
+    }
+}
+
+impl TeamSharing {
+    /// As the vital settings say.
+    #[must_use]
+    pub fn of(vitals: &VitalSettings) -> Self {
+        Self {
+            fellows: vitals.help_others,
+            peers: vitals.help_network_peers,
+        }
+    }
+
+    /// Whether anything is shared at all: this character's casts are
+    /// announced only then.
+    #[must_use]
+    pub fn any(self) -> bool {
+        self.fellows || self.peers
+    }
+}
+
+/// One debuff in force on a monster, for `/vt team`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TeamDebuffReport {
+    /// The monster.
+    pub target_id: u32,
+    /// Its name, blank when the scan no longer holds it.
+    pub target_name: String,
+    /// The debuff in words.
+    pub debuff: String,
+    /// The spell that landed.
+    pub spell_id: u32,
+    /// Seconds left.
+    pub seconds_left: f64,
+}
+
 /// What one call works with.
 #[allow(missing_debug_implementations)]
 pub struct CombatTurn<'a> {
@@ -171,8 +225,9 @@ pub struct CombatController {
     failures: CombatFailureTracker,
     health: MonsterHealthTracker,
     remote_cast_cursor: i64,
-    cast_sharing_enabled: Box<dyn FnMut() -> bool>,
-    cast_sharing_peer_tag: Box<dyn FnMut() -> Option<String>>,
+    /// Whom casts are shared with, as the vital settings said on the last
+    /// call that had them.
+    team: TeamSharing,
     targets: Vec<CombatTarget>,
     combat_spell_snapshot: Option<std::rc::Rc<[SpellInfo]>>,
     attack_spell_snapshot: Option<std::rc::Rc<[SpellInfo]>>,
@@ -318,8 +373,7 @@ impl CombatController {
             failures: CombatFailureTracker::new(),
             health: MonsterHealthTracker::new(),
             remote_cast_cursor: 0,
-            cast_sharing_enabled: Box::new(|| true),
-            cast_sharing_peer_tag: Box::new(|| None),
+            team: TeamSharing::default(),
             targets: Vec::new(),
             combat_spell_snapshot: None,
             attack_spell_snapshot: None,
@@ -468,18 +522,6 @@ impl CombatController {
             .borrow_mut()
             .bind_action_locks(locks.clone());
         self.gate.borrow_mut().bind_action_locks(locks);
-    }
-
-    /// Whether casts are shared with the other clients, and which tag a
-    /// peer must carry for its casts to be taken in (blank: every peer);
-    /// both asked each time.
-    pub fn bind_cast_sharing(
-        &mut self,
-        enabled: Box<dyn FnMut() -> bool>,
-        peer_tag: Box<dyn FnMut() -> Option<String>>,
-    ) {
-        self.cast_sharing_enabled = enabled;
-        self.cast_sharing_peer_tag = peer_tag;
     }
 
     /// Who is told each new status line (`StatusChanged`): a line the
@@ -674,6 +716,25 @@ impl CombatController {
     /// A warning, once, beside the attack's own.
     pub fn post_warning_once(&mut self, automation: &mut dyn Automation, text: &str) {
         self.post_attack_warning(automation, text);
+    }
+
+    /// The debuffs in force on the monsters, this character's and the
+    /// team's, for `/vt team`.
+    #[must_use]
+    pub fn team_debuffs(&self) -> Vec<TeamDebuffReport> {
+        self.debuffs
+            .in_force(self.now)
+            .into_iter()
+            .map(
+                |(target_id, identity, spell_id, seconds_left)| TeamDebuffReport {
+                    target_id,
+                    target_name: self.find_target(target_id).name,
+                    debuff: crate::debuff::label(identity),
+                    spell_id,
+                    seconds_left,
+                },
+            )
+            .collect()
     }
 
     fn find_target(&self, object_id: u32) -> CombatTarget {
@@ -914,6 +975,7 @@ impl CombatController {
 
     /// One turn of the attack.
     pub fn on_tick(&mut self, cx: &mut CombatTurn<'_>, elapsed_seconds: f64) {
+        self.team = TeamSharing::of(cx.vitals);
         // What the shared cast tracker said since the last call (a re-send,
         // a timeout) is heard first, on the clock it happened on.
         self.drain_cast_events(&mut cx.ctx());

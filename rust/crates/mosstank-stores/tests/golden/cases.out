@@ -6,7 +6,7 @@ selected By char
 --- plugin profiles/macro/sidecar/--Acdream_Coldeve.usd.json
 {\r\n
   "ShowNavLines": false,\r\n
-  "Version": 1,\r\n
+  "Version": 2,\r\n
   "ItemNames": [],\r\n
   "ItemNamesById": {},\r\n
   "ConsumableNames": [],\r\n
@@ -30,7 +30,9 @@ selected By char
   "BuffBlacklistedFamilyNames": [],\r\n
   "BuffItemEnchantRows": [],\r\n
   "VitalsEnabled": true,\r\n
-  "VitalsHelpNetworkPeers": false,\r\n
+  "VitalsHelpNetworkPeers": true,\r\n
+  "VitalsTeamOverlay": false,\r\n
+  "CombatTeamFocusDebuffed": true,\r\n
   "InventoryScanIntervalSeconds": 0.25,\r\n
   "InventoryGiveRangeMeters": 15,\r\n
   "InventoryGiveDelaySeconds": 0,\r\n
@@ -59,7 +61,7 @@ save True
 --- plugin profiles/macro/sidecar/--Acdream_Coldeve.usd.json
 {\r\n
   "ShowNavLines": false,\r\n
-  "Version": 1,\r\n
+  "Version": 2,\r\n
   "ItemNames": [\r\n
     "Bow",\r\n
     "Sword"\r\n
@@ -126,6 +128,8 @@ save True
   ],\r\n
   "VitalsEnabled": true,\r\n
   "VitalsHelpNetworkPeers": true,\r\n
+  "VitalsTeamOverlay": false,\r\n
+  "CombatTeamFocusDebuffed": true,\r\n
   "InventoryScanIntervalSeconds": 0.25,\r\n
   "InventoryGiveRangeMeters": 20.5,\r\n
   "InventoryGiveDelaySeconds": 0,\r\n
@@ -195,7 +199,7 @@ selected By char
 --- plugin profiles/macro/sidecar/--Acdream_Coldeve.usd.json
 {\r\n
   "ShowNavLines": false,\r\n
-  "Version": 1,\r\n
+  "Version": 2,\r\n
   "ItemNames": [],\r\n
   "ItemNamesById": {},\r\n
   "ConsumableNames": [],\r\n
@@ -219,7 +223,9 @@ selected By char
   "BuffBlacklistedFamilyNames": [],\r\n
   "BuffItemEnchantRows": [],\r\n
   "VitalsEnabled": true,\r\n
-  "VitalsHelpNetworkPeers": false,\r\n
+  "VitalsHelpNetworkPeers": true,\r\n
+  "VitalsTeamOverlay": false,\r\n
+  "CombatTeamFocusDebuffed": true,\r\n
   "InventoryScanIntervalSeconds": 0.25,\r\n
   "InventoryGiveRangeMeters": 15,\r\n
   "InventoryGiveDelaySeconds": 0,\r\n
@@ -265,7 +271,7 @@ setinall 2
 --- plugin profiles/macro/sidecar/--Acdream_Coldeve.usd.json
 {\r\n
   "ShowNavLines": false,\r\n
-  "Version": 1,\r\n
+  "Version": 2,\r\n
   "ItemNames": [],\r\n
   "ItemNamesById": {},\r\n
   "ConsumableNames": [],\r\n
@@ -296,7 +302,9 @@ setinall 2
   "BuffBlacklistedFamilyNames": [],\r\n
   "BuffItemEnchantRows": [],\r\n
   "VitalsEnabled": true,\r\n
-  "VitalsHelpNetworkPeers": false,\r\n
+  "VitalsHelpNetworkPeers": true,\r\n
+  "VitalsTeamOverlay": false,\r\n
+  "CombatTeamFocusDebuffed": true,\r\n
   "InventoryScanIntervalSeconds": 0.25,\r\n
   "InventoryGiveRangeMeters": 15,\r\n
   "InventoryGiveDelaySeconds": 0,\r\n
@@ -313,7 +321,7 @@ setinall 2
 --- plugin profiles/macro/sidecar/--Acdream_Coldeve_raid.usd.json
 {\r\n
   "ShowNavLines": false,\r\n
-  "Version": 1,\r\n
+  "Version": 2,\r\n
   "ItemNames": [],\r\n
   "ItemNamesById": {},\r\n
   "ConsumableNames": [],\r\n
@@ -344,7 +352,9 @@ setinall 2
   "BuffBlacklistedFamilyNames": [],\r\n
   "BuffItemEnchantRows": [],\r\n
   "VitalsEnabled": true,\r\n
-  "VitalsHelpNetworkPeers": false,\r\n
+  "VitalsHelpNetworkPeers": true,\r\n
+  "VitalsTeamOverlay": false,\r\n
+  "CombatTeamFocusDebuffed": true,\r\n
   "InventoryScanIntervalSeconds": 0.25,\r\n
   "InventoryGiveRangeMeters": 15,\r\n
   "InventoryGiveDelaySeconds": 0,\r\n
@@ -385,7 +395,7 @@ dynamic
 rules Drudge[//4/64];<DEFAULT>[//1/320]
 extra 
 enchant 
-peers False
+peers True
 give 15
 classifier 
 loot 
@@ -395,7 +405,7 @@ range 30
 --- plugin profiles/macro/sidecar/--Acdream_Coldeve.usd.json
 {\r\n
   "ShowNavLines": false,\r\n
-  "Version": 1,\r\n
+  "Version": 2,\r\n
   "ItemNames": [\r\n
     "Axe"\r\n
   ],\r\n
@@ -425,7 +435,9 @@ range 30
   "BuffBlacklistedFamilyNames": [],\r\n
   "BuffItemEnchantRows": [],\r\n
   "VitalsEnabled": true,\r\n
-  "VitalsHelpNetworkPeers": false,\r\n
+  "VitalsHelpNetworkPeers": true,\r\n
+  "VitalsTeamOverlay": false,\r\n
+  "CombatTeamFocusDebuffed": true,\r\n
   "InventoryScanIntervalSeconds": 0.25,\r\n
   "InventoryGiveRangeMeters": 15,\r\n
   "InventoryGiveDelaySeconds": 0,\r\n
@@ -471,7 +483,7 @@ names By char|--Acdream_Coldeve_Hunt.usd
 --- plugin profiles/macro/sidecar/--Acdream_Coldeve_Hunt.usd.json
 {\r\n
   "ShowNavLines": false,\r\n
-  "Version": 1,\r\n
+  "Version": 2,\r\n
   "ItemNames": [\r\n
     "Bow"\r\n
   ],\r\n
@@ -497,7 +509,9 @@ names By char|--Acdream_Coldeve_Hunt.usd
   "BuffBlacklistedFamilyNames": [],\r\n
   "BuffItemEnchantRows": [],\r\n
   "VitalsEnabled": true,\r\n
-  "VitalsHelpNetworkPeers": false,\r\n
+  "VitalsHelpNetworkPeers": true,\r\n
+  "VitalsTeamOverlay": false,\r\n
+  "CombatTeamFocusDebuffed": true,\r\n
   "InventoryScanIntervalSeconds": 0.25,\r\n
   "InventoryGiveRangeMeters": 15,\r\n
   "InventoryGiveDelaySeconds": 0,\r\n

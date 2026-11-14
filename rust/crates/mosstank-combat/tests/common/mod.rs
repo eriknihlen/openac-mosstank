@@ -41,6 +41,9 @@ pub struct FakePeers {
     pub attempts: Vec<(u32, u32, i32)>,
     pub successes: Vec<(u32, u32, i32, f64)>,
     pub client_capture_count: i32,
+    /// The fellows' character ids; a fellowship while any is listed.
+    pub fellows: Vec<u32>,
+    pub fellowship_reads: i32,
 }
 
 /// The client.
@@ -782,6 +785,22 @@ impl Automation for FakeAutomation {
 
     fn network_available(&mut self) -> bool {
         true
+    }
+
+    fn in_fellowship(&mut self) -> bool {
+        !self.peers.fellows.is_empty()
+    }
+
+    fn fellowship_members(&mut self) -> Vec<ac_plugin_abi::social::FellowMember> {
+        self.peers.fellowship_reads += 1;
+        self.peers
+            .fellows
+            .iter()
+            .map(|&object_id| ac_plugin_abi::social::FellowMember {
+                object_id,
+                ..ac_plugin_abi::social::FellowMember::default()
+            })
+            .collect()
     }
 
     fn network_clients(&mut self) -> Vec<NetworkClient> {

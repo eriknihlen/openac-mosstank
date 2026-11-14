@@ -14,11 +14,10 @@ use mosstank_automation::cast_tracker::{
     CastEvent, SpellCastOutcome, SpellCastOutcomeInfo, SpellCastTracker,
 };
 use mosstank_automation::combat_text::{self, log_text_type};
-use mosstank_dotnet::text::ordinal;
 use openac_plugin_compat::number::format_f64;
 
 use super::magic::is_vtank_instant_cast;
-use super::{CombatController, Ctx, PHYSICAL_RESULT_TEXT_TAIL_SECONDS, is_known_dead};
+use super::{CombatController, Ctx, PHYSICAL_RESULT_TEXT_TAIL_SECONDS, TeamSharing, is_known_dead};
 use crate::item_debuff::CombatDebuffSourceKind;
 use crate::{MacroLogChannel, post};
 
@@ -580,10 +579,12 @@ impl CombatController {
 
     // --- The other clients' casts.
 
-    /// Takes in what the other clients on this computer cast since the last
-    /// look (on the host frame; nothing is issued).
+    /// Takes in what the team cast since the last look (on the host frame;
+    /// nothing is issued): every network peer's casts with
+    /// `HelpNetworkPeers`, the fellows' with `HelpFellows`.
     pub fn observe_remote_casts(&mut self, cx: &mut Ctx<'_>) {
-        if !cx.automation.is_available() || !(self.cast_sharing_enabled)() {
+        self.team = TeamSharing::of(cx.vitals);
+        if !cx.automation.is_available() || !self.team.any() {
             return;
         }
         let casts = cx.automation.peer_casts(self.remote_cast_cursor);
@@ -591,28 +592,23 @@ impl CombatController {
             return;
         }
         let me = cx.automation.character().id;
-        let mut trusted: Option<Option<HashSet<u32>>> = None;
+        // The fellows, read once and only when a cast needs them.
+        let mut fellows: Option<HashSet<u32>> = None;
         let table_live = self.enabled && !self.combat_policy_suspended;
         for cast in casts {
+            self.remote_cast_cursor = self.remote_cast_cursor.max(cast.sequence);
             if cast.caster_id == me
                 || !cast.landed
                 || cast.seconds_remaining.is_nan()
                 || cast.seconds_remaining <= 0.0
             {
-                self.remote_cast_cursor = self.remote_cast_cursor.max(cast.sequence);
                 continue;
             }
-            // One trust snapshot, taken only when it can be used.
-            if trusted.is_none() {
-                trusted = Some(self.trusted_peer_clients(cx.automation));
-            }
-            self.remote_cast_cursor = self.remote_cast_cursor.max(cast.sequence);
-            if trusted
-                .as_ref()
-                .and_then(Option::as_ref)
-                .is_some_and(|clients| !clients.contains(&cast.client_id))
-            {
-                continue;
+            if !self.team.peers {
+                let fellows = fellows.get_or_insert_with(|| team_fellows(cx.automation));
+                if !fellows.contains(&cast.caster_id) {
+                    continue;
+                }
             }
             let Some(spell) = cx.automation.spells().try_get(cast.spell_id) else {
                 continue;
@@ -647,26 +643,6 @@ impl CombatController {
         }
     }
 
-    /// The peers whose casts are taken in (`None`: every peer).
-    fn trusted_peer_clients(&mut self, automation: &mut dyn Automation) -> Option<HashSet<u32>> {
-        let tag = (self.cast_sharing_peer_tag)();
-        let tag = tag.as_deref().map(str::trim).unwrap_or_default();
-        if tag.is_empty() {
-            return None;
-        }
-        let mut trusted = HashSet::new();
-        for client in automation.network_clients() {
-            if client
-                .tags
-                .iter()
-                .any(|candidate| ordinal::equals_ignore_case(candidate, tag))
-            {
-                trusted.insert(client.client_id);
-            }
-        }
-        Some(trusted)
-    }
-
     /// A held wand's cast watched to its end on every frame the attack's
     /// own turn did not drive it.
     pub fn observe_held_item_cast(&mut self, cx: &mut Ctx<'_>, elapsed_seconds: f64) {
@@ -686,4 +662,16 @@ impl CombatController {
         let combat = cx.automation.combat_snapshot();
         self.tick_pending_item_debuff(cx.automation, cx.settings, &combat);
     }
+}
+
+/// The fellows' character ids (none outside a fellowship).
+fn team_fellows(automation: &mut dyn Automation) -> HashSet<u32> {
+    if !automation.in_fellowship() {
+        return HashSet::new();
+    }
+    automation
+        .fellowship_members()
+        .into_iter()
+        .map(|fellow| fellow.object_id)
+        .collect()
 }

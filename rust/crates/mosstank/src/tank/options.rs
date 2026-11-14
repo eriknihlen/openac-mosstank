@@ -110,7 +110,10 @@ impl Core {
             "arrowheadfletchdiffexcessthreshold" => {
                 number(inventory.arrowhead_fletch_difficulty_excess)
             }
-            "dohelp" => boolean(vitals.help_others),
+            "dohelp" | "helpfellows" => boolean(vitals.help_others),
+            "helpnetworkpeers" => boolean(vitals.help_network_peers),
+            "teamfocusdebuffed" => boolean(combat.team_focus_debuffed),
+            "teamoverlay" => boolean(vitals.team_overlay),
             "attackdistance" => number(combat.maximum_range / METERS_PER_UNIT),
             "attackminimumdistance" => number(combat.minimum_range / METERS_PER_UNIT),
             "approachdistance" => number(combat.approach_distance / METERS_PER_UNIT),
@@ -295,7 +298,10 @@ impl Core {
                     inventory.arrowhead_fletch_difficulty_excess =
                         int(value, "ArrowheadFletchDiffExcessThreshold", -100, 500)?;
                 }
-                "dohelp" => vitals.help_others = truthy,
+                "dohelp" | "helpfellows" => vitals.help_others = truthy,
+                "helpnetworkpeers" => vitals.help_network_peers = truthy,
+                "teamfocusdebuffed" => combat.team_focus_debuffed = truthy,
+                "teamoverlay" => vitals.team_overlay = truthy,
                 "attackdistance" => {
                     combat.maximum_range = single_meters(value, "AttackDistance", 1.0, 100.0)?;
                 }
@@ -687,6 +693,16 @@ impl Core {
                 "rechargehandlerset" => vitals.recharge_handler_set = value.to_display_string(),
                 _ => {}
             }
+        }
+        // `HelpFellows` and `DoHelp` are one switch: only the last name
+        // written is kept, so a reload cannot apply an older value after it.
+        if key == "dohelp" || key == "helpfellows" {
+            let other = if key == "dohelp" {
+                options::HELP_FELLOWS
+            } else {
+                "DoHelp"
+            };
+            self.settings.combat.dynamic_settings.remove(other);
         }
         if canonical == options::WALK_TO_RARE_CORPSE {
             // Older side-cars may hold either previous command name.

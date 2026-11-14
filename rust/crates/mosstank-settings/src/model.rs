@@ -222,6 +222,9 @@ pub struct CombatSettings {
     pub pet_refill_count_idle: i32,
     pub pet_refill_count_normal: i32,
     pub allow_debuff_fallback: bool,
+    /// Attack a monster the team has debuffed rather than one it has not
+    /// (a MossTank extension; on by default).
+    pub team_focus_debuffed: bool,
     pub use_special_ammo: i32,
     pub auto_fellow_management: bool,
     pub blacklisted_spell_components: String,
@@ -294,6 +297,7 @@ impl Default for CombatSettings {
             pet_refill_count_idle: 3,
             pet_refill_count_normal: 1,
             allow_debuff_fallback: false,
+            team_focus_debuffed: true,
             use_special_ammo: 0,
             auto_fellow_management: true,
             blacklisted_spell_components: String::new(),
@@ -480,10 +484,15 @@ pub struct VitalSettings {
     pub helper_health_distance: f64,
     pub helper_stamina_distance: f64,
     pub helper_mana_distance: f64,
+    /// Help the fellows, with heals and shared targeting (VTank's
+    /// `DoHelp`).
     pub help_others: bool,
-    /// Also help the peer network's characters outside the fellowship (a
-    /// MossTank extension, off by default).
+    /// Help the owner's other characters seen through the peer network,
+    /// fellows or not, with heals and shared targeting (a MossTank
+    /// extension).
     pub help_network_peers: bool,
+    /// Show the team overlay (a MossTank extension).
+    pub team_overlay: bool,
     pub use_healers_heart: bool,
     pub recharge_boost_time_seconds: f64,
     pub recharge_boost_amount: i32,
@@ -518,7 +527,8 @@ impl Default for VitalSettings {
             helper_stamina_distance: 59.6,
             helper_mana_distance: 32.0,
             help_others: true,
-            help_network_peers: false,
+            help_network_peers: true,
+            team_overlay: false,
             use_healers_heart: true,
             recharge_boost_time_seconds: 5.0,
             recharge_boost_amount: 40,

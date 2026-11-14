@@ -1,5 +1,5 @@
-//! The UB settings page as the rest of the plugin reads it: the sharing
-//! rows the combat controller follows, the rows whose value belongs to a
+//! The UB settings page as the rest of the plugin reads it: the old sharing
+//! switch, now the team's, the rows whose value belongs to a
 //! running owner, the handler rows that are the meta profile, and where
 //! the UB tree is kept (ported from the C#'s
 //! `MossTankPanelTests.UbSettingsTab`).
@@ -33,11 +33,6 @@ fn cast_captures(world: &World) -> usize {
     world.requests::<calls::PeersCasts>().len()
 }
 
-/// `PeerNetworkProbe.ClientCaptures`.
-fn client_captures(world: &World) -> usize {
-    world.requests::<calls::PeersClients>().len()
-}
-
 fn tick(world: &mut World, plugin: &mut MossTank) {
     world.with_tank(plugin, |tank, client| tank.on_tick(client, 0.1));
 }
@@ -46,73 +41,40 @@ fn values(world: &mut World, plugin: &mut MossTank) -> Vec<String> {
     world.ui_list(plugin, "UbSettingValues")
 }
 
-/// `new PluginPeerCast(sequence, 7, 0x50000002, 10, 70, 300, seconds, true)`.
-fn cast(sequence: i64, seconds_remaining: f64) -> PeerCast {
-    PeerCast {
-        sequence,
-        client_id: 7,
-        caster_id: 0x5000_0002,
-        target_id: 10,
-        spell_id: 70,
-        effective_skill: 300,
-        seconds_remaining,
-        landed: true,
-        ..PeerCast::default()
-    }
-}
-
 // Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.UbSettingsTab.cs :: TheSharingSwitchOnThePageGatesWhatIsReadFromTheOtherClients
+/// The sharing switch is MossTank's team now: the UB page has no row and no
+/// button for it, the old names under `/ub opt` reach `HelpNetworkPeers`,
+/// and the other clients' casts are read while the character helps anyone.
 #[test]
-fn the_sharing_switch_on_the_page_gates_what_is_read_from_the_other_clients() {
+fn the_old_sharing_switch_reaches_the_team_and_gates_what_is_read() {
     let mut world = ub_world();
     with_peers(&mut world, Vec::new());
     let mut plugin = world.enable();
     let p = &mut plugin;
 
     tick(&mut world, p);
-    assert_eq!(cast_captures(&world), 0);
-    world.act(p, "ToggleUbVitalSharing");
-    tick(&mut world, p);
     assert_eq!(cast_captures(&world), 1);
-
     world.act_text(p, "SetUbFilterText", "Sharing.Vitals");
-    assert_eq!(values(&mut world, p)[0], "True");
-    world.act_int(p, "ClickUbSettingValue", 0);
-    assert_eq!(values(&mut world, p)[0], "False");
+    assert!(values(&mut world, p).is_empty());
+
+    world.command(p, "ub", "opt set Sharing.Vitals false");
+    world.vt(p, "opt get HelpNetworkPeers");
+    assert!(
+        world
+            .chat()
+            .iter()
+            .any(|line| line.contains("Option HelpNetworkPeers = False"))
+    );
+    world.vt(p, "opt set HelpFellows false");
     tick(&mut world, p);
     tick(&mut world, p);
     assert_eq!(cast_captures(&world), 1);
 
-    world.act_int(p, "ClickUbSettingValue", 0);
+    world.vt(p, "opt set HelpNetworkPeers true");
+    world.command(p, "ub", "opt get VTank.VitalSharing");
+    assert!(world.chat().iter().any(|line| line.contains("= True")));
     tick(&mut world, p);
     assert_eq!(cast_captures(&world), 2);
-}
-
-// Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.UbSettingsTab.cs :: TheCastTagOnThePageReachesTheControllerThatFiltersThePeers
-/// The C# probe answers only the casts after the sequence asked from; the
-/// fake answers what it is given, so the second look is given both.
-#[test]
-fn the_cast_tag_on_the_page_reaches_the_controller_that_filters_the_peers() {
-    let mut world = ub_world();
-    with_peers(&mut world, vec![cast(1, 45.0)]);
-    let mut plugin = world.enable();
-    let p = &mut plugin;
-
-    world.act(p, "ToggleUbVitalSharing");
-    tick(&mut world, p);
-    assert_eq!(cast_captures(&world), 1);
-    assert_eq!(client_captures(&world), 0);
-
-    world.act_text(p, "SetUbFilterText", "Sharing.CastTag");
-    world.act_int(p, "SelectUbSetting", 0);
-    assert_eq!(world.ui_text(p, "UbSettingValueDraft"), "");
-    world.act_text(p, "SubmitUbSetting", "debuffs");
-    assert_eq!(values(&mut world, p)[0], "debuffs");
-
-    world.set_reply::<calls::PeersCasts>(&vec![cast(2, 40.0)]);
-    tick(&mut world, p);
-    assert_eq!(cast_captures(&world), 2);
-    assert_eq!(client_captures(&world), 1);
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.UbSettingsTab.cs :: ASettingWithNoEditorIsNowEditedAndComesBackAfterAReload
@@ -207,7 +169,7 @@ fn exactly_the_settings_with_a_live_owner_stay_out_of_the_new_files() {
     let mut plugin = world.enable();
     let p = &mut plugin;
     let names = world.ui_list(p, "UbSettingNames");
-    assert_eq!(names.len(), 201);
+    assert_eq!(names.len(), 199);
 
     for row in 0..names.len() {
         world.act_int(p, "SelectUbSetting", i32::try_from(row).unwrap());
@@ -311,7 +273,7 @@ fn no_ub_file_or_folder_ever_lands_in_the_plugins_own_storage() {
     // A login's folder tree, a settings write, the marker file the map lays
     // down when its folder is empty, and an equip profile save.
     tick(&mut world, p);
-    world.act_text(p, "SetUbFilterText", "Sharing.Vitals");
+    world.act_text(p, "SetUbFilterText", "Networking.ReceiveCommands");
     world.act_int(p, "ClickUbSettingValue", 0);
     world.act(p, "ShowUbMap");
     world.command(p, "ub", "equip create pin");

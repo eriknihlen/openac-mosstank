@@ -100,8 +100,6 @@ fn the_character_tier_holds_only_who_the_character_is() {
             "NetworkUI.WindowPositionY",
             "Networking.ReceiveCommands",
             "Networking.Tags",
-            "Sharing.CastTag",
-            "Sharing.Vitals",
         ]
     );
 }
@@ -150,7 +148,6 @@ fn every_category_is_one_of_the_in_scope_tools() {
             "NetworkUI",
             "Networking",
             "Plugin",
-            "Sharing",
         ]
     );
 }
@@ -202,7 +199,7 @@ fn every_row_is_written_to_the_tier_its_scope_declares_and_to_no_other() {
     };
     assert_eq!(count(UbSettingScope::Global), 17);
     assert_eq!(count(UbSettingScope::Profile), 174);
-    assert_eq!(count(UbSettingScope::Character), 10);
+    assert_eq!(count(UbSettingScope::Character), 8);
 }
 
 // Not a port yet: its C# counterpart (UbSettingCatalogTests.cs,
@@ -393,9 +390,9 @@ fn require_refuses_an_unknown_name() {
 #[test]
 fn categories_come_back_in_order_with_their_rows() {
     let catalog = catalog();
-    assert_eq!(catalog.categories().len(), 18);
+    assert_eq!(catalog.categories().len(), 17);
     assert_eq!(catalog.categories()[0], "Aliases");
-    assert_eq!(catalog.settings().len(), 201);
+    assert_eq!(catalog.settings().len(), 199);
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/UbSettingValueTests.cs :: EachShapeKeepsItsOwnKindAndPayload
@@ -723,18 +720,21 @@ const MAP_MARKER_GROUPS: [&str; 11] = [
     "EverythingElse",
 ];
 
-const NAMED_HERE: [(&str, &str); 6] = [
+const NAMED_HERE: [(&str, &str); 5] = [
     ("GameEvents.GameEventHandlers", "GameEvents.Handlers"),
     ("InventoryManager.IGThink", "ItemGiver.Think"),
     ("InventoryManager.IGFailure", "ItemGiver.FailureLimit"),
     ("InventoryManager.IGBusyCount", "ItemGiver.BusyRetryLimit"),
     ("InventoryManager.IGRange", "ItemGiver.Range"),
-    ("VTankControl.VitalSharing", "Sharing.Vitals"),
 ];
 
 const SAME_SWITCH: &str = "The same switch is already on the Options page and in the option catalogue; a second row would be a second copy of one value.";
 
-const EXCLUDED: [(&str, &str); 28] = [
+const EXCLUDED: [(&str, &str); 29] = [
+    (
+        "VTankControl.VitalSharing",
+        "Sharing is MossTank's own HelpNetworkPeers option now, on the Vitals tab and under /vt opt; the name (and Sharing.Vitals) is still accepted by /ub opt so a macro carries on.",
+    ),
     (
         "ItemInfo.DescribeOnLoot",
         "It describes what UtilityBelt's chest looter takes; the looter here does not describe what it takes.",
@@ -843,7 +843,7 @@ const EXCLUDED: [(&str, &str); 28] = [
     ),
 ];
 
-const ADDED_HERE: [(&str, &str); 15] = [
+const ADDED_HERE: [(&str, &str); 14] = [
     (
         "Networking.ReceiveCommands",
         "Per-character local command reception, enabled by default.",
@@ -855,10 +855,6 @@ const ADDED_HERE: [(&str, &str); 15] = [
     (
         "AutoTinker.CharmedSmith",
         "Whether the character carries the Charmed Smith augmentation, which adds five points to an imbue's chance. The original reads the augmentation off the character; this client exposes no augmentations, so the only way the planned percentage can match what the server rolls is for the player to tick it.",
-    ),
-    (
-        "Sharing.CastTag",
-        "Which of the other clients' casts to take in, by the tag their client was started with. The original takes every connected client's casts; the tags already exist on the peer record here, so a character can listen to its own group alone.",
     ),
     // The Mag tab's settings: Mag-Tools' own, not UtilityBelt's.
     (
@@ -974,9 +970,7 @@ const FLAT_DEFAULTS: &[(&str, &str)] = &[
     ("Plugin.PortalThink", "False"),
     ("Plugin.PortalTimeout", "5000"),
     ("Plugin.PortalAttempts", "3"),
-    ("Sharing.Vitals", "False"),
     ("Networking.ReceiveCommands", "True"),
-    ("Sharing.CastTag", ""),
     ("Looter.Enabled", "False"),
     ("Looter.EnableChests", "False"),
     ("Looter.EnableMyCorpse", "False"),
@@ -1183,9 +1177,9 @@ fn every_setting_the_in_scope_tools_declare_is_on_the_tab_or_excluded_with_a_rea
         "on the tab but not declared: {unaccounted:?}"
     );
 
-    // 214 declared, 28 excluded, our own additions: the arithmetic is stated.
-    assert_eq!(excluded.len(), 28);
-    assert_eq!(should_be_on_the_tab.len(), 186);
+    // 214 declared, 29 excluded, our own additions: the arithmetic is stated.
+    assert_eq!(excluded.len(), 29);
+    assert_eq!(should_be_on_the_tab.len(), 185);
     assert_eq!(
         should_be_on_the_tab.len() + added_here.len(),
         on_the_tab.len()

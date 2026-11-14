@@ -36,7 +36,7 @@ pub(crate) const UNKNOWN_VTANK_COMMAND: &str = "Unknown /vt command. Use /vt hel
 
 /// The macro's verb lists (`VtankHelp`).
 const VTANK_HELP: [&str; 4] = [
-    "MossTank /vt \u{2014} profiles: settings nav navaf loot meta metaaf opt testitem propertydump addnavpt refresh getdb gamedb compshud addnavjump addnavcheckpoint",
+    "MossTank /vt \u{2014} profiles: settings nav navaf loot meta metaaf opt team testitem propertydump addnavpt refresh getdb gamedb compshud addnavjump addnavcheckpoint",
     "MossTank /vt \u{2014} actions: start stop forcebuff cancelforcebuff setmetastate fakedeath deathrestore deletemonster reverseroute reverseroutequery equipitemsfor mexec metainterval nextwp prevwp echo tapjump jump setattackbar",
     "MossTank /vt \u{2014} game info: dumpspells dumpspecies dumpmats dumpskills",
     "MossTank /vt \u{2014} debug: log testmonster lockdump dumptracker clearlocks clearbusy listmonstervariables dumpmetavars listmetafunctions metafunchelp fakeimp pscount testspell testpet",
@@ -96,6 +96,7 @@ pub(crate) fn execute_vtank(cx: &mut TankCx<'_>, input: &str) {
         "metaaf" => meta_profile_command(cx, &arguments, true),
         "meta" => meta_profile_command(cx, &arguments, false),
         "opt" => option_command(cx, &arguments),
+        "team" => super::team::team_command(cx, &arguments),
         "nextwp" => next_waypoint_command(cx, &arguments),
         "prevwp" => previous_waypoint_command(cx, &arguments),
         "metainterval" => meta_interval_command(cx, &arguments),

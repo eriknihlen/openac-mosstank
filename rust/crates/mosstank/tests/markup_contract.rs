@@ -1049,8 +1049,9 @@ fn every_tool_button_on_the_ub_page_binds_its_caption_and_its_colour() {
     let document = document("mosstank.xml");
     let group = page(document.root_element(), "UbVisible");
     let buttons: Vec<_> = named(group, "button").collect();
-    // Twelve tool and page buttons, and the key looter's three.
-    assert_eq!(buttons.len(), 15);
+    // Eleven tool and page buttons (the sharing switch is MossTank's
+    // HelpNetworkPeers now, on the Vitals tab), and the key looter's three.
+    assert_eq!(buttons.len(), 14);
     let looter = ["{SetUbLooterKey}", "{SetUbLooterChest}", "{ToggleUbLooter}"];
     for action in looter {
         assert_eq!(
@@ -1067,7 +1068,7 @@ fn every_tool_button_on_the_ub_page_binds_its_caption_and_its_colour() {
         .filter(|button| text(**button).starts_with('{'))
         .filter(|button| !attr(**button, "onclick").is_some_and(|action| looter.contains(&action)))
         .collect();
-    assert_eq!(tools.len(), 10);
+    assert_eq!(tools.len(), 9);
     for button in tools {
         assert!(attr(*button, "color").is_some_and(|c| c.starts_with('{')));
         assert!(attr(*button, "onclick").is_some_and(|c| c.starts_with("{Toggle")));

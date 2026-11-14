@@ -218,6 +218,13 @@ pub fn kind_of(name: &str) -> UbSettingKind {
 
 fn build_accepted_only() -> Vec<UbSettingDefinition> {
     vec![
+        // The sharing switch is MossTank's HelpNetworkPeers option now; the
+        // name stays for the macros that set it.
+        switch(
+            "Sharing.Vitals",
+            "The same switch as MossTank's HelpNetworkPeers option: heal and share targeting with your other characters seen through the peer network.",
+            true,
+        ),
         switch(
             "VTank.PatchExpressionEngine",
             "The extended expression functions; always on here.",
@@ -942,23 +949,10 @@ fn add_behaviour_tools(rows: &mut Vec<UbSettingDefinition>) {
         3,
     ));
 
-    // One switch for both directions of sharing, as the original has it.
-    rows.push(switch_in(
-        "Sharing.Vitals",
-        "Tell your other characters on this machine how you are doing and what you have cast, and take in what they cast.",
-        false,
-        UbSettingScope::Character,
-    ));
     rows.push(switch_in(
         "Networking.ReceiveCommands",
         "Receive broadcast commands from trusted local clients in the same world.",
         true,
-        UbSettingScope::Character,
-    ));
-    rows.push(line_in(
-        "Sharing.CastTag",
-        "Only take in casts from characters whose client carries this tag; blank takes them all.",
-        "",
         UbSettingScope::Character,
     ));
 }

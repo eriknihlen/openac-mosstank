@@ -128,3 +128,65 @@ fn the_own_death_corpse_switch_round_trips_and_is_on_when_absent() {
     assert!(!apply(&text));
     assert!(apply("{}"));
 }
+
+fn applied(text: &str) -> AllSettings {
+    let mut settings = AllSettings::default();
+    SideCarDocument::read(text).unwrap().unwrap().apply(
+        &mut settings,
+        &mut OrdinalStringSet::new(),
+        &mut IgnoreCaseStringSet::new(),
+        &mut |_| {},
+    );
+    settings
+}
+
+/// New: helping the network peers is on by default, and a side-car written
+/// before it could be set (version 1, which always says off) reads as on,
+/// once: the next save writes version 2, and an off written then stays off.
+#[test]
+fn a_side_car_older_than_version_2_helps_the_network_peers() {
+    assert!(
+        applied("{\"Version\":1,\"VitalsHelpNetworkPeers\":false}")
+            .vitals
+            .help_network_peers
+    );
+    assert!(
+        applied("{\"VitalsHelpNetworkPeers\":false}")
+            .vitals
+            .help_network_peers
+    );
+    assert!(applied("{}").vitals.help_network_peers);
+
+    let mut settings = AllSettings::default();
+    settings.vitals.help_network_peers = false;
+    let text = SideCarDocument::capture_and_write(
+        &settings,
+        &OrdinalStringSet::new(),
+        &IgnoreCaseStringSet::new(),
+    )
+    .unwrap();
+    assert!(text.contains("\"Version\": 2"));
+    assert!(!applied(&text).vitals.help_network_peers);
+}
+
+/// New: the focus and overlay switches are kept in the side-car; focus is
+/// on and the overlay off when a file predates them.
+#[test]
+fn the_team_focus_and_overlay_switches_round_trip() {
+    let mut settings = AllSettings::default();
+    settings.combat.team_focus_debuffed = false;
+    settings.vitals.team_overlay = true;
+    let text = SideCarDocument::capture_and_write(
+        &settings,
+        &OrdinalStringSet::new(),
+        &IgnoreCaseStringSet::new(),
+    )
+    .unwrap();
+
+    let read = applied(&text);
+    assert!(!read.combat.team_focus_debuffed);
+    assert!(read.vitals.team_overlay);
+    let fresh = applied("{}");
+    assert!(fresh.combat.team_focus_debuffed);
+    assert!(!fresh.vitals.team_overlay);
+}

@@ -815,6 +815,33 @@ impl DebuffTracker {
         );
     }
 
+    /// Every debuff in force, landed by this character or a teammate: the
+    /// monster, the debuff, its spell and the seconds left; by monster,
+    /// then in the chain's order.
+    #[must_use]
+    pub fn in_force(&self, now: f64) -> Vec<(u32, DebuffIdentity, u32, f64)> {
+        let mut entries: Vec<(u32, DebuffIdentity, u32, f64)> = self
+            .applied
+            .iter()
+            .filter(|(_, applied)| now < applied.expires_at)
+            .map(|(&(target, identity), applied)| {
+                (target, identity, applied.spell_id, applied.expires_at - now)
+            })
+            .collect();
+        entries.sort_by_key(|&(target, identity, _, _)| {
+            (target, order_of(identity.flag), identity.damage_type as i32)
+        });
+        entries
+    }
+
+    /// Whether any debuff landed on the monster is in force.
+    #[must_use]
+    pub fn has_any_in_force(&self, target_object_id: u32, now: f64) -> bool {
+        self.applied
+            .iter()
+            .any(|(&(target, _), applied)| target == target_object_id && now < applied.expires_at)
+    }
+
     /// Drops the unanswered cast.
     pub fn clear_pending(&mut self) {
         self.pending = None;
@@ -834,5 +861,29 @@ impl DebuffTracker {
         self.in_flight = None;
         self.observed_completion_revision = 0;
         self.retry_not_before = f64::MIN;
+    }
+}
+
+/// A debuff in words: its column, and a vulnerability's element.
+#[must_use]
+pub fn label(identity: DebuffIdentity) -> String {
+    let column = match identity.flag {
+        MonsterActionFlags::FESTER => "Fester",
+        MonsterActionFlags::BROADSIDE => "Broadside",
+        MonsterActionFlags::GRAVITY_WELL => "Gravity Well",
+        MonsterActionFlags::IMPERIL => "Imperil",
+        MonsterActionFlags::YIELD => "Yield",
+        MonsterActionFlags::VULNERABILITY => "Vulnerability",
+        MonsterActionFlags::WEAKENING_CURSE => "Weakening Curse",
+        MonsterActionFlags::FESTERING_CURSE => "Festering Curse",
+        MonsterActionFlags::CORRUPTION => "Corruption",
+        MonsterActionFlags::DESTRUCTIVE_CURSE => "Destructive Curse",
+        MonsterActionFlags::CORROSION => "Corrosion",
+        _ => "Debuff",
+    };
+    if identity.flag == MonsterActionFlags::VULNERABILITY {
+        format!("{column} ({:?})", identity.damage_type)
+    } else {
+        column.to_owned()
     }
 }

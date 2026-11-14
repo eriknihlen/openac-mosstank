@@ -5,28 +5,28 @@ fnv64=2d00f40584ab1ccd bytes=28987
 fnv64=90d692d4d7c40609 bytes=28913
 
 ##### usd defaultsettings
-fnv64=601517aa31000051 bytes=5544
+fnv64=c1dacfa931e75a69 bytes=5619
 --- saved:
 fnv64=4473aef24cfd7622 bytes=29516
 --- edited:
 fnv64=3fa5c3ca55a413c2 bytes=29842
 
 ##### usd owner-a
-fnv64=33a5f2e8b2bcd0e6 bytes=6038
+fnv64=4bef721860166d38 bytes=6113
 --- saved:
 fnv64=6b6de7690322a296 bytes=3879
 --- edited:
 fnv64=86620a33677335d2 bytes=4236
 
 ##### usd owner-b
-fnv64=1f7126e683487c93 bytes=5624
+fnv64=851df90f8dc21d0d bytes=5699
 --- saved:
 fnv64=7657da9c7cc55316 bytes=3479
 --- edited:
 fnv64=953b79d647bb20f2 bytes=3836
 
 ##### usd owner-c
-fnv64=285810007cbb2113 bytes=6016
+fnv64=d0ab17c9b1f4d6f9 bytes=6091
 --- saved:
 fnv64=293566d6e8021cbc bytes=3884
 --- edited:
@@ -176,6 +176,10 @@ RechargeHandlerSet = -
 WalkToRareCorpse = -
 LootOwnDeathCorpse = -
 ShowNavLines = -
+HelpFellows = -
+HelpNetworkPeers = -
+TeamFocusDebuffed = -
+TeamOverlay = -
 rule "DEFAULT" flags=320 p=1 dmg=Auto extra=None pet=PlayerAuto w=00000000 o=00000000 wr=-1 sr=0 ignored=False default=True dynamic=False
 items 
 extra 
@@ -562,6 +566,10 @@ RechargeHandlerSet = -
 WalkToRareCorpse = -
 LootOwnDeathCorpse = -
 ShowNavLines = -
+HelpFellows = -
+HelpNetworkPeers = -
+TeamFocusDebuffed = -
+TeamOverlay = -
 rule "DEFAULT" flags=320 p=1 dmg=Auto extra=None pet=PlayerAuto w=00000000 o=00000000 wr=-1 sr=0 ignored=False default=True dynamic=False
 items 
 extra 
@@ -952,6 +960,10 @@ RechargeHandlerSet = -
 WalkToRareCorpse = -
 LootOwnDeathCorpse = -
 ShowNavLines = -
+HelpFellows = -
+HelpNetworkPeers = -
+TeamFocusDebuffed = -
+TeamOverlay = -
 rule "DEFAULT" flags=320 p=1 dmg=Auto extra=None pet=PlayerAuto w=00000000 o=00000000 wr=-1 sr=0 ignored=False default=True dynamic=False
 items 
 extra 
@@ -1565,9 +1577,7 @@ Jumper.Attempts|Int|Profile|Jumper|"3"|"3"|"Jumper.Attempts (Profile) = 3"|"How 
 Plugin.PortalThink|Bool|Profile|Plugin|"False"|"False"|"Plugin.PortalThink (Profile) = False"|"Think to yourself when portal use success/fail."|
 Plugin.PortalTimeout|Int|Profile|Plugin|"5000"|"5000"|"Plugin.PortalTimeout (Profile) = 5000"|"Timeout to retry portal use, in milliseconds."|
 Plugin.PortalAttempts|Int|Profile|Plugin|"3"|"3"|"Plugin.PortalAttempts (Profile) = 3"|"Attempts to retry using a portal."|
-Sharing.Vitals|Bool|Character|Sharing|"False"|"False"|"VTank.VitalSharing (State) = False"|"Tell your other characters on this machine how you are doing and what you have cast, and take in what they cast."|
 Networking.ReceiveCommands|Bool|Character|Networking|"True"|"True"|"Networking.ReceiveCommands (State) = True"|"Receive broadcast commands from trusted local clients in the same world."|
-Sharing.CastTag|String|Character|Sharing|""|""|"Sharing.CastTag (State) = "|"Only take in casts from characters whose client carries this tag; blank takes them all."|
 Mag.ItemInfoOnIdent.Enabled|Bool|Global|Mag|"True"|"True"|"Mag.ItemInfoOnIdent.Enabled (Profile) = True"|"Show Item Info On Ident."|
 Mag.ItemInfoOnIdent.ShowBuffedValues|Bool|Global|Mag|"True"|"True"|"Mag.ItemInfoOnIdent.ShowBuffedValues (Profile) = True"|"Show Item Info Buffed* Values."|
 Mag.ItemInfoOnIdent.ShowValueAndBurden|Bool|Global|Mag|"False"|"False"|"Mag.ItemInfoOnIdent.ShowValueAndBurden (Profile) = False"|"Show Value and Burden."|
@@ -1579,6 +1589,7 @@ Mag.InventoryManagement.InventoryLogger|Bool|Global|Mag|"True"|"True"|"Mag.Inven
 Mag.ManaManagement.ShowOverlay|Bool|Global|Mag|"False"|"False"|"Mag.ManaManagement.ShowOverlay (Profile) = False"|"Show the mana overlay."|
 Mag.ManaManagement.OverlayX|Int|Global|Mag|"420"|"420"|"Mag.ManaManagement.OverlayX (Profile) = 420"|"Where the mana overlay stands, pixels from the screen's left."|
 Mag.ManaManagement.OverlayY|Int|Global|Mag|"150"|"150"|"Mag.ManaManagement.OverlayY (Profile) = 150"|"Where the mana overlay stands, pixels from the screen's top."|
+Sharing.Vitals|Bool|Profile|Sharing|"True"|"True"|"VTank.VitalSharing (Profile) = True"|"The same switch as MossTank's HelpNetworkPeers option: heal and share targeting with your other characters seen through the peer network."|
 VTank.PatchExpressionEngine|Bool|Profile|VTank|"True"|"True"|"VTank.PatchExpressionEngine (Profile) = True"|"The extended expression functions; always on here."|
 InventoryManager.TreatStackAsSingleItem|Bool|Profile|InventoryManager|"False"|"False"|"InventoryManager.TreatStackAsSingleItem (Profile) = False"|"Count a stack as one item when handing over; always off here."|
 Plugin.SettingsProfile|String|Character|Plugin|"default"|"default"|"Plugin.SettingsProfile (State) = default"|"The named settings profile this character has open."|
@@ -1595,7 +1606,7 @@ ItemInfo.ShowRetailComparison|Bool|Profile|ItemInfo|"False"|"False"|"ItemInfo.Sh
 ItemInfo.ShowRetailMax|Bool|Profile|ItemInfo|"False"|"False"|"ItemInfo.ShowRetailMax (Profile) = False"|"Kept for macros; the retail maximums are not worked out here."|
 Plugin.VideoPatch|Bool|Profile|Plugin|"False"|"False"|"Plugin.VideoPatch (Profile) = False"|"Kept for macros; the world is always drawn."|
 Plugin.VideoPatchFocus|Bool|Profile|Plugin|"False"|"False"|"Plugin.VideoPatchFocus (Profile) = False"|"Kept for macros; the world is always drawn."|
-categories Aliases,AutoTinker,AutoVendor,AutoXp,DungeonMaps,EquipmentManager,GameEvents,ItemGiver,ItemInfo,Jumper,LandscapeMaps,Looter,Mag,Nametags,NetworkUI,Networking,Plugin,Sharing
+categories Aliases,AutoTinker,AutoVendor,AutoXp,DungeonMaps,EquipmentManager,GameEvents,ItemGiver,ItemInfo,Jumper,LandscapeMaps,Looter,Mag,Nametags,NetworkUI,Networking,Plugin
 alias VTank.VitalSharing -> Sharing.Vitals
 alias InventoryManager.IGThink -> ItemGiver.Think
 alias InventoryManager.IGFailure -> ItemGiver.FailureLimit

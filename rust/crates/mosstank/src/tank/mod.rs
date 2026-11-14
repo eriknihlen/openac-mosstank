@@ -31,6 +31,7 @@ pub(crate) mod rules;
 mod services;
 mod session;
 pub(crate) mod staged_load;
+mod team;
 pub mod ub;
 mod vendor;
 
@@ -876,20 +877,6 @@ impl Tank {
                     .storage(mosstank_stores::storage::Root::Profiles),
                 Some(&character.world),
                 Some(&character.name),
-            );
-        }
-        {
-            // The sharing switch and the peer tag are read from the UB settings
-            // on every look, so an edit applies at once.
-            let enabled = ub.reader.clone();
-            let tag = ub.reader.clone();
-            core.combat.bind_cast_sharing(
-                Box::new(move || {
-                    mosstank_ub::catalog::UbCatalog::flag(&*enabled, "Sharing.Vitals")
-                }),
-                Box::new(move || {
-                    Some(mosstank_ub::catalog::UbCatalog::value(&*tag, "Sharing.CastTag").text)
-                }),
             );
         }
         let scheduler = rules::build_scheduler(&core.idle_peace);

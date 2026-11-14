@@ -1,6 +1,7 @@
 //! The peer features the macro asks the other clients for
-//! (`MossTankPanel.Peers`): the UB tab's sharing and command switches, the
-//! vitals helper and the network readout, the meta's own calls to
+//! (`MossTankPanel.Peers`): the team (helping and sharing targeting with
+//! the fellows or the network peers), the UB tab's command switch, the
+//! network readout, the meta's own calls to
 //! `netclients[]` and `netcasts[]`, and the calls an expression made in the
 //! last five seconds. One lease is held for all of them, replaced when what
 //! is needed changes.
@@ -56,19 +57,18 @@ impl Core {
             self.peers.meta_requirements = meta_peer_requirements(profile);
         }
         let mut requested = capabilities::NONE;
-        if catalog.flag("Sharing.Vitals") {
+        // The team: this character's state and casts go out, and the
+        // others' come in, while it helps anyone at all. Holding the lease
+        // is what makes the client publish its own record and announce its
+        // casts to the hub.
+        let vitals = &self.settings.vitals;
+        if vitals.help_others || vitals.help_network_peers {
             requested |= capabilities::CLIENT_STATE | capabilities::CASTS;
         }
         if catalog.flag("Networking.ReceiveCommands") {
             requested |= capabilities::COMMANDS;
         }
-        let vitals = &self.settings.vitals;
-        if (client.meta().has_ui() && readout_should_show)
-            || (self.combat.enabled()
-                && vitals.enabled
-                && vitals.help_others
-                && vitals.help_network_peers)
-        {
+        if client.meta().has_ui() && readout_should_show {
             requested |= capabilities::CLIENT_STATE;
         }
         let now = client.clock().utc_unix_ms;

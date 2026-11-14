@@ -242,11 +242,18 @@
 
     <toggle x="360" y="4" w="190" h="20" text="Enable vital recharge"
             checked="{VitalUpkeepEnabled}" onclick="{ToggleVitalUpkeep}" />
-    <toggle x="360" y="28" w="190" h="20" text="Help fellows"
-            checked="{HelpOthersEnabled}" onclick="{ToggleHelpOthers}" />
-    <toggle x="360" y="112" w="190" h="20" text="Help network peers"
+    <toggle x="360" y="28" w="290" h="20" text="Help fellows (heals and targeting)"
+            checked="{HelpOthersEnabled}" onclick="{ToggleHelpOthers}"
+            tooltip="Heal, restam and remana fellowship members, and share debuff targeting with them (/vt opt HelpFellows; VTank's DoHelp)." />
+    <toggle x="360" y="112" w="290" h="20" text="Help network peers (heals and targeting)"
             checked="{HelpNetworkPeersEnabled}" onclick="{ToggleHelpNetworkPeers}"
-            tooltip="Also heal peers outside the fellowship: characters on the peer network, on this computer or relayed from another. VTank helps fellows only." />
+            tooltip="The same for your other characters seen through the peer network, on this computer or relayed from another, fellows or not (/vt opt HelpNetworkPeers). VTank helps fellows only." />
+    <toggle x="360" y="136" w="290" h="20" text="Focus debuffed monsters"
+            checked="{TeamFocusDebuffedEnabled}" onclick="{ToggleTeamFocusDebuffed}"
+            tooltip="Leave a monster the team has not debuffed for one in range that it has, and stay on it while the debuff holds (/vt opt TeamFocusDebuffed). VTank has no such switch." />
+    <toggle x="360" y="160" w="290" h="20" text="Show team overlay"
+            checked="{TeamOverlayEnabled}" onclick="{ToggleTeamOverlay}"
+            tooltip="Show this character, the fellows and the network peers with their vitals, direction and distance (/vt opt TeamOverlay, /vt team overlay)." />
     <label x="360" y="60" w="290" h="16" text="{VitalStatus}" color="theme:muted|#FFC7B98F" />
     <label x="360" y="88" w="290" h="16" text="{Vitals}" color="theme:text|#FFE8DEC3" />
   </group>
@@ -533,16 +540,13 @@
             color="{UbNametagsButtonColor}" onclick="{ToggleUbNametags}"
             tooltip="Draw a name over every object the name-tag rules cover." />
 
-    <button x="204" y="20" w="136" h="24" text="{UbVitalSharingButtonText}"
-            color="{UbVitalSharingButtonColor}" onclick="{ToggleUbVitalSharing}"
-            tooltip="Tell your other characters on this computer how you are doing, and take in what they cast." />
-    <button x="204" y="52" w="136" h="24" text="{UbNetworkUiButtonText}"
+    <button x="204" y="20" w="136" h="24" text="{UbNetworkUiButtonText}"
             color="{UbNetworkUiButtonColor}" onclick="{ToggleUbNetworkUi}"
             tooltip="Show the readout listing your other characters on this computer." />
-    <button x="204" y="84" w="136" h="24" text="{UbAliasesButtonText}"
+    <button x="204" y="52" w="136" h="24" text="{UbAliasesButtonText}"
             color="{UbAliasesButtonColor}" onclick="{ToggleUbAliases}"
             tooltip="Rewrite what you type using your alias list." />
-    <button x="204" y="116" w="136" h="24" text="{UbGameEventsButtonText}"
+    <button x="204" y="84" w="136" h="24" text="{UbGameEventsButtonText}"
             color="{UbGameEventsButtonColor}" onclick="{ToggleUbGameEvents}"
             tooltip="Run your own handlers when something happens." />
 

@@ -1,7 +1,8 @@
 //! The peer features the macro asks the other clients for
-//! (`MossTankPanel.Peers`): the UB tab's switches, the meta's own calls and
-//! an expression's, and the meta waiting for a hub that is not connected.
-//! The C# has no panel test of these; the cases follow its code.
+//! (`MossTankPanel.Peers`): the team switches, the UB tab's command
+//! switch, the meta's own calls and an expression's, and the meta waiting
+//! for a hub that is not connected. The C# has no panel test of these; the
+//! cases follow its code.
 
 mod common;
 
@@ -17,8 +18,8 @@ const COMMANDS: u32 = 4;
 const PEER_META: &str = "STATE: {Default} ~~ {\r\n\tIF:\tAlways\r\n\t\tDO:\tDoAll\r\n\t\t\t\tDoExpr {netclients[]}\r\n\t\t\t\tSetState {Walk}\r\nSTATE: {Walk} ~~ {\r\n\tIF:\tNever\r\n\t\tDO:\tNone\r\n";
 
 /// In the world, on a host with a peer hub that hands out lease 7, with
-/// the UB tab's command switch (on by default) turned off so each test
-/// starts from nothing asked for.
+/// the UB tab's command switch and the two team switches (all on by
+/// default) turned off so each test starts from nothing asked for.
 fn hub_world() -> (World, MossTank) {
     let mut world = World::with_character("Barris");
     world.set_reply::<calls::PeersSubscribe>(&Some(7));
@@ -29,6 +30,8 @@ fn hub_world() -> (World, MossTank) {
         "ub",
         "opt set Networking.ReceiveCommands false",
     );
+    world.vt(&mut plugin, "opt set HelpFellows false");
+    world.vt(&mut plugin, "opt set HelpNetworkPeers false");
     world.tick(&mut plugin);
     assert_eq!(requested(&plugin), 0);
     world.fake.requests.clear();
@@ -37,6 +40,24 @@ fn hub_world() -> (World, MossTank) {
 
 fn requested(plugin: &MossTank) -> u32 {
     plugin.tank().unwrap().requested_peer_features()
+}
+
+/// New: either team switch holds the state and casts; the old UB name of
+/// the sharing switch is `HelpNetworkPeers`.
+#[test]
+fn each_team_switch_asks_for_the_clients_state_and_casts() {
+    for line in ["opt set HelpFellows true", "opt set HelpNetworkPeers true"] {
+        let (mut world, mut plugin) = hub_world();
+
+        world.vt(&mut plugin, line);
+        world.tick(&mut plugin);
+
+        assert_eq!(requested(&plugin), CLIENT_STATE | CASTS, "{line}");
+        assert_eq!(
+            world.requests::<calls::PeersSubscribe>(),
+            vec![CLIENT_STATE | CASTS]
+        );
+    }
 }
 
 #[test]
@@ -51,6 +72,24 @@ fn sharing_vitals_asks_for_the_clients_state_and_casts() {
         world.requests::<calls::PeersSubscribe>(),
         vec![CLIENT_STATE | CASTS]
     );
+    world.vt(&mut plugin, "opt get HelpNetworkPeers");
+    assert!(
+        world
+            .chat()
+            .iter()
+            .any(|line| line.contains("Option HelpNetworkPeers = True"))
+    );
+}
+
+/// New: a fresh character helps the team, so it shares at once.
+#[test]
+fn a_fresh_character_shares_with_the_team() {
+    let mut world = World::with_character("Barris");
+    world.set_reply::<calls::PeersSubscribe>(&Some(7));
+    let mut plugin = world.enable();
+    world.tick(&mut plugin);
+
+    assert_eq!(requested(&plugin), CLIENT_STATE | CASTS | COMMANDS);
 }
 
 #[test]
@@ -100,7 +139,7 @@ fn a_host_without_a_hub_never_holds_the_meta() {
     world.set_reply::<calls::PeersIsConnected>(&false);
     let mut plugin = world.enable();
     world.tick(&mut plugin);
-    assert_eq!(requested(&plugin), COMMANDS);
+    assert_eq!(requested(&plugin), CLIENT_STATE | CASTS | COMMANDS);
     world.profiles.insert("mosstank/metas/Peers.af", PEER_META);
     world.vt(&mut plugin, "meta load Peers");
     world.vt(&mut plugin, "opt set EnableMeta true");

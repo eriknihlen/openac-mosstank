@@ -113,6 +113,8 @@ const CHARACTER_META: &str = "[character]";
 const ALIASES: &str = "Aliases.DefinedAliases";
 /// The UB settings profile this character has open.
 const SETTINGS_PROFILE: &str = "Plugin.SettingsProfile";
+/// The old sharing switch: MossTank's `HelpNetworkPeers` option.
+const SHARING_VITALS: &str = "Sharing.Vitals";
 
 /// The rows whose value belongs to something running (`UbLiveOwners`): the
 /// values the shell last read from their owners, and the writes made to
@@ -177,6 +179,10 @@ pub(crate) fn owned_rows(values: &StoreValues) -> Vec<(String, UbSettingBinding)
     rows.push((
         HANDLERS.to_owned(),
         live_binding(&values.1, HANDLERS, Clone::clone),
+    ));
+    rows.push((
+        SHARING_VITALS.to_owned(),
+        live_binding(&values.1, SHARING_VITALS, Clone::clone),
     ));
     // The meta profile picked, the alias list and the UB profile open live in
     // storage: a call writes them through its own catalogue ([`CallCatalog`]),
@@ -934,6 +940,10 @@ impl TankCx<'_> {
                 HANDLERS,
                 UbSettingValue::from_collection(&mosstank_meta::events::lines(self.meta.profile())),
             ),
+            (
+                SHARING_VITALS,
+                UbSettingValue::from_bool(settings.vitals.help_network_peers),
+            ),
         ];
         let mut alias_can_save = None;
         if files {
@@ -994,6 +1004,12 @@ impl TankCx<'_> {
                 HANDLER_PROFILE => self.load_picked_meta_profile(),
                 // Opened by the call's catalogue; the page shows its values.
                 SETTINGS_PROFILE => refresh_page = true,
+                SHARING_VITALS => {
+                    let _ = self.core.set_option(
+                        options::HELP_NETWORK_PEERS,
+                        &ExpressionValue::Boolean(value.boolean),
+                    );
+                }
                 _ => {
                     let settings = &mut self.core.settings;
                     match name {

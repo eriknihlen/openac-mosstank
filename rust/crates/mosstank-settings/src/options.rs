@@ -56,6 +56,29 @@ const WALK_TO_OWN_RARE_CORPSES_ALIAS: &str = "WalkToOwnRareCorpses";
 /// MossTank's own option: loot and empty this character's own death corpse.
 pub const LOOT_OWN_DEATH_CORPSE: &str = "LootOwnDeathCorpse";
 const SHOW_NAV_LINES: &str = "ShowNavLines";
+/// MossTank's own option: help the fellows (heals and shared targeting).
+/// The same switch as VTank's `DoHelp`, which the profile keeps.
+pub const HELP_FELLOWS: &str = "HelpFellows";
+/// MossTank's own option: help the owner's other characters seen through
+/// the peer network, fellows or not (heals and shared targeting).
+pub const HELP_NETWORK_PEERS: &str = "HelpNetworkPeers";
+/// MossTank's own option: attack a monster the team has debuffed rather
+/// than one it has not.
+pub const TEAM_FOCUS_DEBUFFED: &str = "TeamFocusDebuffed";
+/// MossTank's own option: show the team overlay.
+pub const TEAM_OVERLAY: &str = "TeamOverlay";
+
+/// MossTank's own options, which VTank's Settings table does not have, in
+/// the order `/vt opt list` lists them after VTank's.
+const OWN_OPTIONS: [&str; 7] = [
+    WALK_TO_RARE_CORPSE,
+    LOOT_OWN_DEATH_CORPSE,
+    SHOW_NAV_LINES,
+    HELP_FELLOWS,
+    HELP_NETWORK_PEERS,
+    TEAM_FOCUS_DEBUFFED,
+    TEAM_OVERLAY,
+];
 
 /// The one name the reference's settings table holds that nothing reads.
 /// A macro may set and read it; it has no row on the options page.
@@ -65,13 +88,17 @@ use OptionDefault as D;
 use VtankSettingValueType as T;
 
 /// Every option MossTank answers to, with its default and declared type,
-/// in catalogue order: VTank's settings plus [`WALK_TO_RARE_CORPSE`],
-/// [`LOOT_OWN_DEATH_CORPSE`] and `ShowNavLines`.
-pub const OPTIONS: [(&str, OptionDefault, VtankSettingValueType); 140] = [
+/// in catalogue order: VTank's settings plus MossTank's own
+/// ([`OWN_OPTIONS`]).
+pub const OPTIONS: [(&str, OptionDefault, VtankSettingValueType); 144] = [
     ("EnableLooting", D::Bool(false), T::Bool),
     (WALK_TO_RARE_CORPSE, D::Bool(false), T::Bool),
     (LOOT_OWN_DEATH_CORPSE, D::Bool(true), T::Bool),
     ("ShowNavLines", D::Bool(false), T::Bool),
+    (HELP_FELLOWS, D::Bool(true), T::Bool),
+    (HELP_NETWORK_PEERS, D::Bool(true), T::Bool),
+    (TEAM_FOCUS_DEBUFFED, D::Bool(true), T::Bool),
+    (TEAM_OVERLAY, D::Bool(false), T::Bool),
     ("EnableNav", D::Bool(false), T::Bool),
     ("EnableBuffing", D::Bool(true), T::Bool),
     ("EnableCombat", D::Bool(true), T::Bool),
@@ -251,27 +278,32 @@ pub const OPTIONS: [(&str, OptionDefault, VtankSettingValueType); 140] = [
 ];
 
 /// The settings of VTank's Settings table, in its order (every option but
-/// MossTank's three).
+/// MossTank's own).
 pub static NAMES: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
     OPTIONS
         .iter()
         .map(|(name, _, _)| *name)
-        .filter(|name| {
-            *name != WALK_TO_RARE_CORPSE
-                && *name != LOOT_OWN_DEATH_CORPSE
-                && *name != SHOW_NAV_LINES
-        })
+        .filter(|name| !OWN_OPTIONS.contains(name))
         .collect()
 });
 
-/// The names `/vt opt` answers to: the settings, then MossTank's three.
+/// The names `/vt opt` answers to: the settings, then MossTank's own.
 pub static COMMAND_NAMES: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
     let mut names = NAMES.clone();
-    names.push(WALK_TO_RARE_CORPSE);
-    names.push(LOOT_OWN_DEATH_CORPSE);
-    names.push(SHOW_NAV_LINES);
+    names.extend(OWN_OPTIONS);
     names
 });
+
+/// The name a profile file keeps an option under: `HelpFellows` is
+/// VTank's `DoHelp`; every other option is kept under its own name.
+#[must_use]
+pub fn profile_name(name: &str) -> &str {
+    if ordinal::equals_ignore_case(name, HELP_FELLOWS) {
+        "DoHelp"
+    } else {
+        name
+    }
+}
 
 /// The names the advanced options edit: the settings, the rare walk and
 /// the own death corpse.

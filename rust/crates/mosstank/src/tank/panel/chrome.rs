@@ -161,6 +161,8 @@ pub(super) fn value(cx: &mut TankCx<'_>, name: &str) -> Option<UiValue> {
         "VitalUpkeepEnabled" => b(s.vitals.enabled),
         "HelpOthersEnabled" => b(s.vitals.help_others),
         "HelpNetworkPeersEnabled" => b(s.vitals.help_network_peers),
+        "TeamFocusDebuffedEnabled" => b(s.combat.team_focus_debuffed),
+        "TeamOverlayEnabled" => b(s.vitals.team_overlay),
         "VitalStatus" => t(vital_status(cx)),
         "Vitals" => t(cx.core.panel.vitals.vitals.clone()),
         "Coverage" => t(cx.core.panel.vitals.coverage.clone()),
@@ -466,13 +468,24 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
             cx.core.vital_helper_recharge.reset();
             cx.core.request_profile_save();
         }
-        "ToggleHelpOthers" => update_profile(cx, |cx| {
-            cx.core.settings.vitals.help_others = !cx.core.settings.vitals.help_others;
-        }),
-        "ToggleHelpNetworkPeers" => update_profile(cx, |cx| {
-            let vitals = &mut cx.core.settings.vitals;
-            vitals.help_network_peers = !vitals.help_network_peers;
-        }),
+        // The team switches go through their options, so `/vt opt` and the
+        // page never hold two values.
+        "ToggleHelpOthers" => {
+            let on = cx.core.settings.vitals.help_others;
+            set_switch(cx, mosstank_settings::options::HELP_FELLOWS, !on);
+        }
+        "ToggleHelpNetworkPeers" => {
+            let on = cx.core.settings.vitals.help_network_peers;
+            set_switch(cx, mosstank_settings::options::HELP_NETWORK_PEERS, !on);
+        }
+        "ToggleTeamFocusDebuffed" => {
+            let on = cx.core.settings.combat.team_focus_debuffed;
+            set_switch(cx, mosstank_settings::options::TEAM_FOCUS_DEBUFFED, !on);
+        }
+        "ToggleTeamOverlay" => {
+            let on = cx.core.settings.vitals.team_overlay;
+            set_switch(cx, mosstank_settings::options::TEAM_OVERLAY, !on);
+        }
         "RemoteFollowSelected" => cx.follow_selected_player(),
         _ => return false,
     }

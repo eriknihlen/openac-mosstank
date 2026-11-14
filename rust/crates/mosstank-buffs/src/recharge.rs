@@ -413,7 +413,9 @@ pub fn plan_helper(
     combat: &CombatSettings,
     trace: Option<&mut dyn FnMut(&str)>,
 ) -> (Option<VitalRechargeChoice>, HelperDecision) {
-    if !settings.help_others {
+    // Two switches: the fellows (`HelpFellows`, VTank's `DoHelp`) and the
+    // network peers, fellows or not (`HelpNetworkPeers`).
+    if !settings.help_others && !settings.help_network_peers {
         return (None, HelperDecision::HelpOff);
     }
     let in_fellowship = automation.in_fellowship();
@@ -421,7 +423,7 @@ pub fn plan_helper(
         return (None, HelperDecision::NotInFellowship);
     }
     let mut report = HelperReport { trace };
-    let members = helper_candidates(automation, settings, in_fellowship);
+    let members = helper_candidates(automation, settings, settings.help_others && in_fellowship);
     if members.is_empty() {
         return (None, HelperDecision::NobodyInSight);
     }
@@ -1086,16 +1088,17 @@ pub fn estimated_transfer(spell_name: &str, source_current: i32) -> i32 {
     cap.min(moved)
 }
 
-/// Who the helper may cast on (`HelperCandidates`): the fellows, plus, when
-/// the profile helps network peers, the network's other clients who are not
-/// fellows, described as a fellow would be (their last reported vitals,
-/// their distance from here in metres).
+/// Who the helper may cast on (`HelperCandidates`): the fellows when
+/// `fellows` (the caller's "helps fellows and is in a fellowship"), plus,
+/// when the profile helps network peers, the network's other clients not
+/// already listed, described as a fellow would be (their last reported
+/// vitals, their distance from here in metres).
 pub fn helper_candidates(
     automation: &mut dyn Automation,
     settings: &VitalSettings,
-    in_fellowship: bool,
+    fellows: bool,
 ) -> Vec<FellowMember> {
-    let fellows = if in_fellowship {
+    let fellows = if fellows {
         automation.fellowship_members()
     } else {
         Vec::new()

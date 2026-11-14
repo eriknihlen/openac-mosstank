@@ -381,16 +381,16 @@ Ported: **2299 of 2307** C# tests, from 136 of 137 files. Not applicable: **8**.
 - VulnAndAnExtraVulnerabilityCastTheAttackElementFirst: `crates/mosstank-combat/tests/controller_debuffs.rs` :: `vuln_and_an_extra_vulnerability_cast_the_attack_element_first`
 - ALureIsNeverChosenAsACreatureVulnerability: `crates/mosstank-combat/tests/controller_debuffs.rs` :: `a_lure_is_never_chosen_as_a_creature_vulnerability`
 - KnowingOnlyLuresCastsNothingAtTheCreature: `crates/mosstank-combat/tests/controller_debuffs.rs` :: `knowing_only_lures_casts_nothing_at_the_creature`
-- RejectedOnlyPeerBatchAdvancesCursorWithoutReadingTrustSnapshot: `crates/mosstank-combat/tests/controller_debuffs.rs` :: `rejected_only_peer_batch_advances_cursor_without_reading_trust_snapshot`
-- MixedPeerBatchTakesOneTrustSnapshotAndNextBatchRechecksTags: `crates/mosstank-combat/tests/controller_debuffs.rs` :: `mixed_peer_batch_takes_one_trust_snapshot_and_next_batch_rechecks_tags`
-- UntaggedPeerBatchReadsTagOnceAndDoesNotCaptureClients: `crates/mosstank-combat/tests/controller_debuffs.rs` :: `untagged_peer_batch_reads_tag_once_and_does_not_capture_clients`
+- RejectedOnlyPeerBatchAdvancesCursorWithoutReadingTrustSnapshot: `crates/mosstank-combat/tests/controller_debuffs.rs` :: `rejected_only_peer_batch_advances_cursor_without_reading_the_fellowship` (the tag gave way to the team, 2026-11-14)
+- MixedPeerBatchTakesOneTrustSnapshotAndNextBatchRechecksTags: retired 2026-11-14 with the cast tag (owner: no team tag)
+- UntaggedPeerBatchReadsTagOnceAndDoesNotCaptureClients: retired 2026-11-14 with the cast tag (owner: no team tag)
 - FailedTrustReadDoesNotConsumeAnEligiblePeerCast: n/a: the client list read cannot fail through the SDK, so there is no failed read to retry (register COMBAT-4)
 - AVulnerabilityAnotherClientLandedStandsTheDebuffChainDown: `crates/mosstank-combat/tests/controller_debuffs.rs` :: `a_vulnerability_another_client_landed_stands_the_debuff_chain_down`
 - AVulnerabilityAnotherClientLandedMakesTheElementChoiceSeeItAsAlreadyThere: `crates/mosstank-combat/tests/controller_debuffs.rs` :: `a_vulnerability_another_client_landed_makes_the_element_choice_see_it_as_already_there`
 - ACastFromThisCharacterIsIgnored: `crates/mosstank-combat/tests/controller_debuffs.rs` :: `a_cast_from_this_character_is_ignored`
 - ARemoteSpellThatIsNotATrackedDebuffIsDroppedFromTheDebuffTable: `crates/mosstank-combat/tests/controller_debuffs.rs` :: `a_remote_spell_that_is_not_a_tracked_debuff_is_dropped_from_the_debuff_table`
 - TheCursorAdvancesAndACastIsNeverAppliedTwice: `crates/mosstank-combat/tests/controller_debuffs.rs` :: `the_cursor_advances_and_a_cast_is_never_applied_twice`
-- RemoteCastsAreTakenOnlyFromPeersCarryingTheChosenTag: `crates/mosstank-combat/tests/controller_debuffs.rs` :: `remote_casts_are_taken_only_from_peers_carrying_the_chosen_tag`
+- RemoteCastsAreTakenOnlyFromPeersCarryingTheChosenTag: retired 2026-11-14 with the cast tag (owner: no team tag)
 - WithSharingOffNothingIsTakenIn: `crates/mosstank-combat/tests/controller_debuffs.rs` :: `with_sharing_off_nothing_is_taken_in`
 - ACastSeenBeforeTheMacroStartedIsTakenInWhenItStarts: `crates/mosstank-combat/tests/controller_debuffs.rs` :: `a_cast_seen_before_the_macro_started_is_taken_in_when_it_starts`
 - ALearnedDebuffAnnouncesItsAttemptWithTheSkillAndItsSuccessWithTheDuration: `crates/mosstank-combat/tests/controller_debuffs.rs` :: `a_learned_debuff_announces_its_attempt_with_the_skill_and_its_success_with_the_duration`
@@ -1756,8 +1756,8 @@ Ported: **2299 of 2307** C# tests, from 136 of 137 files. Not applicable: **8**.
 
 ## MossTankPanelTests.UbSettingsTab.cs
 
-- TheSharingSwitchOnThePageGatesWhatIsReadFromTheOtherClients: `crates/mosstank/tests/ub_settings_tab.rs` :: `the_sharing_switch_on_the_page_gates_what_is_read_from_the_other_clients`
-- TheCastTagOnThePageReachesTheControllerThatFiltersThePeers: `crates/mosstank/tests/ub_settings_tab.rs` :: `the_cast_tag_on_the_page_reaches_the_controller_that_filters_the_peers`
+- TheSharingSwitchOnThePageGatesWhatIsReadFromTheOtherClients: `crates/mosstank/tests/ub_settings_tab.rs` :: `the_old_sharing_switch_reaches_the_team_and_gates_what_is_read` (the switch is HelpNetworkPeers since 2026-11-14)
+- TheCastTagOnThePageReachesTheControllerThatFiltersThePeers: retired 2026-11-14 with the cast tag (owner: no team tag)
 - TheNametagSwitchOnThePageTakesTheLabelsBackFromTheHost: `crates/mosstank-ub/tests/ub_tools.rs` :: `the_nametag_switch_on_the_page_takes_the_labels_back_from_the_host`
 - TheUbSettingsPageOpensWithEverySettingAndEveryToolListed: `crates/mosstank-ub/tests/ub_pages.rs` :: `the_ub_settings_page_opens_with_every_setting_and_every_tool_listed`
 - TheCategoryListNarrowsTheSettingList: `crates/mosstank-ub/tests/ub_pages.rs` :: `the_category_list_narrows_the_setting_list`

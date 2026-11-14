@@ -37,7 +37,7 @@ const fn switch(action: &'static str, label: &'static str, row: &'static str) ->
 }
 
 /// The page's buttons, in the page's reading order.
-pub const SWITCHES: [UbSwitch; 10] = [
+pub const SWITCHES: [UbSwitch; 9] = [
     switch("ToggleUbAutoVendor", "Auto Vendor", "AutoVendor.Enabled"),
     UbSwitch {
         action: "ToggleUbAutoVendorTestMode",
@@ -52,7 +52,6 @@ pub const SWITCHES: [UbSwitch; 10] = [
         "LandscapeMaps.Enabled",
     ),
     switch("ToggleUbNametags", "Name Tags", "Nametags.Enabled"),
-    switch("ToggleUbVitalSharing", "Vital Sharing", "Sharing.Vitals"),
     switch(
         "ToggleUbReceiveCommands",
         "Receive broadcasts",
