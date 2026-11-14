@@ -40,7 +40,8 @@ impl CombatController {
 
         let combat = cx.automation.combat_snapshot();
         // Selection is not frozen for an engagement: a higher-priority
-        // monster arriving mid-fight can win.
+        // monster arriving mid-fight can win, unless the fight is on a
+        // monster the team debuffed and focus keeps it there.
         self.refresh_spell_catalogs(cx.automation);
         let inventory = self.pass_inventory(cx.automation);
         let equipment = self.pass_equipment(cx.automation);
@@ -70,14 +71,33 @@ impl CombatController {
             candidates.push(candidate);
         }
 
-        let chosen = selection::select(
-            &candidates,
-            cx.settings.debuff_each_first,
-            cx.settings.selection_method,
-            cx.settings.target_select_angle_range,
-            wielded_weapon,
-            wielded_offhand,
-        );
+        let order = |candidates: &[CombatTargetCandidate]| {
+            selection::select(
+                candidates,
+                cx.settings.debuff_each_first,
+                cx.settings.selection_method,
+                cx.settings.target_select_angle_range,
+                wielded_weapon,
+                wielded_offhand,
+            )
+        };
+        let chosen = order(&candidates);
+        let chosen = if cx.settings.team_focus_debuffed {
+            let now = self.now;
+            let debuffs = &self.debuffs;
+            let (focused, decision) = selection::focus_debuffed(
+                &candidates,
+                chosen,
+                self.target_id,
+                |id| debuffs.has_any_in_force(id, now),
+                order,
+            );
+            self.last_focus_decision = Some(decision);
+            focused
+        } else {
+            self.last_focus_decision = Some(selection::FocusDecision::Off);
+            chosen
+        };
 
         self.trace_target_selection(cx, &candidates, chosen.object_id());
         if chosen.object_id() == 0 {

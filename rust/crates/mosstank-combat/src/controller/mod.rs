@@ -256,6 +256,9 @@ pub struct CombatController {
     until_scan: f64,
     acquisition_range: f64,
     target_id: u32,
+    /// Why the last target choice kept or left what it was on, as the
+    /// team's debuffs had it (`TeamFocusDebuffed`).
+    last_focus_decision: Option<crate::selection::FocusDecision>,
     target_rule: Option<ResolvedMonsterRule>,
     target_name: String,
     target_distance: f32,
@@ -402,6 +405,7 @@ impl CombatController {
             until_scan: 0.0,
             acquisition_range: 0.0,
             target_id: 0,
+            last_focus_decision: None,
             target_rule: None,
             target_name: String::new(),
             target_distance: 0.0,
@@ -581,6 +585,19 @@ impl CombatController {
     #[must_use]
     pub fn target_text(&self) -> &str {
         &self.target_text
+    }
+
+    /// The monster being fought, 0 for none.
+    #[must_use]
+    pub fn target_id(&self) -> u32 {
+        self.target_id
+    }
+
+    /// Why the last target choice kept or left what it was on as the
+    /// team's debuffs had it; `None` before the first choice.
+    #[must_use]
+    pub fn last_focus_decision(&self) -> Option<&crate::selection::FocusDecision> {
+        self.last_focus_decision.as_ref()
     }
 
     /// The mode line for the panel.

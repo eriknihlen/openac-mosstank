@@ -153,6 +153,12 @@ fn report(cx: &mut TankCx<'_>) {
         .last_helper_decision()
         .map_or_else(|| "none yet".to_owned(), ToString::to_string);
     lines.push(format!("Last helper decision: {helper}."));
+    let focus = cx
+        .core
+        .combat
+        .last_focus_decision()
+        .map_or_else(|| "none yet".to_owned(), ToString::to_string);
+    lines.push(format!("Last focus decision: {focus}."));
 
     for line in lines {
         Core::write_vtank(cx.client, &line);

@@ -254,3 +254,104 @@ fn tie_break(
         false
     }
 }
+
+/// Why the target choice kept or left what it was on, as the team's
+/// debuffs had it (`TeamFocusDebuffed`), for `/vt team`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FocusDecision {
+    /// Focus is off: the usual order chose.
+    Off,
+    /// Nothing to fight.
+    NoTarget,
+    /// The player's locked selection, which focus does not override.
+    Locked(String),
+    /// Stayed on a monster whose team debuff still holds.
+    Kept(String),
+    /// The usual order chose a monster the team debuffed.
+    Took(String),
+    /// Left a monster the team had not debuffed for one it had.
+    Switched {
+        /// The monster the usual order chose.
+        from: String,
+        /// The debuffed monster taken instead.
+        to: String,
+    },
+    /// Nothing in range carries a team debuff: the usual order chose.
+    NoneDebuffed(String),
+}
+
+impl std::fmt::Display for FocusDecision {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Off => f.write_str("focus on debuffed monsters is off"),
+            Self::NoTarget => f.write_str("nothing to fight"),
+            Self::Locked(name) => write!(f, "{name}, the locked selection"),
+            Self::Kept(name) => write!(f, "staying on {name}, whose team debuff holds"),
+            Self::Took(name) => write!(f, "{name}, debuffed by the team"),
+            Self::Switched { from, to } => {
+                write!(
+                    f,
+                    "left {from} (not debuffed) for {to}, debuffed by the team"
+                )
+            }
+            Self::NoneDebuffed(name) => write!(
+                f,
+                "nothing in range debuffed by the team; {name} by the usual order"
+            ),
+        }
+    }
+}
+
+/// The focus on what the team debuffed, over the usual choice `chosen`
+/// among `candidates` (`order` is the usual order; `debuffed` says whether
+/// a team debuff is in force on a monster; `current` is the monster being
+/// fought).
+///
+/// Only one move is ever made: from a monster with no team debuff to one
+/// with. A current target that is still a candidate and still carries a
+/// team debuff is kept, whatever else appears (a higher priority, a nearer
+/// or a more debuffed monster), so the fight never flip-flops. The usual
+/// order picks among several debuffed monsters. The player's locked
+/// selection is never overridden.
+pub fn focus_debuffed(
+    candidates: &[CombatTargetCandidate],
+    chosen: CombatTargetCandidate,
+    current: u32,
+    debuffed: impl Fn(u32) -> bool,
+    order: impl Fn(&[CombatTargetCandidate]) -> CombatTargetCandidate,
+) -> (CombatTargetCandidate, FocusDecision) {
+    if chosen.object_id() == 0 {
+        return (chosen, FocusDecision::NoTarget);
+    }
+    if chosen.is_lock_selection {
+        let name = chosen.target.name.clone();
+        return (chosen, FocusDecision::Locked(name));
+    }
+    if current != 0
+        && debuffed(current)
+        && let Some(kept) = candidates
+            .iter()
+            .find(|candidate| candidate.object_id() == current)
+    {
+        return (kept.clone(), FocusDecision::Kept(kept.target.name.clone()));
+    }
+    if debuffed(chosen.object_id()) {
+        let name = chosen.target.name.clone();
+        return (chosen, FocusDecision::Took(name));
+    }
+    let marked: Vec<CombatTargetCandidate> = candidates
+        .iter()
+        .filter(|candidate| debuffed(candidate.object_id()))
+        .cloned()
+        .collect();
+    if marked.is_empty() {
+        let name = chosen.target.name.clone();
+        return (chosen, FocusDecision::NoneDebuffed(name));
+    }
+    let taken = order(&marked);
+    let decision = FocusDecision::Switched {
+        from: chosen.target.name.clone(),
+        to: taken.target.name.clone(),
+    };
+    (taken, decision)
+}

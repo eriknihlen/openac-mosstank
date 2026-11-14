@@ -129,6 +129,7 @@ fn vt_team_lists_the_switches_the_members_and_the_last_decisions() {
     assert!(said(&world, "Claims: none."));
     assert!(said(&world, "Team debuffs: none in force."));
     assert!(said(&world, "Last helper decision: none yet."));
+    assert!(said(&world, "Last focus decision: none yet."));
 }
 
 #[test]
