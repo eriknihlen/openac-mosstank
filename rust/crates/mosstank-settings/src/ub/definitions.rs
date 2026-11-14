@@ -601,7 +601,7 @@ fn add_landscape_maps(rows: &mut Vec<UbSettingDefinition>) {
 fn add_network_ui(rows: &mut Vec<UbSettingDefinition>) {
     rows.push(switch_in(
         "NetworkUI.Enabled",
-        "Show the panel listing your other characters on this machine.",
+        "Show the team overlay (MossTank's TeamOverlay option).",
         false,
         UbSettingScope::Global,
     ));

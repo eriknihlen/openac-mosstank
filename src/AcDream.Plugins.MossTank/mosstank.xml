@@ -542,7 +542,7 @@
 
     <button x="204" y="20" w="136" h="24" text="{UbNetworkUiButtonText}"
             color="{UbNetworkUiButtonColor}" onclick="{ToggleUbNetworkUi}"
-            tooltip="Show the readout listing your other characters on this computer." />
+            tooltip="Show the team overlay: this character, the fellows and your other characters on the peer network (/vt opt TeamOverlay, /vt team overlay)." />
     <button x="204" y="52" w="136" h="24" text="{UbAliasesButtonText}"
             color="{UbAliasesButtonColor}" onclick="{ToggleUbAliases}"
             tooltip="Rewrite what you type using your alias list." />

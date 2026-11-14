@@ -115,6 +115,8 @@ const ALIASES: &str = "Aliases.DefinedAliases";
 const SETTINGS_PROFILE: &str = "Plugin.SettingsProfile";
 /// The old sharing switch: MossTank's `HelpNetworkPeers` option.
 const SHARING_VITALS: &str = "Sharing.Vitals";
+/// The readout's switch: MossTank's `TeamOverlay` option.
+const NETWORK_UI: &str = "NetworkUI.Enabled";
 
 /// The rows whose value belongs to something running (`UbLiveOwners`): the
 /// values the shell last read from their owners, and the writes made to
@@ -183,6 +185,10 @@ pub(crate) fn owned_rows(values: &StoreValues) -> Vec<(String, UbSettingBinding)
     rows.push((
         SHARING_VITALS.to_owned(),
         live_binding(&values.1, SHARING_VITALS, Clone::clone),
+    ));
+    rows.push((
+        NETWORK_UI.to_owned(),
+        live_binding(&values.1, NETWORK_UI, Clone::clone),
     ));
     // The meta profile picked, the alias list and the UB profile open live in
     // storage: a call writes them through its own catalogue ([`CallCatalog`]),
@@ -944,6 +950,10 @@ impl TankCx<'_> {
                 SHARING_VITALS,
                 UbSettingValue::from_bool(settings.vitals.help_network_peers),
             ),
+            (
+                NETWORK_UI,
+                UbSettingValue::from_bool(settings.vitals.team_overlay),
+            ),
         ];
         let mut alias_can_save = None;
         if files {
@@ -1007,6 +1017,12 @@ impl TankCx<'_> {
                 SHARING_VITALS => {
                     let _ = self.core.set_option(
                         options::HELP_NETWORK_PEERS,
+                        &ExpressionValue::Boolean(value.boolean),
+                    );
+                }
+                NETWORK_UI => {
+                    let _ = self.core.set_option(
+                        options::TEAM_OVERLAY,
                         &ExpressionValue::Boolean(value.boolean),
                     );
                 }

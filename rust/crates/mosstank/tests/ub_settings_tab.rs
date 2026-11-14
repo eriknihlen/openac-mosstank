@@ -200,6 +200,7 @@ fn exactly_the_settings_with_a_live_owner_stay_out_of_the_new_files() {
             "ItemGiver.FailureLimit",
             "ItemGiver.Range",
             "Jumper.Attempts",
+            "NetworkUI.Enabled",
         ]
     );
 }

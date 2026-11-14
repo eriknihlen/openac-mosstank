@@ -1054,3 +1054,72 @@ fn a_left_press_under_a_right_one_ends_with_the_right_release() {
     );
     assert!(rig.settings.1.is_empty());
 }
+
+// ---- The team overlay ----------------------------------------------------
+//
+// New (owner, 2026-11-14): the readout is the team overlay. Its rows are
+// this character, then the fellows and the network's characters merged by
+// character: a fellow who is also a network peer once, a fellow the
+// network does not report from the fellowship's vitals and distance, and a
+// character imported from another computer marked "(net)".
+
+fn fellow(id: u32, name: &str, health: u32, distance: f32) -> ac_plugin_abi::social::FellowMember {
+    ac_plugin_abi::social::FellowMember {
+        object_id: id,
+        name: name.to_owned(),
+        current_health: health,
+        max_health: 100,
+        current_stamina: 100,
+        max_stamina: 100,
+        current_mana: 100,
+        max_mana: 100,
+        distance,
+        vitals_age_seconds: Some(1.0),
+        ..ac_plugin_abi::social::FellowMember::default()
+    }
+}
+
+#[test]
+fn the_overlay_lists_the_fellows_and_the_network_peers_once_each() {
+    let mut rig = Rig::new();
+    rig.host.meta.fellowship.is_in_fellowship = true;
+    rig.host.meta.fellows = vec![
+        fellow(SELF_ID, "Acdream", 100, 0.0),
+        fellow(0x5000_0002, "Sigrid", 40, 12.0),
+        fellow(0x5000_0003, "Both", 60, 5.0),
+    ];
+    rig.host
+        .meta
+        .peers
+        .push(client(3, 0x5000_0003, "Both", at(0.0, 0.0, 0.0)));
+    let mut remote = client(4, 0x5000_0004, "Faraway", at(1.0, 0.0, 0.0));
+    remote.is_remote = true;
+    rig.host.meta.peers.push(remote);
+    rig.ticks(1);
+
+    assert_eq!(rig.names(), ["Acdream", "Sigrid", "Both", "Faraway"]);
+    let sigrid = &rig.controller.rows()[1];
+    // Not on the network and not in sight: the fellowship's word.
+    assert_eq!("40%", sigrid.health_text);
+    assert_eq!("12", sigrid.distance_text);
+    assert!(!sigrid.imported);
+    // A fellow on the network: its sampled vitals, the network's place.
+    assert_eq!("60%", rig.controller.rows()[2].health_text);
+    assert_eq!("0", rig.controller.rows()[2].distance_text);
+    assert!(rig.controller.rows()[3].imported);
+
+    let painter = rig.paint();
+    assert!(painter.texts.iter().any(|text| text == "Faraway (net)"));
+    assert!(painter.texts.iter().any(|text| text == "Sigrid"));
+}
+
+#[test]
+fn a_fellow_out_of_sight_and_off_the_network_has_no_distance() {
+    let mut rig = Rig::new();
+    rig.host.meta.fellowship.is_in_fellowship = true;
+    rig.host.meta.fellows = vec![fellow(0x5000_0002, "Sigrid", 40, f32::INFINITY)];
+    rig.ticks(1);
+
+    assert_eq!(rig.names(), ["Acdream", "Sigrid"]);
+    assert_eq!("??", rig.controller.rows()[1].distance_text);
+}

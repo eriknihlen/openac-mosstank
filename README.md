@@ -214,7 +214,10 @@ Four switches, on the Vitals tab and under `/vt opt get|set|toggle` (so
   The old UB switch `Sharing.Vitals` (and `VTank.VitalSharing`) is accepted
   by `/ub opt` as this switch.
 - `TeamFocusDebuffed` (on): see below.
-- `TeamOverlay` (off): the team overlay.
+- `TeamOverlay` (off): the team overlay, the readout of this character and
+  the team (bars, arrow, distance; "(net)" after a character on another
+  computer). The UB tab's Network UI button and `NetworkUI.Enabled` are this
+  switch.
 
 While either help switch is on, this character tells the others its vitals,
 place and casts, and takes in theirs. `/vt team` lists the team, the debuffs

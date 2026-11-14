@@ -1509,7 +1509,7 @@ DungeonMaps.Display.Markers.EverythingElse.Color|Color|Profile|DungeonMaps|"#FFF
 DungeonMaps.Display.Markers.EverythingElse.Size|Int|Profile|DungeonMaps|"3"|"3"|"DungeonMaps.Display.Markers.EverythingElse.Size (Profile) = 3"|"How many pixels across the mark for anything with no marker of its own is."|
 LandscapeMaps.Enabled|Bool|Global|LandscapeMaps|"True"|"True"|"LandscapeMaps.Enabled (Profile) = True"|"Draw a map of the countryside you are standing in."|
 LandscapeMaps.Opacity|Int|Profile|LandscapeMaps|"16"|"16"|"LandscapeMaps.Opacity (Profile) = 16"|"How solid the countryside map is drawn, from 0 to 255."|
-NetworkUI.Enabled|Bool|Global|NetworkUI|"False"|"False"|"NetworkUI.Enabled (Profile) = False"|"Show the panel listing your other characters on this machine."|
+NetworkUI.Enabled|Bool|Global|NetworkUI|"False"|"False"|"NetworkUI.Enabled (Profile) = False"|"Show the team overlay (MossTank's TeamOverlay option)."|
 NetworkUI.ShowHudWhenClosed|Bool|Global|NetworkUI|"True"|"True"|"NetworkUI.ShowHudWhenClosed (Profile) = True"|"Keep the readout on screen while the main window is shut."|
 NetworkUI.TrackedItems|Collection|Profile|NetworkUI|""|"(empty)"|"NetworkUI.TrackedItems (Profile) = []"|"Items whose count is shown for every character, one name a line."|
 NetworkUI.SelectedTag|String|Character|NetworkUI|"All"|"All"|"NetworkUI.SelectedTag (State) = All"|"Which tag's characters the panel lists; All lists every one."|

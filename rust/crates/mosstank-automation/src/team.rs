@@ -13,6 +13,9 @@ use ac_plugin_abi::world::{METRES_PER_MAP_UNIT, Position};
 pub struct TeamMember {
     /// Its character's object id.
     pub player_id: u32,
+    /// The network's number for its client, 0 when the network does not
+    /// report it.
+    pub client_id: u32,
     /// Its name.
     pub name: String,
     /// In this character's fellowship.
@@ -70,6 +73,7 @@ pub fn roster(
         }
         members.push(TeamMember {
             player_id: fellow.object_id,
+            client_id: 0,
             name: fellow.name.clone(),
             fellow: true,
             peer: false,
@@ -89,6 +93,7 @@ pub fn roster(
         if let Some(member) = members.iter_mut().find(|m| m.player_id == peer.player_id) {
             if !member.peer {
                 member.peer = true;
+                member.client_id = peer.client_id;
                 member.imported = peer.is_remote;
                 if member.position.is_none() {
                     member.position = Some(peer.position.clone());
@@ -105,6 +110,7 @@ pub fn roster(
         }
         members.push(TeamMember {
             player_id: peer.player_id,
+            client_id: peer.client_id,
             name: peer.name.clone(),
             fellow: false,
             peer: true,

@@ -1,8 +1,13 @@
-//! The clients readout (`NetworkHudController`): this character and the
-//! others played on this computer, this one first, then one row each with
-//! a health bar, half-bars for stamina and mana, the name and the
-//! percentages, an arrow to where they stand tinted by how far, the
-//! distance, and the counts of the items being tracked.
+//! The team overlay, once the clients readout (`NetworkHudController`):
+//! this character first, then the team, one row each with a health bar,
+//! half-bars for stamina and mana, the name and the percentages, an arrow
+//! to where they stand tinted by how far, the distance, and the counts of
+//! the items being tracked. The team is the fellows and the characters the
+//! peer network reports, merged by character: a fellow who is also a
+//! network peer has one row, a fellow the network does not report is shown
+//! from the fellowship's vitals and distance, and a character imported from
+//! another computer is marked "(net)". It is shown while the `TeamOverlay`
+//! option is on (the `NetworkUI.Enabled` row is that option).
 //!
 //! The rows are rebuilt at most twenty times a second and the canvas is
 //! repainted only when a row differs from the last time. The canvas takes
@@ -27,6 +32,8 @@
 //! The network reports the other clients only, so this character's row is
 //! built from the character itself; another client does not publish item
 //! counts, so the tracked counts are shown on this character's row alone.
+//! The selected tag narrows the network's characters; a fellow is shown
+//! whatever its client's labels.
 
 use std::collections::HashMap;
 
@@ -43,6 +50,7 @@ use crate::canvas::{
 };
 use crate::catalog::UbCatalog;
 use crate::host::UbHost;
+use mosstank_automation::team;
 
 /// The canvas's id.
 pub const CANVAS_ID: &str = "ub-clients";
@@ -218,6 +226,10 @@ pub struct NetworkHudRow {
     pub name: String,
     /// This character's own row.
     pub is_self: bool,
+    /// A fellow.
+    pub fellow: bool,
+    /// Imported from another computer: drawn "(net)" after its name.
+    pub imported: bool,
     /// Health, 0 to 1.
     pub health_fraction: f64,
     /// Stamina, 0 to 1.
@@ -519,6 +531,8 @@ impl NetworkHudController {
                 player_id: own_id,
                 name: me.name.clone(),
                 is_self: true,
+                fellow: false,
+                imported: false,
                 health_fraction: fraction(me.health.0, me.health.1),
                 stamina_fraction: fraction(me.stamina.0, me.stamina.1),
                 mana_fraction: fraction(me.mana.0, me.mana.1),
@@ -531,57 +545,63 @@ impl NetworkHudController {
                 tracked,
             });
         }
-        if !host.peers_connected() {
-            return rows;
-        }
-        for client in host.peer_clients() {
+        let fellows = if host.fellowship().is_in_fellowship {
+            host.fellowship_roster()
+        } else {
+            Vec::new()
+        };
+        let peers: Vec<_> = if host.peers_connected() {
+            host.peer_clients()
+                .into_iter()
+                // Ignoring case, as the labels are matched everywhere.
+                .filter(|client| {
+                    tag.is_empty()
+                        || ordinal::equals_ignore_case(&tag, ALL_TAG)
+                        || client
+                            .tags
+                            .iter()
+                            .any(|held| ordinal::equals_ignore_case(held, &tag))
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        // A character the world shows is measured where it stands, as the
+        // reference does: what its client said is only as fresh as its last
+        // word, and a client that does not share its state keeps the place
+        // it entered the world at. The arrow aims at the same place, where
+        // the reference aims it at the shared coordinates (divergence
+        // register, UB-9).
+        let members = team::roster(own_id, &fellows, &peers, &mut |id| {
+            host.object(id).and_then(|object| object.position)
+        });
+        for member in members {
             if rows.len() >= MAX_ROWS {
                 break;
             }
-            if client.player_id == own_id {
-                continue;
-            }
-            // Ignoring case, as the cast-sharing tag filter does, so the two
-            // read one tag list the same way.
-            if !tag.is_empty()
-                && !ordinal::equals_ignore_case(&tag, ALL_TAG)
-                && !client
-                    .tags
-                    .iter()
-                    .any(|held| ordinal::equals_ignore_case(held, &tag))
-            {
-                continue;
-            }
-            // A character the world shows is measured where it stands, as
-            // the reference does: what its client said is only as fresh as
-            // its last word, and a client that does not share its state
-            // keeps the place it entered the world at. The arrow aims at the
-            // same place, where the reference aims it at the shared
-            // coordinates (divergence register, UB-9).
-            let seen = if client.player_id == 0 {
-                None
-            } else {
-                host.object(client.player_id).and_then(|o| o.position)
-            };
-            let theirs = seen.as_ref().unwrap_or(&client.position);
-            let (distance, arrow) = match &mine {
-                Some(from) => (
+            let (distance, arrow) = match (&mine, &member.position) {
+                (Some(from), Some(theirs)) => (
                     Some(distance_metres(from, theirs)),
                     arrow_radians(from, theirs),
                 ),
-                None => (None, 0.0),
+                // A fellow out of sight and off the network: the
+                // fellowship's distance, if it has one.
+                _ => (member.roster_distance.map(f64::from), 0.0),
             };
+            let (health, stamina, mana) = (member.health, member.stamina, member.mana);
             rows.push(NetworkHudRow {
-                client_id: client.client_id,
-                player_id: client.player_id,
-                name: client.name.clone(),
+                client_id: member.client_id,
+                player_id: member.player_id,
+                name: member.name,
                 is_self: false,
-                health_fraction: fraction(client.current_health, client.max_health),
-                stamina_fraction: fraction(client.current_stamina, client.max_stamina),
-                mana_fraction: fraction(client.current_mana, client.max_mana),
-                health_text: percent(client.current_health, client.max_health),
-                stamina_text: percent(client.current_stamina, client.max_stamina),
-                mana_text: percent(client.current_mana, client.max_mana),
+                fellow: member.fellow,
+                imported: member.imported,
+                health_fraction: fraction(health.0, health.1),
+                stamina_fraction: fraction(stamina.0, stamina.1),
+                mana_fraction: fraction(mana.0, mana.1),
+                health_text: percent(health.0, health.1),
+                stamina_text: percent(stamina.0, stamina.1),
+                mana_text: percent(mana.0, mana.1),
                 distance_text: distance.map_or_else(|| "??".to_owned(), format_number),
                 arrow_radians: arrow,
                 distance_tint: distance.map_or(255, distance_tint),
@@ -672,9 +692,15 @@ impl NetworkHudController {
                 );
             }
             paint_tracked(painter, offset, row, &icons);
-            // Every row is labelled with the character's name alone; the
-            // client's number in front of it read as a list of ids.
-            painter.draw_text(&row.name, (2.0, f64::from(offset) + 1.0), &TEXT, false);
+            // Every row is labelled with the character's name alone (the
+            // client's number in front of it read as a list of ids), and
+            // "(net)" after it for a character on another computer.
+            let label = if row.imported {
+                format!("{} (net)", row.name)
+            } else {
+                row.name.clone()
+            };
+            painter.draw_text(&label, (2.0, f64::from(offset) + 1.0), &TEXT, false);
             let (health_width, _) = painter.measure_text(&row.health_text);
             painter.draw_text(
                 &row.health_text,

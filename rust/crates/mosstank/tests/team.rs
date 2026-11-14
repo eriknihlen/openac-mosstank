@@ -164,3 +164,18 @@ fn vt_help_lists_team() {
     world.vt(&mut plugin, "help team");
     assert!(said(&world, "Syntax: /vt team [overlay [on|off]]"));
 }
+
+/// The readout's UB switch is `TeamOverlay`, both ways.
+#[test]
+fn network_ui_enabled_is_the_team_overlay_switch() {
+    let (mut world, mut plugin) = fresh("Teamer");
+
+    world.vt(&mut plugin, "opt set TeamOverlay true");
+    world.command(&mut plugin, "ub", "opt get NetworkUI.Enabled");
+    assert!(said(&world, "NetworkUI.Enabled (Profile) = True"));
+
+    world.command(&mut plugin, "ub", "opt set NetworkUI.Enabled false");
+    world.vt(&mut plugin, "opt get TeamOverlay");
+    assert!(said(&world, "Option TeamOverlay = False"));
+    assert!(!world.ui_bool(&mut plugin, "TeamOverlayEnabled"));
+}
