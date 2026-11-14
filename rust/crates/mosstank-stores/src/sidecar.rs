@@ -642,8 +642,11 @@ pub struct ItemEnchantRowDocument {
 const RULES_STAND_IN: &str = "MossTankInventoryLootRulesGoHere";
 
 /// The side-car's layout version. Version 2 turned helping the network
-/// peers on by default: before it nothing could set the switch, so every
-/// older file says off only because it was never asked, and reads as on.
+/// peers on by default (owner, 2026-11-14), and an older file reads it as
+/// on, once. Before it the switch was off by default and only the Vitals
+/// tab's checkbox could turn it on, so an older file almost always says off
+/// because nobody touched it; one where someone had turned it on and off
+/// again is turned on as well, the price of the one-time change.
 pub const CURRENT_VERSION: i32 = 2;
 
 /// The side-car (`SideCarDocument`), every property in the C#'s order.
@@ -1412,7 +1415,7 @@ impl SideCarDocument {
                 },
             )?,
             vitals_enabled: o.bool("VitalsEnabled", true)?,
-            // Once, for a file written before the switch could be set.
+            // Once, for a file written before the switch was on by default.
             vitals_help_network_peers: o.bool("VitalsHelpNetworkPeers", false)?
                 || version < CURRENT_VERSION,
             vitals_team_overlay: o.bool("VitalsTeamOverlay", false)?,

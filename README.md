@@ -205,8 +205,8 @@ history without affecting the macro or current status, and **X** closes the wind
 MossTank bots heal each other and share targeting, on one computer or
 several. The team is the fellowship plus your other characters the peer
 network reports (on this computer, or brought in from another by a bridge).
-Four switches, on the Vitals tab and under `/vt opt get|set|toggle` (so
-`/ub bc` can set a whole group), saved per character:
+Four switches, on the Vitals tab and under `/vt opt get|set|toggle|setinall`
+(so `/ub bc` can set a whole group), saved with the settings profile:
 
 - `HelpFellows` (on): heal, restam and remana fellows, and share debuff
   targeting with them. It is VTank's `DoHelp`; both names work.
@@ -217,14 +217,33 @@ Four switches, on the Vitals tab and under `/vt opt get|set|toggle` (so
 - `TeamOverlay` (off): the team overlay, the readout of this character and
   the team (bars, arrow, distance; "(net)" after a character on another
   computer). The UB tab's Network UI button and `NetworkUI.Enabled` are this
-  switch.
+  switch; a value a UB settings file kept for `NetworkUI.Enabled` becomes
+  `TeamOverlay` once for each character.
 
 While either help switch is on, this character tells the others its vitals,
-place and casts, and takes in theirs. `/vt team` lists the team, the debuffs
-in force on monsters, and why the helper last helped nobody; `/vt team
-overlay [on|off]` switches the overlay.
+place and casts, and takes in theirs. A debuff a teammate has landed is not
+cast again while it holds, and one a teammate is casting counts as up on its
+monster for six seconds (a claim), so two debuffers split two monsters.
+Casts read again from the start of the list, when the macro starts, give
+their landed debuffs but no claims.
 
-## Peer features
+With `TeamFocusDebuffed`, a fighter on a monster the team has not debuffed
+switches to one in range that a teammate has debuffed (this character's own
+debuffs and claims do not count), chosen among those by the usual order.
+Then it stays: that monster is kept while it is a valid target and the
+team's debuff holds, whatever else appears, even a higher-priority monster.
+The only move is from an undebuffed monster to a team-debuffed one, so it
+never flip-flops, and a monster that could not be attacked a moment ago is
+left alone for five seconds. The player's locked selection (Target Lock),
+and a monster this character still owes a debuff to while it debuffs first,
+are never overridden. A bot with no teammates chooses as before. VTank has
+no such switch.
+
+`/vt team` lists the team, claims and debuffs in force on monsters, and why
+the helper and the target choice last did what they did; `/vt team overlay
+[on|off]` switches the overlay.
+
+### Broadcasts
 
 Receive broadcasts defaults on so `/ub bc` works between logged-in characters on this computer in the same world. It is stored per character; an explicitly saved choice is preserved. Receive broadcasts allows this client to execute incoming tagged broadcast commands. Sending a broadcast does not enable reception. The team (above), the network readout and metas containing netclients[] or netcasts[] request their own capabilities. Requests end when the feature stops or the plugin unloads. A meta needing peers waits for the initial connection before evaluating peer-dependent rules.
 

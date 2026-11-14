@@ -179,3 +179,79 @@ fn network_ui_enabled_is_the_team_overlay_switch() {
     assert!(said(&world, "Option TeamOverlay = False"));
     assert!(!world.ui_bool(&mut plugin, "TeamOverlayEnabled"));
 }
+
+fn option_is(world: &mut World, plugin: &mut MossTank, name: &str, value: &str) -> bool {
+    world.clear_chat();
+    world.vt(plugin, &format!("opt get {name}"));
+    said(world, &format!("Option {name} = {value}"))
+}
+
+/// `setinall` reaches every settings profile for the team switches kept in
+/// the side-car too.
+#[test]
+fn setinall_reaches_every_profile_for_the_side_car_team_switches() {
+    for name in ["HelpNetworkPeers", "TeamFocusDebuffed", "TeamOverlay"] {
+        let (mut world, mut plugin) = fresh("Teamer");
+        let start = if name == "TeamOverlay" {
+            "false"
+        } else {
+            "true"
+        };
+        let end = if name == "TeamOverlay" {
+            "True"
+        } else {
+            "False"
+        };
+        let end_lower = end.to_lowercase();
+        world.vt(&mut plugin, &format!("opt set {name} {start}"));
+        world.vt(&mut plugin, "settings save First");
+        world.vt(&mut plugin, "settings save Second");
+
+        world.vt(&mut plugin, &format!("opt setinall {name} {end_lower}"));
+        assert!(said(
+            &world,
+            &format!("Done saving setting {name} to all profiles.")
+        ));
+        world.vt(&mut plugin, "settings load First");
+
+        assert!(option_is(&mut world, &mut plugin, name, end), "{name}");
+    }
+}
+
+/// `setinall HelpFellows` is not undone by an older `HelpFellows` another
+/// profile's side-car still carries.
+#[test]
+fn setinall_help_fellows_is_not_undone_by_an_older_override() {
+    let (mut world, mut plugin) = fresh("Teamer");
+    world.vt(&mut plugin, "opt set HelpFellows false");
+    world.vt(&mut plugin, "settings save First");
+    world.vt(&mut plugin, "settings save Second");
+
+    world.vt(&mut plugin, "opt setinall HelpFellows true");
+    world.vt(&mut plugin, "settings load First");
+
+    assert!(option_is(&mut world, &mut plugin, "HelpFellows", "True"));
+    assert!(option_is(&mut world, &mut plugin, "DoHelp", "True"));
+}
+
+/// A value an existing UB settings file holds for `NetworkUI.Enabled`
+/// becomes `TeamOverlay` once for a character; after that the option is
+/// the character's own.
+#[test]
+fn a_saved_network_ui_switch_carries_over_to_the_team_overlay_once() {
+    let mut world = World::with_character("Teamer");
+    world.profiles.insert(
+        "mosstank/ub/settings.json",
+        "{\n  \"NetworkUI.Enabled\": \"True\"\n}",
+    );
+    let mut plugin = world.enable();
+    world.ticks(&mut plugin, 3);
+    assert!(option_is(&mut world, &mut plugin, "TeamOverlay", "True"));
+
+    world.vt(&mut plugin, "opt set TeamOverlay false");
+    world.disable(&mut plugin);
+    let mut again = world.enable();
+    world.ticks(&mut again, 3);
+
+    assert!(option_is(&mut world, &mut again, "TeamOverlay", "False"));
+}

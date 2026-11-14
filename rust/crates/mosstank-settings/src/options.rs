@@ -294,6 +294,28 @@ pub static COMMAND_NAMES: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
     names
 });
 
+/// Whether the option is one of MossTank's own, which VTank's Settings
+/// table does not have (the side-car keeps them).
+#[must_use]
+pub fn is_own(name: &str) -> bool {
+    OWN_OPTIONS
+        .iter()
+        .any(|own| ordinal::equals_ignore_case(own, name))
+}
+
+/// The other names an option's override may be kept under: `HelpFellows`
+/// and `DoHelp` are one switch.
+#[must_use]
+pub fn other_names(name: &str) -> &'static [&'static str] {
+    if ordinal::equals_ignore_case(name, "DoHelp") {
+        &[HELP_FELLOWS]
+    } else if ordinal::equals_ignore_case(name, HELP_FELLOWS) {
+        &["DoHelp"]
+    } else {
+        &[]
+    }
+}
+
 /// The name a profile file keeps an option under: `HelpFellows` is
 /// VTank's `DoHelp`; every other option is kept under its own name.
 #[must_use]

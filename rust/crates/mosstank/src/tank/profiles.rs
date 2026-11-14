@@ -681,6 +681,7 @@ impl TankCx<'_> {
         )
         .unwrap_or(false);
         if !macro_changed && !loot_changed && !route_changed && !meta_changed {
+            self.carry_network_ui_over();
             return;
         }
         // As the C# has it: the loads below follow a good settings load too,
@@ -776,6 +777,7 @@ impl TankCx<'_> {
         if let Some(enabled) = self.core.apply_persisted_option_overrides(self.client) {
             self.meta.set_enabled(enabled);
         }
+        self.carry_network_ui_over();
     }
 
     /// `SelectProfile`.

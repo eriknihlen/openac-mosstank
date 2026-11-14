@@ -990,6 +990,19 @@ impl TankCx<'_> {
         }
     }
 
+    /// `NetworkUI.Enabled` was the readout's own row and is `TeamOverlay`
+    /// now: a value a UB settings file kept for it becomes the option once
+    /// for each character, after which the option is the character's own.
+    pub(crate) fn carry_network_ui_over(&mut self) {
+        let carried = self.ub.store.borrow_mut().take_carried_over(NETWORK_UI);
+        if let Some(value) = carried {
+            let _ = self.set_meta_option(
+                options::TEAM_OVERLAY,
+                &ExpressionValue::Boolean(value.boolean),
+            );
+        }
+    }
+
     /// The alias file the `Aliases.Profile` row names (`AliasFileKey`).
     fn alias_file_key(&self) -> Option<String> {
         let profile = mosstank_ub::catalog::UbCatalog::value(&self.ub.catalog, "Aliases.Profile");

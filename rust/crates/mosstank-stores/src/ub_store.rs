@@ -430,6 +430,35 @@ impl UbSettingStore {
         self.tiers.iter().any(|tier| tier.dirty)
     }
 
+    /// A value an older layout kept under `name`, handed to the option that
+    /// owns it now, once per character: the first call for a character
+    /// returns what its files hold (the character's tier first, then the
+    /// profile's, then the installation's), if anything, and marks the
+    /// character's file so no later call does. `None`, and no mark, while
+    /// no character is bound or no file holds a value (nothing writes one
+    /// there any more).
+    pub fn take_carried_over(&mut self, name: &str) -> Option<UbSettingValue> {
+        if self.character.is_empty() {
+            return None;
+        }
+        let marker = format!("$carried:{name}");
+        if self.read_raw(UbSettingScope::Character, &marker).is_some() {
+            return None;
+        }
+        let value = [
+            UbSettingScope::Character,
+            UbSettingScope::Profile,
+            UbSettingScope::Global,
+        ]
+        .into_iter()
+        .find_map(|scope| {
+            let text = self.read_raw(scope, name)?;
+            UbSettingValue::try_parse(definitions::kind_of(name), text)
+        })?;
+        self.write_raw(UbSettingScope::Character, &marker, "True");
+        Some(value)
+    }
+
     fn read_raw(&self, scope: UbSettingScope, name: &str) -> Option<&str> {
         self.tiers[index(scope)]
             .values

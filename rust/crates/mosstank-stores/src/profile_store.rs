@@ -1038,73 +1038,37 @@ impl ProfileStore {
         if !host.storage(Root::Profiles).is_available() {
             return Ok(0);
         }
-        let Some(captured) = profile::capture(canonical, current) else {
+        // VTank's options are a row in each file's Settings table; MossTank's
+        // own (kept in the side-car) are only the side-car's override.
+        let captured = profile::capture(canonical, current);
+        if captured.is_none() && !options::is_own(canonical) {
             return Ok(0);
-        };
+        }
         let mut file_names = directory::list_every_settings_key(host.storage(Root::Profiles))?;
         let current_file = self.current_file_name();
         if !file_names.contains(&current_file) {
             file_names.push(current_file);
         }
-        let dynamic_document = current
-            .combat
-            .dynamic_settings
-            .get(canonical)
+        // The value as the live settings' override holds it, under this
+        // name or another name of the same option (`HelpFellows` for
+        // `DoHelp`).
+        let dynamic_document = std::iter::once(canonical)
+            .chain(options::other_names(canonical).iter().copied())
+            .find_map(|name| current.combat.dynamic_settings.get(name))
             .map(DynamicSettingDocument::from_value);
 
         for file_name in &file_names {
-            let text = self.read_usd_text(host, file_name)?;
-            if self.can_replace_existing(host, file_name)?.is_err() {
-                continue;
-            }
-            let mut database = match text {
-                None => defaults::create(),
-                Some(text) => match VtankDatabase::parse(&text) {
-                    Ok(database) => database,
-                    Err(error) => {
-                        host.log().warn(&format!(
-                            "MossTank could not update '{file_name}' for setinall: {}",
-                            error.0
-                        ));
+            match &captured {
+                Some(captured) => {
+                    if !self.write_option_row(host, file_name, canonical, captured)? {
                         continue;
                     }
-                },
-            };
-            let Some(table) = database.find_mut("Settings") else {
-                continue;
-            };
-            let (Some(name_column), Some(value_column)) =
-                (table.column_index("Setting"), table.column_index("Value"))
-            else {
-                continue;
-            };
-            let found = table.rows.iter().position(|row| {
-                row.cells
-                    .get(name_column)
-                    .is_some_and(|cell| ordinal::equals_ignore_case(cell.as_string(), canonical))
-            });
-            let at = match found {
-                Some(at) => at,
-                None => {
-                    let mut row = VtankRow {
-                        cells: (0..table.column_names.len())
-                            .map(|_| VtankCell::tagged("0"))
-                            .collect(),
-                    };
-                    if let Some(cell) = row.cells.get_mut(name_column) {
-                        *cell = VtankCell::string(canonical);
-                    }
-                    table.rows.push(row);
-                    table.rows.len() - 1
                 }
-            };
-            let Some(cell) = table.rows[at].cells.get_mut(value_column) else {
-                return Err("Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'index')".to_owned());
-            };
-            *cell = captured.clone();
-            self.write_usd_text(host, file_name, &database.render());
-            if self.current_database_file_name.as_deref() == Some(file_name.as_str()) {
-                self.current_database = Some(database);
+                None => {
+                    if self.can_replace_existing(host, file_name)?.is_err() {
+                        continue;
+                    }
+                }
             }
             if let Some(dynamic) = &dynamic_document {
                 let key = side_car_key(file_name);
@@ -1112,6 +1076,13 @@ impl ProfileStore {
                     read_json(host, &mut self.recovery_notice, &key, SideCarDocument::read)
                         .unwrap_or_else(SideCarDocument::create_defaults);
                 let entries = sidecar.combat_dynamic_settings.get_or_insert_with(Vec::new);
+                // An override kept under the option's other name would be
+                // applied after this one on a load and undo it.
+                entries.retain(|(known, _)| {
+                    !options::other_names(canonical)
+                        .iter()
+                        .any(|other| ordinal::equals_ignore_case(known, other))
+                });
                 match entries.iter_mut().find(|(known, _)| known == canonical) {
                     Some(entry) => entry.1 = Some(dynamic.clone()),
                     None => entries.push((canonical.to_owned(), Some(dynamic.clone()))),
@@ -1120,6 +1091,71 @@ impl ProfileStore {
             }
         }
         Ok(file_names.len())
+    }
+
+    /// One file's Settings row for `setinall`: false when the file is left
+    /// alone (it cannot be replaced, or read, or has no Settings table).
+    fn write_option_row(
+        &mut self,
+        host: &mut dyn StoreHost,
+        file_name: &str,
+        canonical: &str,
+        captured: &VtankCell,
+    ) -> Result<bool, StoreError> {
+        let text = self.read_usd_text(host, file_name)?;
+        if self.can_replace_existing(host, file_name)?.is_err() {
+            return Ok(false);
+        }
+        let mut database = match text {
+            None => defaults::create(),
+            Some(text) => match VtankDatabase::parse(&text) {
+                Ok(database) => database,
+                Err(error) => {
+                    host.log().warn(&format!(
+                        "MossTank could not update '{file_name}' for setinall: {}",
+                        error.0
+                    ));
+                    return Ok(false);
+                }
+            },
+        };
+        let Some(table) = database.find_mut("Settings") else {
+            return Ok(false);
+        };
+        let (Some(name_column), Some(value_column)) =
+            (table.column_index("Setting"), table.column_index("Value"))
+        else {
+            return Ok(false);
+        };
+        let found = table.rows.iter().position(|row| {
+            row.cells
+                .get(name_column)
+                .is_some_and(|cell| ordinal::equals_ignore_case(cell.as_string(), canonical))
+        });
+        let at = match found {
+            Some(at) => at,
+            None => {
+                let mut row = VtankRow {
+                    cells: (0..table.column_names.len())
+                        .map(|_| VtankCell::tagged("0"))
+                        .collect(),
+                };
+                if let Some(cell) = row.cells.get_mut(name_column) {
+                    *cell = VtankCell::string(canonical);
+                }
+                table.rows.push(row);
+                table.rows.len() - 1
+            }
+        };
+        let Some(cell) = table.rows[at].cells.get_mut(value_column) else {
+            return Err("Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'index')".to_owned());
+        };
+        *cell = captured.clone();
+        self.write_usd_text(host, file_name, &database.render());
+        if self.current_database_file_name.as_deref() == Some(file_name) {
+            self.current_database = Some(database);
+        }
+        Ok(true)
     }
 
     // ---- Legacy JSON -> .usd and side-car --------------------------------
