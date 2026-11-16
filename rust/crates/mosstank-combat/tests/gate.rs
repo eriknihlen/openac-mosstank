@@ -205,6 +205,62 @@ fn gate_re_asks_through_peace_when_the_server_never_confirms_the_stance() {
     assert_eq!(rig.gate.status(), "Ready");
 }
 
+fn never_answering_server() -> Rig {
+    let mut snapshot = in_mode(CombatMode::Peace);
+    snapshot.server_mode = CombatMode::Peace;
+    Rig::new(FakeAutomation {
+        combat_snapshot: snapshot,
+        withhold_mode_echo: true,
+        equipment_items: vec![recovery_wand_held()],
+        ..FakeAutomation::default()
+    })
+}
+
+#[test]
+fn gate_re_asks_every_ten_seconds_but_logs_only_the_first_three() {
+    let mut rig = never_answering_server();
+    for _ in 0..120 {
+        rig.advance(0.5);
+        let _ = rig.prepare(CombatMode::Magic);
+        rig.surface.pending_mode = None;
+    }
+    let peace_asks = calls(&rig.surface)
+        .iter()
+        .filter(|call| **call == "EnterMode:Peace")
+        .count();
+    // One re-ask per 10 s wait plus the half-second hop back to magic.
+    assert_eq!(peace_asks, 5);
+    let logged: Vec<&String> = rig
+        .surface
+        .infos
+        .iter()
+        .filter(|line| line.contains("unconfirmed"))
+        .collect();
+    assert_eq!(logged.len(), 3, "{logged:?}");
+    assert!(logged[2].ends_with("Further re-asks until it is confirmed are not logged."));
+}
+
+#[test]
+fn gate_restarts_the_wait_after_a_spell_nobody_asked_for_a_stance() {
+    let mut rig = never_answering_server();
+    rig.advance(0.5);
+    assert!(!rig.prepare(CombatMode::Magic));
+    rig.surface.pending_mode = None;
+    // No rule consults the gate for half a minute.
+    rig.advance(30.0);
+    assert!(!rig.prepare(CombatMode::Magic));
+    assert_eq!(calls(&rig.surface), ["EnterMode:Magic"]);
+    // The wait counts from the gate's next look, not from the old ask.
+    for _ in 0..19 {
+        rig.advance(0.5);
+        assert!(!rig.prepare(CombatMode::Magic));
+    }
+    assert_eq!(calls(&rig.surface), ["EnterMode:Magic"]);
+    rig.advance(0.5);
+    assert!(!rig.prepare(CombatMode::Magic));
+    assert_eq!(calls(&rig.surface), ["EnterMode:Magic", "EnterMode:Peace"]);
+}
+
 // Source: tests/AcDream.Plugins.MossTank.Tests/CombatControllerTests.cs :: GateGivesUpWaitingForTheServersStanceAfterTheConfirmationWindow
 #[test]
 fn gate_gives_up_waiting_for_the_servers_stance_after_the_confirmation_window() {

@@ -43,6 +43,13 @@ const MODE_CONFIRMATION_SECONDS: f64 = 0.6;
 /// client does send, and the stance from there.
 pub const UNCONFIRMED_MODE_REASK_SECONDS: f64 = 10.0;
 
+/// A gap between two looks at an unconfirmed stance longer than this,
+/// seconds, means no rule was asking: the wait starts again.
+const UNWATCHED_GAP_SECONDS: f64 = 1.0;
+
+/// How many re-asks in a row the log reports.
+const REASK_LOG_LIMIT: u32 = 3;
+
 /// The ammunition questions the fight answers for the gate.
 pub trait AmmunitionHooks {
     /// Whether the weapon about to be readied needs other ammunition for
@@ -122,6 +129,10 @@ pub struct CombatModeGate {
     /// The gate clock when the client's stance and the server's last word
     /// were first seen apart, while they stay apart.
     unconfirmed_since: Option<f64>,
+    /// The gate clock of the last look at an unconfirmed stance.
+    unconfirmed_seen_at: f64,
+    /// Re-asks logged since the stance was last confirmed.
+    reasks_logged: u32,
     no_wand_notice_posted: bool,
     diagnostic_time: f64,
     next_busy_diagnostic: f64,
@@ -151,6 +162,8 @@ impl CombatModeGate {
             mode_request_in_flight: false,
             ack_revision_at_request: 0,
             unconfirmed_since: None,
+            unconfirmed_seen_at: 0.0,
+            reasks_logged: 0,
             no_wand_notice_posted: false,
             diagnostic_time: 0.0,
             next_busy_diagnostic: 0.0,
@@ -265,6 +278,8 @@ impl CombatModeGate {
         self.mode_request_in_flight = false;
         self.ack_revision_at_request = 0;
         self.unconfirmed_since = None;
+        self.unconfirmed_seen_at = 0.0;
+        self.reasks_logged = 0;
         self.no_wand_notice_posted = false;
         self.posted_warnings.clear();
         self.status.clear();
@@ -508,6 +523,7 @@ impl CombatModeGate {
             return false;
         }
         self.unconfirmed_since = None;
+        self.reasks_logged = 0;
         "Ready".clone_into(&mut self.status);
         true
     }
@@ -526,20 +542,38 @@ impl CombatModeGate {
             self.unconfirmed_since = None;
             return false;
         }
-        let since = *self.unconfirmed_since.get_or_insert(self.diagnostic_time);
+        // A wait the gate stopped watching (no rule asked for a stance for
+        // a while) is not one it can vouch for: it starts again.
+        let watched = self.diagnostic_time - self.unconfirmed_seen_at <= UNWATCHED_GAP_SECONDS;
+        self.unconfirmed_seen_at = self.diagnostic_time;
+        let since = match self.unconfirmed_since {
+            Some(since) if watched => since,
+            _ => *self.unconfirmed_since.insert(self.diagnostic_time),
+        };
         let waited = self.diagnostic_time - since;
         if waited < UNCONFIRMED_MODE_REASK_SECONDS {
             return false;
         }
-        automation.log_info(&format!(
-            "Combat mode {} unconfirmed for {waited:.0} s (the server's last word is {}); \
-             asking for peace, then {} again.",
-            mode_name(snapshot.mode),
-            mode_name(snapshot.server_mode),
-            mode_name(wanted),
-        ));
+        if self.reasks_logged < REASK_LOG_LIMIT {
+            self.reasks_logged += 1;
+            let more = if self.reasks_logged == REASK_LOG_LIMIT {
+                " Further re-asks until it is confirmed are not logged."
+            } else {
+                ""
+            };
+            automation.log_info(&format!(
+                "Combat mode {} unconfirmed for {waited:.0} s (the server's last word is {}); \
+                 asking for peace, then {} again.{more}",
+                mode_name(snapshot.mode),
+                mode_name(snapshot.server_mode),
+                mode_name(wanted),
+            ));
+        }
         let _ = self.request_mode(automation, CombatMode::Peace);
-        self.status = format!("Re-entering {} mode", mode_name(wanted));
+        // A refusal or an unavailable mode command says so instead.
+        if self.status.starts_with("Entering") {
+            self.status = format!("Re-entering {} mode", mode_name(wanted));
+        }
         true
     }
 
@@ -643,6 +677,7 @@ impl CombatModeGate {
         self.mode_request_in_flight = true;
         // A new ask starts the wait for the server's word afresh.
         self.unconfirmed_since = Some(self.diagnostic_time);
+        self.unconfirmed_seen_at = self.diagnostic_time;
         self.log_line(
             MacroLogChannel::BusyState,
             &format!("(FCM) requesting {}", mode_name(mode)),
