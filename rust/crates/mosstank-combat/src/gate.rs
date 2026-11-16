@@ -36,6 +36,13 @@ pub const BUGGED_COMBAT_STATE_WARNING: &str =
 /// How long a stance change is taken on the client's word alone, seconds.
 const MODE_CONFIRMATION_SECONDS: f64 = 0.6;
 
+/// How long the client may show a stance the server's last word disagrees
+/// with before the gate asks again, seconds. A server that never answered
+/// the request leaves the two apart for good: the client sends nothing for
+/// the stance it already shows, so the gate asks for peace, which the
+/// client does send, and the stance from there.
+pub const UNCONFIRMED_MODE_REASK_SECONDS: f64 = 10.0;
+
 /// The ammunition questions the fight answers for the gate.
 pub trait AmmunitionHooks {
     /// Whether the weapon about to be readied needs other ammunition for
@@ -112,6 +119,9 @@ pub struct CombatModeGate {
     mode_before_request: CombatMode,
     mode_request_in_flight: bool,
     ack_revision_at_request: i64,
+    /// The gate clock when the client's stance and the server's last word
+    /// were first seen apart, while they stay apart.
+    unconfirmed_since: Option<f64>,
     no_wand_notice_posted: bool,
     diagnostic_time: f64,
     next_busy_diagnostic: f64,
@@ -140,6 +150,7 @@ impl CombatModeGate {
             mode_before_request: CombatMode::Unknown,
             mode_request_in_flight: false,
             ack_revision_at_request: 0,
+            unconfirmed_since: None,
             no_wand_notice_posted: false,
             diagnostic_time: 0.0,
             next_busy_diagnostic: 0.0,
@@ -253,6 +264,7 @@ impl CombatModeGate {
         self.mode_before_request = CombatMode::Unknown;
         self.mode_request_in_flight = false;
         self.ack_revision_at_request = 0;
+        self.unconfirmed_since = None;
         self.no_wand_notice_posted = false;
         self.posted_warnings.clear();
         self.status.clear();
@@ -489,10 +501,45 @@ impl CombatModeGate {
             return false;
         }
         if self.mode_change_unconfirmed(automation) {
+            if self.reask_unconfirmed_mode(automation, implied) {
+                return false;
+            }
             self.status = format!("Entering {} mode", mode_name(implied));
             return false;
         }
+        self.unconfirmed_since = None;
         "Ready".clone_into(&mut self.status);
+        true
+    }
+
+    /// Asks for peace when the client has shown `wanted` for
+    /// [`UNCONFIRMED_MODE_REASK_SECONDS`] while the server's last word is
+    /// another stance; true when it asked. The next pass then asks for
+    /// `wanted` from peace, and the server answers that one.
+    fn reask_unconfirmed_mode(
+        &mut self,
+        automation: &mut dyn Automation,
+        wanted: CombatMode,
+    ) -> bool {
+        let snapshot = automation.combat_snapshot();
+        if snapshot.server_mode == CombatMode::Unknown || snapshot.server_mode == snapshot.mode {
+            self.unconfirmed_since = None;
+            return false;
+        }
+        let since = *self.unconfirmed_since.get_or_insert(self.diagnostic_time);
+        let waited = self.diagnostic_time - since;
+        if waited < UNCONFIRMED_MODE_REASK_SECONDS {
+            return false;
+        }
+        automation.log_info(&format!(
+            "Combat mode {} unconfirmed for {waited:.0} s (the server's last word is {}); \
+             asking for peace, then {} again.",
+            mode_name(snapshot.mode),
+            mode_name(snapshot.server_mode),
+            mode_name(wanted),
+        ));
+        let _ = self.request_mode(automation, CombatMode::Peace);
+        self.status = format!("Re-entering {} mode", mode_name(wanted));
         true
     }
 
@@ -594,6 +641,8 @@ impl CombatModeGate {
         self.ack_revision_at_request = snapshot.qualified_self_motion_revision;
         self.since_mode_request = 0.0;
         self.mode_request_in_flight = true;
+        // A new ask starts the wait for the server's word afresh.
+        self.unconfirmed_since = Some(self.diagnostic_time);
         self.log_line(
             MacroLogChannel::BusyState,
             &format!("(FCM) requesting {}", mode_name(mode)),

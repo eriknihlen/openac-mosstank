@@ -148,6 +148,63 @@ fn gate_is_ready_the_moment_the_server_agrees_when_the_host_says_what_the_server
     assert_eq!(rig.gate.status(), "Ready");
 }
 
+// A server that never answers the request (seen live on Coldeve right after
+// a death, 2026-11-16): the client shows magic, the server's last word stays
+// peace, and the client sends nothing for the stance it already shows. The
+// gate asks for peace after the bound, then for magic again.
+#[test]
+fn gate_re_asks_through_peace_when_the_server_never_confirms_the_stance() {
+    let mut snapshot = in_mode(CombatMode::Peace);
+    snapshot.server_mode = CombatMode::Peace;
+    let mut rig = Rig::new(FakeAutomation {
+        combat_snapshot: snapshot,
+        withhold_mode_echo: true,
+        equipment_items: vec![recovery_wand_held()],
+        ..FakeAutomation::default()
+    });
+
+    rig.advance(0.1);
+    assert!(!rig.prepare(CombatMode::Magic));
+    assert_eq!(calls(&rig.surface), ["EnterMode:Magic"]);
+    // The server's answer never comes.
+    rig.surface.pending_mode = None;
+
+    // Inside the bound the gate only waits.
+    for _ in 0..9 {
+        rig.advance(1.0);
+        assert!(!rig.prepare(CombatMode::Magic));
+        assert_eq!(rig.gate.status(), "Entering Magic mode");
+    }
+    assert_eq!(rig.surface.mode_change_requests, 1);
+
+    // Past it, peace: the one stance the client still sends.
+    rig.advance(1.0);
+    assert!(!rig.prepare(CombatMode::Magic));
+    assert_eq!(calls(&rig.surface), ["EnterMode:Magic", "EnterMode:Peace"]);
+    assert_eq!(rig.gate.status(), "Re-entering Magic mode");
+    assert!(
+        rig.surface
+            .infos
+            .iter()
+            .any(|line| line.starts_with("Combat mode Magic unconfirmed for 10 s")),
+        "{:?}",
+        rig.surface.infos
+    );
+
+    // Client and server agree on peace again: magic is asked from there,
+    // and this time the server answers.
+    rig.advance(0.1);
+    assert!(!rig.prepare(CombatMode::Magic));
+    assert_eq!(
+        calls(&rig.surface),
+        ["EnterMode:Magic", "EnterMode:Peace", "EnterMode:Magic"]
+    );
+    rig.surface.confirm_pending_mode_change();
+    rig.advance(0.1);
+    assert!(rig.prepare(CombatMode::Magic));
+    assert_eq!(rig.gate.status(), "Ready");
+}
+
 // Source: tests/AcDream.Plugins.MossTank.Tests/CombatControllerTests.cs :: GateGivesUpWaitingForTheServersStanceAfterTheConfirmationWindow
 #[test]
 fn gate_gives_up_waiting_for_the_servers_stance_after_the_confirmation_window() {
