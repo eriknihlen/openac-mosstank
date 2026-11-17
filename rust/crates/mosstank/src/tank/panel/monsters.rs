@@ -377,8 +377,19 @@ impl TankCx<'_> {
             .map_or_else(|| format!("0x{object_id:08X}"), |item| item.name)
     }
 
-    /// `AddMonsterRuleCore`.
+    /// `AddMonsterRuleCore`: a spec already listed is not added again, as
+    /// only its first row could ever match. Specs compare as the monster
+    /// spec compares names, trimmed and without regard to case.
     fn add_monster_rule(&mut self, expression: &str) {
+        let wanted = expression.trim();
+        if let Some(existing) = self.core.settings.combat.rules.iter().find(|rule| {
+            mosstank_dotnet::text::ordinal::equals_ignore_case(rule.expression().trim(), wanted)
+                || (rule.is_default() && mosstank_settings::monster::is_default_name(wanted))
+        }) {
+            self.core.panel.monster_editor_notice =
+                format!("{} is already listed.", existing.expression());
+            return;
+        }
         match MonsterRule::fresh(expression) {
             Ok(rule) => {
                 self.core.settings.combat.rules.push(rule);
