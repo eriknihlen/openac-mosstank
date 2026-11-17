@@ -431,3 +431,30 @@ fn editing_the_route_keeps_the_walked_to_waypoint_marked() {
     world.act_text(p, "SelectRouteMode", "Linear");
     assert_eq!(marked_rows(&mut world, p), [1]);
 }
+
+#[test]
+fn selecting_the_nearest_waypoint_again_brings_the_route_back_to_it() {
+    let (mut world, mut plugin) = fresh();
+    let p = &mut plugin;
+    for east_west in [0.0, 10.0, 20.0] {
+        stand_at(&mut world, east_west);
+        world.act(p, "AddRoutePoint");
+    }
+    stand_at(&mut world, 9.0);
+    world.act(p, "SelectNearestRouteWaypoint");
+    assert_eq!(world.ui_int(p, "SelectedRouteWaypointIndex"), 1);
+    assert_eq!(marked_rows(&mut world, p), [1]);
+
+    // The route moves on; a second press brings it back to the nearest.
+    world.act(p, "SkipRouteWaypoint");
+    assert_eq!(marked_rows(&mut world, p), [2]);
+    world.act(p, "SelectNearestRouteWaypoint");
+    assert_eq!(world.ui_int(p, "SelectedRouteWaypointIndex"), 1);
+    assert_eq!(marked_rows(&mut world, p), [1]);
+
+    // Standing elsewhere, it picks the new nearest.
+    stand_at(&mut world, 19.0);
+    world.act(p, "SelectNearestRouteWaypoint");
+    assert_eq!(world.ui_int(p, "SelectedRouteWaypointIndex"), 2);
+    assert_eq!(marked_rows(&mut world, p), [2]);
+}

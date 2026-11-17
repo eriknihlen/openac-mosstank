@@ -438,7 +438,8 @@ impl TankCx<'_> {
         self.core.route_notice = format!("Removed {removed}.");
     }
 
-    /// `SelectNearestRouteWaypointCore`.
+    /// `SelectNearestRouteWaypointCore`, which also makes that waypoint the
+    /// one the route heads for next.
     fn select_nearest_route_waypoint(&mut self) {
         let player = self.client.rules().navigation_snapshot();
         let waypoints = &self.core.settings.navigation.waypoints;
@@ -459,7 +460,13 @@ impl TankCx<'_> {
             }
         }
         let text = waypoints[best].display_text();
-        self.core.panel.selected_route_waypoint = i32::try_from(best).unwrap_or(0);
+        let best = i32::try_from(best).unwrap_or(0);
+        self.core.panel.selected_route_waypoint = best;
+        // The route goes on from the nearest waypoint, so the grid's mark
+        // and the world's next-waypoint ring move to it.
+        if self.core.settings.navigation.mode != RouteMode::Target {
+            self.keep_navigation_at(best);
+        }
         self.core.route_notice = format!("Selected nearest waypoint ({text}).");
     }
 

@@ -127,3 +127,56 @@ fn stopping_the_plugin_clears_its_lines() {
     world.disable(&mut plugin);
     assert!(drawn(&world).is_empty());
 }
+
+/// The ring colour of the waypoint the route heads for next.
+const CURRENT_RING: u32 = 0x0080_FF40;
+
+/// Whether the ring around the point at `east_west` (one of the two-point
+/// route's 12.5 E and 12.6 E, on 3.25 S) is drawn in the next-waypoint
+/// colour. A ring's segments are nearer their own point than the other;
+/// the leg between the points starts on a point and is left out.
+fn ring_is_current(world: &World, east_west: f64) -> bool {
+    let other = if (east_west - 12.5).abs() < 1e-9 {
+        12.6
+    } else {
+        12.5
+    };
+    let ring: Vec<u32> = world
+        .fake
+        .ui
+        .merged_lines()
+        .iter()
+        .filter(|line| {
+            let mid = f64::midpoint(line.start.east_west, line.end.east_west);
+            let on_a_point = (line.start.east_west - 12.5).abs() < 1e-9
+                || (line.start.east_west - 12.6).abs() < 1e-9;
+            !on_a_point && (mid - east_west).abs() < (mid - other).abs()
+        })
+        .map(|line| line.color_rgb)
+        .collect();
+    !ring.is_empty() && ring.iter().all(|color| *color == CURRENT_RING)
+}
+
+#[test]
+fn selecting_the_nearest_waypoint_rings_it_as_the_next_one() {
+    let (mut world, mut plugin) = fresh();
+    world.vt(&mut plugin, "opt set shownavlines true");
+    world.plugin_data.insert("imports/Two.nav", TWO_POINT_NAV);
+    world.vt(&mut plugin, "nav load Two.nav");
+    world.tick(&mut plugin);
+    assert!(ring_is_current(&world, 12.5));
+    assert!(!ring_is_current(&world, 12.6));
+
+    let mut near_second = navigation_at(0.0);
+    near_second.position.east_west = 12.6;
+    near_second.position.north_south = -3.25;
+    near_second.confirmed_position = near_second.position.clone();
+    world.set_reply::<calls::NavigationSnapshot>(&near_second);
+    world.act(&mut plugin, "SelectNearestRouteWaypoint");
+    assert_eq!(world.ui_int(&mut plugin, "SelectedRouteWaypointIndex"), 1);
+    world.tick(&mut plugin);
+    assert!(!ring_is_current(&world, 12.5));
+    assert!(ring_is_current(&world, 12.6));
+    let rows = world.ui_list(&mut plugin, "RouteRows");
+    assert!(rows[1].starts_with("<<"), "{rows:?}");
+}
