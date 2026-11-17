@@ -477,3 +477,21 @@ fn vtank_refresh_leaves_the_monsters_grid_with_its_default_rule() {
     assert_eq!(world.ui_list(p, "MonsterNameColumn"), ["DEFAULT"]);
     assert_eq!(world.chat(), ["[MossTank] Settings pages reloaded."]);
 }
+
+#[test]
+fn a_monster_already_listed_is_not_added_again() {
+    let (mut world, mut plugin) = fresh("Twice");
+    let p = &mut plugin;
+    hostile(&mut world, 30, "Drudge");
+    add_rule(&mut world, p, "Drudge");
+    add_rule(&mut world, p, " drudge ");
+    world.select_object(30);
+    world.act(p, "AddSelectedMonster");
+    world.act(p, "AddMonsterRule");
+    add_rule(&mut world, p, "default");
+    assert_eq!(names(&mut world, p), ["DEFAULT", "Drudge"]);
+    assert_eq!(
+        world.ui_text(p, "MonsterEditorNotice"),
+        "DEFAULT is already listed."
+    );
+}
