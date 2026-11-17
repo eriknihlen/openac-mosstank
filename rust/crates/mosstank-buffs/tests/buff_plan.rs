@@ -1446,3 +1446,58 @@ fn a_tier_out_of_reach_falls_to_the_next() {
         Some(2)
     );
 }
+
+/// Dirty Fighting Mastery Self I, II and the Incantation, as the portal
+/// dat has them: tier I's potion is Stibnite (45), every later tier's is
+/// Cinnabar (39); Hyssop, Powdered Quartz and Rowan Talisman are shared.
+fn dirty_fighting(id: u32, name: &str, tier: i32, difficulty: i32, potion: u32) -> SpellInfo {
+    SpellInfo {
+        spell_id: id,
+        name: name.to_owned(),
+        family: 665,
+        tier,
+        difficulty,
+        mana_cost: 10,
+        duration_seconds: 1800.0,
+        school: CREATURE_ENCHANTMENT_SKILL,
+        description: "Increases the caster's Dirty Fighting skill by 10 points.".to_owned(),
+        is_self_targeted: true,
+        is_beneficial: true,
+        component_set: (7, 35, potion, 60),
+        ..SpellInfo::default()
+    }
+}
+
+// Dirty Fighting's named spell is tier II: a character who knows tier I and
+// the Incantation casts the Incantation, whose components match tier II.
+#[test]
+fn dirty_fighting_tiers_are_matched_against_tier_two_not_tier_one() {
+    let one = dirty_fighting(0x1693, "Dirty Fighting Mastery Self I", 1, 1, 45);
+    let two = dirty_fighting(0x1694, "Dirty Fighting Mastery Self II", 2, 50, 39);
+    let eight = dirty_fighting(
+        0x169A,
+        "Incantation of Dirty Fighting Mastery Self",
+        8,
+        400,
+        39,
+    );
+    let mut catalog = StaticSpellCatalog::of(vec![one.clone(), two, eight.clone()]);
+    let book = lines(&[one, eight]);
+    let plan = plan::build(
+        &book,
+        &[
+            creature_specialized(450),
+            skill(52, "Dirty Fighting", Training::Trained, 300),
+        ],
+        &[],
+        &[],
+        &BuffSettings::default(),
+        BuildOptions {
+            force: true,
+            spell_catalog: Some(&mut catalog),
+            ..BuildOptions::default()
+        },
+    );
+
+    assert_eq!(ids(&plan), vec![0x169A]);
+}

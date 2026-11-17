@@ -176,9 +176,30 @@ pub fn build(
         if !school_available || (!wanted && !extra) || excluded_families.contains(&line.family) {
             continue;
         }
-        if !extra && !is_exemplar_family(line, catalog_of(&mut options)) {
+        let exemplar = if extra {
+            None
+        } else {
+            exemplar_of(line, catalog_of(&mut options))
+        };
+        if exemplar
+            .as_ref()
+            .is_some_and(|exemplar| exemplar.family != line.family)
+        {
             continue;
         }
+        // The tiers are matched against the target's named spell, not the
+        // weakest one known: Dirty Fighting's is tier II, because tier I
+        // carries a potion the rest of the family does not.
+        let matched_line;
+        let line = match exemplar {
+            Some(exemplar) => {
+                let mut with_exemplar = line.clone();
+                with_exemplar.reference_override = Some(exemplar);
+                matched_line = with_exemplar;
+                &matched_line
+            }
+            None => line,
+        };
 
         let pick = try_pick_tier(
             line,
@@ -314,29 +335,26 @@ const SKILL_EXEMPLARS: [(&str, &str); 39] = [
     ("Summoning", "Summoning Mastery Self I"),
 ];
 
-/// Whether the line is the family VTank buffs for its target: the family of
-/// the target's named tier-one spell. A line with no named spell, or whose
-/// named spell the table lacks, is kept.
-fn is_exemplar_family(line: &BuffLine, catalog: Option<&mut (dyn SpellCatalog + '_)>) -> bool {
-    let Some(catalog) = catalog else {
-        return true;
-    };
+/// The spell named for the line's target, from the spell table. Only
+/// a line of that spell's family is buffed for the target, and its tiers are
+/// matched against that spell. `None` for a line with no named spell, or
+/// whose named spell the table lacks: such a line is kept and matched
+/// against its own weakest tier.
+fn exemplar_of(
+    line: &BuffLine,
+    catalog: Option<&mut (dyn SpellCatalog + '_)>,
+) -> Option<SpellInfo> {
+    let catalog = catalog?;
     let names: &[(&str, &str)] = match line.kind {
         BuffTargetKind::Attribute => &ATTRIBUTE_EXEMPLARS,
         BuffTargetKind::Skill => &SKILL_EXEMPLARS,
         BuffTargetKind::Regeneration => &REGENERATION_EXEMPLARS,
-        _ => return true,
+        _ => return None,
     };
-    let Some((_, exemplar_name)) = names
+    let (_, exemplar_name) = names
         .iter()
-        .find(|(target, _)| ordinal::equals_ignore_case(target, &line.target_name))
-    else {
-        return true;
-    };
-    match catalog.try_find_by_name(exemplar_name, false) {
-        Some(exemplar) => exemplar.family == line.family,
-        None => true,
-    }
+        .find(|(target, _)| ordinal::equals_ignore_case(target, &line.target_name))?;
+    catalog.try_find_by_name(exemplar_name, false)
 }
 
 fn is_covered(entries: &[(i32, f64)], quality: i32, threshold_seconds: f64) -> bool {
