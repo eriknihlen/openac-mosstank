@@ -479,6 +479,28 @@ impl NavigationController {
         }
     }
 
+    /// The route was edited in place from the route editor (a waypoint
+    /// added, removed or moved, or the mode changed) without starting it
+    /// over. Everything in flight is put down as for a stop, and the cursor
+    /// goes to `index`, where the waypoint it was heading for now stands,
+    /// kept inside the route. A once route keeps its spent points behind the
+    /// cursor and is finished only while the cursor is past its last point;
+    /// only a back-and-forth route keeps walking backwards.
+    pub fn route_edited(&mut self, turn: &mut RouteTurn<'_>, index: i32) {
+        self.stop_for_macro_stop(turn);
+        let count = count_of(turn.settings);
+        if turn.settings.mode == RouteMode::Once {
+            self.index = index.clamp(0, count);
+            self.once_complete = self.index >= count;
+        } else {
+            self.index = index.clamp(0, (count - 1).max(0));
+            self.once_complete = false;
+        }
+        if turn.settings.mode != RouteMode::Linear {
+            self.reverse = false;
+        }
+    }
+
     /// Whether a once route has already run this waypoint: it consumes by
     /// moving its cursor, so the waypoints behind the cursor are the spent
     /// ones.
@@ -624,7 +646,8 @@ impl NavigationController {
     }
 
     /// Back to the top of the route: for a route that has changed under the
-    /// controller (loaded, edited, cleared) and for the end of a session.
+    /// controller (loaded or cleared; an edit in the route editor is
+    /// [`Self::route_edited`]) and for the end of a session.
     /// Stopping the macro is [`Self::stop_for_macro_stop`], which keeps the
     /// round's position; the next start re-anchors a circular or
     /// back-and-forth route and leaves a once-through route where it was.

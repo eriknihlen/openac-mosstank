@@ -372,3 +372,62 @@ fn meta_profiles_are_independent_durable_documents() {
 }
 
 // Not applicable: tests/AcDream.Plugins.MossTank.Tests/MossTankPanelTests.cs :: MetaAndRouteGridColumnsDoNotReallocateOnEveryRead: .NET reference identity of the columns a property returns; a window binding here is a value, worked out for each push
+
+/// Which row of the route grid carries the walked-to marker.
+fn marked_rows(world: &mut World, plugin: &mut MossTank) -> Vec<usize> {
+    world
+        .ui_list(plugin, "RouteRows")
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| row.starts_with("<<"))
+        .map(|(index, _)| index)
+        .collect()
+}
+
+#[test]
+fn editing_the_route_keeps_the_walked_to_waypoint_marked() {
+    let (mut world, mut plugin) = fresh();
+    let p = &mut plugin;
+    for east_west in [0.0, 10.0, 20.0, 30.0] {
+        stand_at(&mut world, east_west);
+        world.act(p, "AddRoutePoint");
+    }
+    // Marked with navigation off, at the top of a fresh route.
+    assert_eq!(marked_rows(&mut world, p), [0]);
+    world.act(p, "SkipRouteWaypoint");
+    world.act(p, "SkipRouteWaypoint");
+    assert_eq!(marked_rows(&mut world, p), [2]);
+
+    // A row put above it pushes it down; one below leaves it.
+    world.act_text(p, "SelectRouteInsertMode", "Insert Above");
+    world.act_int(p, "SelectRouteWaypoint", 0);
+    world.act(p, "AddRoutePoint");
+    assert_eq!(marked_rows(&mut world, p), [3]);
+    world.act_text(p, "SelectRouteInsertMode", "Add to End");
+    world.act(p, "AddRoutePoint");
+    assert_eq!(marked_rows(&mut world, p), [3]);
+
+    // A row taken from above pulls it up; one from below leaves it.
+    world.act_int(p, "DeleteRouteWaypointAt", 0);
+    assert_eq!(marked_rows(&mut world, p), [2]);
+    world.act_int(p, "DeleteRouteWaypointAt", 4);
+    assert_eq!(marked_rows(&mut world, p), [2]);
+
+    // Moving the walked-to row carries the mark with it; moving a
+    // neighbour past it shifts it.
+    world.act_int(p, "SelectRouteWaypoint", 2);
+    world.act(p, "MoveRouteWaypointUp");
+    assert_eq!(marked_rows(&mut world, p), [1]);
+    world.act_int(p, "SelectRouteWaypoint", 0);
+    world.act(p, "MoveRouteWaypointDown");
+    assert_eq!(marked_rows(&mut world, p), [0]);
+
+    // Removing the walked-to row hands the mark to the one in its place;
+    // a mode change keeps it.
+    world.act_int(p, "SelectRouteWaypoint", 0);
+    world.act(p, "RemoveRouteWaypoint");
+    assert_eq!(marked_rows(&mut world, p), [0]);
+    world.act(p, "SkipRouteWaypoint");
+    world.act_text(p, "SelectRouteMode", "Linear");
+    assert_eq!(marked_rows(&mut world, p), [1]);
+}
