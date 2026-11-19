@@ -485,16 +485,27 @@ impl NavigationController {
     /// goes to `index`, where the waypoint it was heading for now stands,
     /// kept inside the route. A once route keeps its spent points behind the
     /// cursor and is finished only while the cursor is past its last point;
-    /// only a back-and-forth route keeps walking backwards.
+    /// only a back-and-forth route keeps walking backwards. A cursor past
+    /// the end of a circular route (its last waypoint, the one being walked
+    /// to, was removed) goes round to the first waypoint, which is the one
+    /// that follows.
     pub fn route_edited(&mut self, turn: &mut RouteTurn<'_>, index: i32) {
         self.stop_for_macro_stop(turn);
         let count = count_of(turn.settings);
-        if turn.settings.mode == RouteMode::Once {
-            self.index = index.clamp(0, count);
-            self.once_complete = self.index >= count;
-        } else {
-            self.index = index.clamp(0, (count - 1).max(0));
-            self.once_complete = false;
+        let last = (count - 1).max(0);
+        match turn.settings.mode {
+            RouteMode::Once => {
+                self.index = index.clamp(0, count);
+                self.once_complete = self.index >= count;
+            }
+            RouteMode::Circular => {
+                self.index = if index > last { 0 } else { index.max(0) };
+                self.once_complete = false;
+            }
+            RouteMode::Linear | RouteMode::Target => {
+                self.index = index.clamp(0, last);
+                self.once_complete = false;
+            }
         }
         if turn.settings.mode != RouteMode::Linear {
             self.reverse = false;

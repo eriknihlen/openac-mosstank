@@ -458,3 +458,25 @@ fn selecting_the_nearest_waypoint_again_brings_the_route_back_to_it() {
     assert_eq!(world.ui_int(p, "SelectedRouteWaypointIndex"), 2);
     assert_eq!(marked_rows(&mut world, p), [2]);
 }
+
+/// Removing the waypoint being walked to hands the route to the one that
+/// follows it. At the end of the list that depends on the route: a loop
+/// goes round to its first waypoint, a back-and-forth route turns to the
+/// one before, and a once-through route is finished.
+#[test]
+fn removing_the_last_waypoint_while_walking_to_it_goes_on_as_the_route_does() {
+    for (mode, marked) in [("Circular", vec![0]), ("Linear", vec![1]), ("Once", vec![])] {
+        let (mut world, mut plugin) = fresh();
+        let p = &mut plugin;
+        world.act_text(p, "SelectRouteMode", mode);
+        for east_west in [0.0, 10.0, 20.0] {
+            stand_at(&mut world, east_west);
+            world.act(p, "AddRoutePoint");
+        }
+        world.act(p, "SkipRouteWaypoint");
+        world.act(p, "SkipRouteWaypoint");
+        assert_eq!(marked_rows(&mut world, p), [2], "{mode}");
+        world.act_int(p, "DeleteRouteWaypointAt", 2);
+        assert_eq!(marked_rows(&mut world, p), marked, "{mode}");
+    }
+}
