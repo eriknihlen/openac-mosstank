@@ -256,10 +256,11 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
             let index = clamp_row(cx.core.panel.selected_route_waypoint, count);
             let index_usize = usize::try_from(index).unwrap_or(0);
             let removed = cx.core.settings.navigation.waypoints[index_usize].display_text();
+            let current = cursor_after_removal(cx.core.navigation.current_waypoint_index(), index);
             cx.core.settings.navigation.waypoints.remove(index_usize);
             cx.core.panel.selected_route_waypoint =
                 clamp_row(index, cx.core.settings.navigation.waypoints.len());
-            cx.reset_navigation();
+            cx.keep_navigation_at(current);
             cx.core.save_route_profile(cx.client);
             cx.core.route_notice = format!("Removed {removed}.");
         }
@@ -295,10 +296,10 @@ pub(super) fn act(cx: &mut TankCx<'_>, name: &str, arg: &Arg) -> bool {
 
 impl TankCx<'_> {
     /// The waypoint rows, the one being walked to marked
-    /// (`RefreshRouteEditor`'s rows).
+    /// (`RefreshRouteEditor`'s rows). The mark stands whether or not the
+    /// route is enabled, so an edit shows where the route will go on from.
     pub(crate) fn route_rows(&mut self) -> Vec<String> {
         let active = self.core.navigation.current_waypoint_index();
-        let enabled = self.core.settings.navigation.enabled;
         let core = &mut *self.core;
         let waypoints = &core.settings.navigation.waypoints;
         // The waypoints' words are kept while the waypoints are the same:
@@ -313,7 +314,7 @@ impl TankCx<'_> {
             .iter()
             .enumerate()
             .map(|(index, text)| {
-                let marker = if i32::try_from(index).ok() == Some(active) && enabled {
+                let marker = if i32::try_from(index).ok() == Some(active) {
                     "<<"
                 } else {
                     "  "
@@ -329,6 +330,14 @@ impl TankCx<'_> {
         let count = self.core.settings.navigation.waypoints.len();
         self.core.panel.selected_route_waypoint =
             clamp_row(self.core.panel.selected_route_waypoint, count);
+    }
+
+    /// The route was edited in the editor: it goes on from `index`, where
+    /// the waypoint it was heading for now stands, rather than from the top.
+    fn keep_navigation_at(&mut self, index: i32) {
+        let core = &mut *self.core;
+        let mut turn = crate::tank::rules::route_turn!(self.client, core);
+        core.navigation.route_edited(&mut turn, index);
     }
 
     /// `SkipRouteWaypoints`: what the route now heads for, in words.
@@ -378,7 +387,12 @@ impl TankCx<'_> {
             .waypoints
             .insert(insertion, waypoint);
         self.core.panel.selected_route_waypoint = i32::try_from(insertion).unwrap_or(0);
-        self.reset_navigation();
+        let current = cursor_after_insertion(
+            self.core.navigation.current_waypoint_index(),
+            i32::try_from(insertion).unwrap_or(i32::MAX),
+            i32::try_from(count).unwrap_or(i32::MAX),
+        );
+        self.keep_navigation_at(current);
         self.refresh_route_editor();
         self.core.save_route_profile(self.client);
     }
@@ -418,12 +432,14 @@ impl TankCx<'_> {
             self.core.panel.selected_route_waypoint,
             self.core.settings.navigation.waypoints.len(),
         );
-        self.reset_navigation();
+        let current = cursor_after_removal(self.core.navigation.current_waypoint_index(), index);
+        self.keep_navigation_at(current);
         self.core.save_route_profile(self.client);
         self.core.route_notice = format!("Removed {removed}.");
     }
 
-    /// `SelectNearestRouteWaypointCore`.
+    /// `SelectNearestRouteWaypointCore`, which also makes that waypoint the
+    /// one the route heads for next.
     fn select_nearest_route_waypoint(&mut self) {
         let player = self.client.rules().navigation_snapshot();
         let waypoints = &self.core.settings.navigation.waypoints;
@@ -444,7 +460,13 @@ impl TankCx<'_> {
             }
         }
         let text = waypoints[best].display_text();
-        self.core.panel.selected_route_waypoint = i32::try_from(best).unwrap_or(0);
+        let best = i32::try_from(best).unwrap_or(0);
+        self.core.panel.selected_route_waypoint = best;
+        // The route goes on from the nearest waypoint, so the grid's mark
+        // and the world's next-waypoint ring move to it.
+        if self.core.settings.navigation.mode != RouteMode::Target {
+            self.keep_navigation_at(best);
+        }
         self.core.route_notice = format!("Selected nearest waypoint ({text}).");
     }
 
@@ -459,12 +481,17 @@ impl TankCx<'_> {
         let Some(destination) = row(destination, count) else {
             return;
         };
+        let current = cursor_after_move(
+            self.core.navigation.current_waypoint_index(),
+            source,
+            i32::try_from(destination).unwrap_or(0),
+        );
         let source = usize::try_from(source).unwrap_or(0);
         let waypoints = &mut self.core.settings.navigation.waypoints;
         let waypoint = waypoints.remove(source);
         waypoints.insert(destination, waypoint);
         self.core.panel.selected_route_waypoint = i32::try_from(destination).unwrap_or(0);
-        self.reset_navigation();
+        self.keep_navigation_at(current);
         self.refresh_route_editor();
         self.core.save_route_profile(self.client);
     }
@@ -494,7 +521,8 @@ impl TankCx<'_> {
             return;
         }
         self.core.settings.navigation.mode = mode;
-        self.reset_navigation();
+        let current = self.core.navigation.current_waypoint_index();
+        self.keep_navigation_at(current);
         self.refresh_route_editor();
         self.core.save_route_profile(self.client);
     }
@@ -542,5 +570,37 @@ impl TankCx<'_> {
             self.refresh_route_editor();
         }
         followed
+    }
+}
+
+/// Where the route's cursor stands once a waypoint is inserted at `at` in a
+/// route of `count`: a row put above the waypoint being walked to pushes it
+/// down, and a once route already past its end walks the new last row next.
+fn cursor_after_insertion(current: i32, at: i32, count: i32) -> i32 {
+    if at < current || (at == current && current < count) {
+        current + 1
+    } else {
+        current
+    }
+}
+
+/// Where the route's cursor stands once the waypoint at `at` is removed: a
+/// row taken from above pulls it up, and removing the waypoint being walked
+/// to leaves the cursor on the one that took its place.
+fn cursor_after_removal(current: i32, at: i32) -> i32 {
+    if at < current { current - 1 } else { current }
+}
+
+/// Where the route's cursor stands once the waypoint at `source` is moved to
+/// `destination`: it follows the waypoint being walked to.
+fn cursor_after_move(current: i32, source: i32, destination: i32) -> i32 {
+    if current == source {
+        destination
+    } else if source < current && destination >= current {
+        current - 1
+    } else if source > current && destination <= current {
+        current + 1
+    } else {
+        current
     }
 }
