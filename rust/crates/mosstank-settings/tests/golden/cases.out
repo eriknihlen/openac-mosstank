@@ -1535,6 +1535,7 @@ AutoVendor.TestMode|Bool|Profile|AutoVendor|"False"|"False"|"AutoVendor.TestMode
 AutoVendor.Think|Bool|Profile|AutoVendor|"False"|"False"|"AutoVendor.Think (Profile) = False"|"Think to yourself when a vendor run finishes."|
 AutoVendor.ShowMerchantInfo|Bool|Profile|AutoVendor|"True"|"True"|"AutoVendor.ShowMerchantInfo (Profile) = True"|"Report what a vendor deals in when you walk up to one."|
 AutoVendor.OnlyFromMainPack|Bool|Profile|AutoVendor|"False"|"False"|"AutoVendor.OnlyFromMainPack (Profile) = False"|"Sell only what is in the main pack, leaving side packs alone."|
+AutoVendor.AutoStack|Bool|Profile|AutoVendor|"True"|"True"|"AutoVendor.AutoStack (Profile) = True"|"Stack what a vendor run bought when the pack fills while selling."|
 AutoVendor.Tries|Int|Profile|AutoVendor|"4"|"4"|"AutoVendor.Tries (Profile) = 4"|"How many times opening a vendor is attempted."|
 AutoVendor.TriesTime|Int|Profile|AutoVendor|"5000"|"5000"|"AutoVendor.TriesTime (Profile) = 5000"|"How long to wait between attempts to open a vendor, in milliseconds."|
 AutoXp.StopBeforeMax|Int|Profile|AutoXp|"10"|"10"|"AutoXp.StopBeforeMax (Profile) = 10"|"How many levels short of the maximum to stop raising something."|

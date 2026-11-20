@@ -106,6 +106,9 @@ pub struct VendorTradeSettings {
     pub show_merchant_info: bool,
     /// `AutoVendor.OnlyFromMainPack`.
     pub only_from_main_pack: bool,
+    /// `AutoVendor.AutoStack`: a sell round with no room left stacks what
+    /// the run bought and plans again before it gives up.
+    pub auto_stack: bool,
     /// `AutoVendor.Tries`.
     pub tries: i32,
     /// `AutoVendor.TriesTime`, milliseconds.
@@ -122,6 +125,7 @@ impl Default for VendorTradeSettings {
             think: false,
             show_merchant_info: true,
             only_from_main_pack: false,
+            auto_stack: true,
             tries: 4,
             tries_time_milliseconds: 5000,
         }
@@ -162,6 +166,15 @@ pub trait VendorContext {
         false
     }
 
+    /// A stack-only pass, whatever the macro's own switches say, asked for
+    /// when a sell round runs out of room: called every tick with the
+    /// elapsed time and whether this is the first call of the pass,
+    /// answering true while it still has work in flight.
+    fn stack_pass(&mut self, elapsed_seconds: f64, first: bool) -> bool {
+        let _ = (elapsed_seconds, first);
+        false
+    }
+
     /// The items the macro profile uses, which are never sold.
     fn protected_items(&mut self) -> HashSet<u32> {
         HashSet::new()
@@ -171,6 +184,7 @@ pub trait VendorContext {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Phase {
     StackCram,
+    Restack,
     Plan,
     AwaitTransaction,
     Settle,
@@ -188,6 +202,9 @@ pub struct VendorTradeController {
     pending_close: bool,
     phase: Phase,
     first_stack_pass: bool,
+    /// Whether a restack may still help: none has run this visit, or
+    /// something was bought since the last one.
+    restack_due: bool,
     since_progress: f64,
     since_completion: f64,
     expected_coin: i64,
@@ -342,6 +359,7 @@ impl VendorTradeController {
             pending_close: false,
             phase: Phase::StackCram,
             first_stack_pass: false,
+            restack_due: true,
             since_progress: 0.0,
             since_completion: 0.0,
             expected_coin: 0,
@@ -540,6 +558,7 @@ impl VendorTradeController {
 
         self.phase = Phase::StackCram;
         self.first_stack_pass = true;
+        self.restack_due = true;
         self.since_progress = 0.0;
         self.pending_sell.clear();
         self.completed.clear();
@@ -621,6 +640,17 @@ impl VendorTradeController {
                 let busy = cx.stack_cram_pass(step, self.first_stack_pass);
                 self.first_stack_pass = false;
                 if !busy {
+                    self.phase = Phase::Plan;
+                    self.since_progress = 0.0;
+                }
+                true
+            }
+            Phase::Restack => {
+                let busy = cx.stack_pass(step, self.first_stack_pass);
+                self.first_stack_pass = false;
+                if busy {
+                    self.since_progress = 0.0;
+                } else {
                     self.phase = Phase::Plan;
                     self.since_progress = 0.0;
                 }
@@ -837,6 +867,14 @@ impl VendorTradeController {
         let _ = cx.automation().vendor_clear_sell_list();
         self.pending_sell.clear();
 
+        if plan.out_of_room && self.restack_due && cx.settings().auto_stack {
+            self.restack_due = false;
+            self.phase = Phase::Restack;
+            self.first_stack_pass = true;
+            self.since_progress = 0.0;
+            "Stacking to make room to sell.".clone_into(&mut self.status);
+            return;
+        }
         if let Some(fatal) = &plan.fatal {
             self.think_or_say(cx, &format!("AutoVendor Fatal - {fatal}"));
             self.stop(cx, Some(format!("Vendor run stopped: {fatal}")), false);
@@ -884,6 +922,7 @@ impl VendorTradeController {
             );
             return;
         }
+        self.restack_due = true;
         self.coin_before = purse.coin_on_hand;
         self.expected_coin = -plan.buy_cost;
         self.coin_slack = plan.buy_slack;

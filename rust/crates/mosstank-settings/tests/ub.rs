@@ -198,7 +198,7 @@ fn every_row_is_written_to_the_tier_its_scope_declares_and_to_no_other() {
             .count()
     };
     assert_eq!(count(UbSettingScope::Global), 17);
-    assert_eq!(count(UbSettingScope::Profile), 174);
+    assert_eq!(count(UbSettingScope::Profile), 175);
     assert_eq!(count(UbSettingScope::Character), 8);
 }
 
@@ -392,7 +392,7 @@ fn categories_come_back_in_order_with_their_rows() {
     let catalog = catalog();
     assert_eq!(catalog.categories().len(), 17);
     assert_eq!(catalog.categories()[0], "Aliases");
-    assert_eq!(catalog.settings().len(), 199);
+    assert_eq!(catalog.settings().len(), 200);
 }
 
 // Source: tests/AcDream.Plugins.MossTank.Tests/UbSettingValueTests.cs :: EachShapeKeepsItsOwnKindAndPayload
@@ -603,6 +603,7 @@ const FLAT_SETTINGS: &[(&str, &str)] = &[
     ("AutoVendor", "Think"),
     ("AutoVendor", "ShowMerchantInfo"),
     ("AutoVendor", "OnlyFromMainPack"),
+    ("AutoVendor", "AutoStack"),
     ("AutoVendor", "Tries"),
     ("AutoVendor", "TriesTime"),
     ("AutoXp", "StopBeforeMax"),
@@ -931,6 +932,7 @@ const FLAT_DEFAULTS: &[(&str, &str)] = &[
     ("AutoVendor.Think", "False"),
     ("AutoVendor.ShowMerchantInfo", "True"),
     ("AutoVendor.OnlyFromMainPack", "False"),
+    ("AutoVendor.AutoStack", "True"),
     ("AutoVendor.Tries", "4"),
     ("AutoVendor.TriesTime", "5000"),
     ("AutoXp.StopBeforeMax", "10"),
@@ -1126,11 +1128,11 @@ fn on_the_tab() -> HashSet<String> {
 // Source: tests/AcDream.Plugins.MossTank.Tests/UbSettingCoverageTests.cs :: TheInventoryIsTheOneHundredAndEightyFiveLeafValuesTheToolsDeclare
 // (renamed TheInventoryIsTheOneHundredAndEightyEightLeafValuesTheToolsDeclare on main: the three portal rows)
 // (and TheInventoryIsTheTwoHundredAndOneLeafValuesTheToolsDeclare here: the looter's thirteen rows)
-// (and 214 with ItemInfo's thirteen)
+// (and 214 with ItemInfo's thirteen, 215 with AutoVendor.AutoStack)
 #[test]
-fn the_inventory_is_the_two_hundred_and_fourteen_leaf_values_the_tools_declare() {
+fn the_inventory_is_the_two_hundred_and_fifteen_leaf_values_the_tools_declare() {
     let keys = inventory_keys();
-    assert_eq!(keys.len(), 214);
+    assert_eq!(keys.len(), 215);
     assert_eq!(keys.iter().collect::<HashSet<_>>().len(), keys.len());
     assert!(keys.iter().all(|key| key.contains('.')));
 }
@@ -1179,7 +1181,7 @@ fn every_setting_the_in_scope_tools_declare_is_on_the_tab_or_excluded_with_a_rea
 
     // 214 declared, 29 excluded, our own additions: the arithmetic is stated.
     assert_eq!(excluded.len(), 29);
-    assert_eq!(should_be_on_the_tab.len(), 185);
+    assert_eq!(should_be_on_the_tab.len(), 186);
     assert_eq!(
         should_be_on_the_tab.len() + added_here.len(),
         on_the_tab.len()

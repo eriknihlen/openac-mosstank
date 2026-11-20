@@ -733,6 +733,11 @@ fn add_behaviour_tools(rows: &mut Vec<UbSettingDefinition>) {
         "Sell only what is in the main pack, leaving side packs alone.",
         false,
     ));
+    rows.push(switch(
+        "AutoVendor.AutoStack",
+        "Stack what a vendor run bought when the pack fills while selling.",
+        true,
+    ));
     rows.push(whole(
         "AutoVendor.Tries",
         "How many times opening a vendor is attempted.",

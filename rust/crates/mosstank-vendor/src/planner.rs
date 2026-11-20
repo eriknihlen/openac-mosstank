@@ -102,6 +102,9 @@ pub struct VendorTradePlan {
     /// prices each stack as a whole and rounds once, where the listing
     /// rounds the single item.
     pub buy_slack: i64,
+    /// The fatal is that the pack has no room for what a sell would pay:
+    /// tidying the pack may let the round go on.
+    pub out_of_room: bool,
 }
 
 impl VendorTradePlan {
@@ -118,6 +121,13 @@ impl VendorTradePlan {
         Self {
             fatal: Some(reason),
             ..Self::default()
+        }
+    }
+
+    fn out_of_room(name: &str) -> Self {
+        Self {
+            out_of_room: true,
+            ..Self::fatal(format!("No inventory room to sell {name}"))
         }
     }
 
@@ -358,7 +368,7 @@ pub fn plan(
                 break;
             }
             if !coin_fits(value, purse) {
-                return VendorTradePlan::fatal(format!("No inventory room to sell {}", item.name));
+                return VendorTradePlan::out_of_room(&item.name);
             }
             let lone = owned.iter().find(|other| {
                 other.object_class == ObjectClass::TradeNote
@@ -399,7 +409,7 @@ pub fn plan(
                     amount: amount as i32,
                 });
             }
-            return VendorTradePlan::fatal(format!("No inventory room to sell {}", item.name));
+            return VendorTradePlan::out_of_room(&item.name);
         }
 
         sell_lines.push(VendorSellLine {
