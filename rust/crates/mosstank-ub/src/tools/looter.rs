@@ -259,6 +259,9 @@ pub struct ChestLooter {
     unlock_baseline: i64,
     locked_at_round_start: bool,
     unlocked_this_round: bool,
+    /// The key turned a locked chest this round, rather than finding it
+    /// unlocked or open.
+    key_turned_lock: bool,
     asked_about_container: bool,
     /// A Salvage rule took something this round.
     need_to_salvage: bool,
@@ -312,6 +315,7 @@ impl ChestLooter {
             unlock_baseline: 0,
             locked_at_round_start: false,
             unlocked_this_round: false,
+            key_turned_lock: false,
             asked_about_container: false,
             need_to_salvage: false,
             salvage_ids: Vec::new(),
@@ -675,6 +679,7 @@ impl ChestLooter {
                 if completion.weenie_error == 0 || completion.weenie_error == LOCK_ALREADY_UNLOCKED
                 {
                     self.unlocked_this_round = true;
+                    self.key_turned_lock = completion.weenie_error == 0;
                     self.state = LooterState::Unlocked;
                     return;
                 }
@@ -685,6 +690,7 @@ impl ChestLooter {
                 && chest_locked(call.host, self.container_id) == Some(false)
             {
                 self.unlocked_this_round = true;
+                self.key_turned_lock = true;
                 self.state = LooterState::Unlocked;
                 return;
             }
@@ -1241,10 +1247,12 @@ impl ChestLooter {
         self.passive_seen = self.container_id;
         let looted_nothing = self.count(ItemState::Looted) == 0;
         if self.run == RunType::Ui && !force {
-            // A round that took nothing ends the run: a chest that stays
-            // unlocked keeps what was left in it until it resets, and would
-            // be opened and closed for as long as the keys last.
-            if looted_nothing {
+            // A round that took nothing from a chest the key did not have to
+            // unlock ends the run: a chest that stays unlocked keeps what was
+            // left in it until it resets, and would be opened and closed for
+            // as long as the keys last. A chest the key unlocked has used up
+            // a key and comes back with new contents, so the run goes on.
+            if looted_nothing && !self.key_turned_lock {
                 self.end_run();
             } else {
                 self.start_round(call);
@@ -1297,6 +1305,7 @@ impl ChestLooter {
         self.unlock_baseline = 0;
         self.locked_at_round_start = false;
         self.unlocked_this_round = false;
+        self.key_turned_lock = false;
         self.asked_about_container = false;
         self.need_to_salvage = false;
         self.salvage_ids.clear();
