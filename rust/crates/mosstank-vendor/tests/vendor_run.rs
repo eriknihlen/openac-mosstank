@@ -59,6 +59,8 @@ struct FakeShop {
     movement_cleared: u32,
     /// The way the character faces, degrees.
     heading: f32,
+    /// The free main-pack slots, ten when unset.
+    free_slots: std::rc::Rc<std::cell::Cell<Option<i32>>>,
 }
 
 fn sent() -> VendorResult {
@@ -129,7 +131,7 @@ impl Automation for FakeShop {
             id: PLAYER,
             name: "Acdream".to_owned(),
             world: "Coldeve".to_owned(),
-            main_pack_free_slots: 10,
+            main_pack_free_slots: self.free_slots.get().unwrap_or(10),
             ..CharacterInfo::default()
         }
     }
@@ -316,6 +318,7 @@ struct ShopContext {
     store: UbSettingStore,
     settings: VendorTradeSettings,
     stack_cram: Box<dyn FnMut(f64, bool) -> bool>,
+    stack: Box<dyn FnMut(f64, bool) -> bool>,
     protected: HashSet<u32>,
 }
 
@@ -346,6 +349,10 @@ impl VendorContext for ShopContext {
 
     fn stack_cram_pass(&mut self, elapsed_seconds: f64, first: bool) -> bool {
         (self.stack_cram)(elapsed_seconds, first)
+    }
+
+    fn stack_pass(&mut self, elapsed_seconds: f64, first: bool) -> bool {
+        (self.stack)(elapsed_seconds, first)
     }
 
     fn protected_items(&mut self) -> HashSet<u32> {
@@ -466,6 +473,7 @@ fn shop(
             store,
             settings,
             stack_cram: Box::new(|_, _| false),
+            stack: Box::new(|_, _| false),
             protected: HashSet::new(),
         },
         controller,
@@ -1159,4 +1167,103 @@ fn a_run_holds_the_navigation_lock_until_it_ends() {
     assert!(!shop.controller.is_running());
     assert!(!locks.borrow_mut().is_locked(ActionLockKind::Navigation));
     assert!(!locks.borrow_mut().is_locked(ActionLockKind::ItemUse));
+}
+
+/// A sword to sell with a single free slot: the coin it would pay has
+/// nowhere to go. The stack pass, when it runs, counts its calls and frees
+/// `freed` slots on its first one.
+fn full_pack_shop(
+    settings: VendorTradeSettings,
+    freed: Option<i32>,
+) -> (Shop, std::rc::Rc<std::cell::Cell<i32>>) {
+    let mut automation = shop_with_rations(false);
+    automation.owned = vec![owned(SWORD, "Sword", 40, 1, 0x1)];
+    automation.free_slots.set(Some(1));
+    let slots = std::rc::Rc::clone(&automation.free_slots);
+    let mut shop = shop(automation, settings, None);
+    shop.write_profile("mosstank/ub/autovendor/Shopkeeper.utl");
+    let passes = std::rc::Rc::new(std::cell::Cell::new(0));
+    let counted = std::rc::Rc::clone(&passes);
+    shop.cx.stack = Box::new(move |_, first| {
+        counted.set(counted.get() + 1);
+        if first && let Some(freed) = freed {
+            slots.set(Some(freed));
+        }
+        false
+    });
+    (shop, passes)
+}
+
+#[test]
+fn a_full_pack_while_selling_stacks_and_plans_again() {
+    let (mut shop, passes) = full_pack_shop(VendorTradeSettings::default(), Some(5));
+
+    shop.open(SHOPKEEPER);
+    for _ in 0..6 {
+        if !shop.fake().sell_all_calls.is_empty() {
+            break;
+        }
+        shop.tick(0.1, true);
+    }
+
+    assert_eq!(passes.get(), 1);
+    assert_eq!(shop.fake().sell_all_calls, [vec![SWORD]]);
+    assert!(shop.controller.is_running());
+}
+
+#[test]
+fn a_full_pack_stacking_does_not_help_stops_after_one_pass() {
+    let (mut shop, passes) = full_pack_shop(VendorTradeSettings::default(), None);
+
+    shop.open(SHOPKEEPER);
+    for _ in 0..8 {
+        shop.tick(0.1, true);
+    }
+
+    assert_eq!(passes.get(), 1);
+    assert!(shop.fake().sell_all_calls.is_empty());
+    assert!(!shop.controller.is_running());
+    assert!(
+        shop.controller
+            .status()
+            .contains("No inventory room to sell Sword")
+    );
+}
+
+#[test]
+fn a_full_pack_with_auto_stack_off_stops_without_stacking() {
+    let settings = VendorTradeSettings {
+        auto_stack: false,
+        ..VendorTradeSettings::default()
+    };
+    let (mut shop, passes) = full_pack_shop(settings, Some(5));
+
+    shop.open(SHOPKEEPER);
+    for _ in 0..8 {
+        shop.tick(0.1, true);
+    }
+
+    assert_eq!(passes.get(), 0);
+    assert!(shop.fake().sell_all_calls.is_empty());
+    assert!(!shop.controller.is_running());
+    assert!(
+        shop.controller
+            .status()
+            .contains("No inventory room to sell Sword")
+    );
+}
+
+#[test]
+fn a_restack_that_stays_busy_runs_out_the_bail_timer() {
+    let (mut shop, _) = full_pack_shop(VendorTradeSettings::default(), None);
+    shop.cx.stack = Box::new(|_, _| true);
+
+    shop.open(SHOPKEEPER);
+    // Five minutes of frames: well past the 60-second bail.
+    for _ in 0..3000 {
+        shop.tick(0.1, true);
+    }
+
+    assert!(!shop.controller.is_running());
+    assert!(shop.controller.status().contains("timeout expired"));
 }

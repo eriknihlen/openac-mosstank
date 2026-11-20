@@ -234,6 +234,20 @@ impl InventoryMaintenanceController {
         self.found_nothing_to_do
     }
 
+    /// One frame of a pass that goes on until a look at the packs finds
+    /// nothing left to do, as [`StackCramCommandRun`] does: true until
+    /// then, also between moves, when the next look is not yet due.
+    pub fn tick_until_done(
+        &mut self,
+        host: &mut dyn UbHost,
+        settings: &InventorySettings,
+        elapsed_seconds: f64,
+        can_act: bool,
+    ) -> bool {
+        let owns = self.tick(host, settings, elapsed_seconds, can_act);
+        owns || !self.found_nothing_to_do
+    }
+
     /// One frame; true only while it owns the character this frame.
     pub fn tick(
         &mut self,

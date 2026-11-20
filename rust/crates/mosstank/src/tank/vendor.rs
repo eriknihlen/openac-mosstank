@@ -6,6 +6,7 @@
 
 use std::collections::HashSet;
 
+use mosstank_settings::model::InventorySettings;
 use mosstank_settings::ub::UbSettingCatalog;
 use mosstank_stores::storage::{Root, StorageError};
 use mosstank_ub::catalog::UbCatalog;
@@ -50,6 +51,7 @@ impl VendorContext for ShellVendor<'_> {
             think: self.switch("AutoVendor.Think"),
             show_merchant_info: self.switch("AutoVendor.ShowMerchantInfo"),
             only_from_main_pack: self.switch("AutoVendor.OnlyFromMainPack"),
+            auto_stack: self.switch("AutoVendor.AutoStack"),
             tries: self.number("AutoVendor.Tries"),
             tries_time_milliseconds: self.number("AutoVendor.TriesTime"),
         }
@@ -86,6 +88,28 @@ impl VendorContext for ShellVendor<'_> {
         core.inventory_maintenance.tick(
             self.client.ub(),
             &core.settings.inventory,
+            elapsed_seconds,
+            true,
+        )
+    }
+
+    /// The same owner again for the restack a full pack asks for, stacking
+    /// only and whatever the macro's own stacking switch says, so a run
+    /// whose buys arrived as loose stacks can make room for its coin. It
+    /// stacks until nothing is left to stack.
+    fn stack_pass(&mut self, elapsed_seconds: f64, first: bool) -> bool {
+        let core = &mut *self.core;
+        if first {
+            core.inventory_maintenance.reset();
+        }
+        let settings = InventorySettings {
+            auto_stack: true,
+            auto_cram: false,
+            ..core.settings.inventory.clone()
+        };
+        core.inventory_maintenance.tick_until_done(
+            self.client.ub(),
+            &settings,
             elapsed_seconds,
             true,
         )
