@@ -32,6 +32,13 @@ const PROFILE_GIVE_USAGE: &str = "/ub ig[p] <lootProfile> to <target>";
 /// Who a hand-over may go to.
 const TARGET_CLASSES: [ObjectClass; 2] = [ObjectClass::Player, ObjectClass::Npc];
 
+/// The one non-player character that takes every item in the game,
+/// attuned ones too.
+const TAKES_EVERYTHING: &str = "Town Crier";
+
+/// The integer property that marks an item attuned (Attuned).
+const ATTUNED: u32 = 114;
+
 /// The words that call a run off.
 const STOP_WORDS: [&str; 4] = ["stop", "cancel", "quit", "abort"];
 
@@ -287,10 +294,14 @@ impl ProfileGiveController {
             return false;
         };
 
+        let takes_everything = takes_everything(&target);
         let owned = call.host.owned_items_shared();
         self.pending.clear();
         for item in givable(&owned) {
             let properties = call.host.properties(item.object_id).unwrap_or_default();
+            if !takes_everything && is_attuned(&properties) {
+                continue;
+            }
             if matches_give_profile(call, item, &properties, &rules) {
                 self.pending.push_back(PendingGive {
                     object_id: item.object_id,
@@ -356,6 +367,7 @@ impl ProfileGiveController {
             return false;
         };
 
+        let takes_everything = takes_everything(&target);
         let mut remaining = if count > 0 { count } else { i32::MAX };
         let owned = call.host.owned_items_shared();
         let mut queued = VecDeque::new();
@@ -378,6 +390,16 @@ impl ProfileGiveController {
                 (GiveNameMatch::Exact, _) => ordinal::equals_ignore_case(&name, text),
             };
             if !matched {
+                continue;
+            }
+            // An item the target can't take is passed over before it counts
+            // against the count, so the count goes to items that can go.
+            if !takes_everything
+                && call
+                    .host
+                    .properties(item.object_id)
+                    .is_some_and(|properties| is_attuned(&properties))
+            {
                 continue;
             }
             let stack = item.stack_size.max(1);
@@ -744,6 +766,20 @@ fn givable(owned: &[InventoryItem]) -> Vec<&InventoryItem> {
         .collect();
     items.sort_by_key(|item| item.object_id);
     items
+}
+
+/// Whether the target takes every item, attuned ones too: only
+/// the Town Crier does.
+fn takes_everything(target: &WorldObject) -> bool {
+    target.object_class == ObjectClass::Npc
+        && ordinal::equals_ignore_case(target.name.trim(), TAKES_EVERYTHING)
+}
+
+/// Whether an item is attuned, which no one but the Town Crier takes (a
+/// bonded item can still be given). Only what the client knows of the item
+/// counts: one never appraised may not carry the property yet.
+fn is_attuned(properties: &ItemProperties) -> bool {
+    properties.int(ATTUNED).is_some_and(|value| value > 0)
 }
 
 /// The name the game shows for an item, material first: the name the
