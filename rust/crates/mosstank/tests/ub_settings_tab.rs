@@ -169,7 +169,7 @@ fn exactly_the_settings_with_a_live_owner_stay_out_of_the_new_files() {
     let mut plugin = world.enable();
     let p = &mut plugin;
     let names = world.ui_list(p, "UbSettingNames");
-    assert_eq!(names.len(), 199);
+    assert_eq!(names.len(), 200);
 
     for row in 0..names.len() {
         world.act_int(p, "SelectUbSetting", i32::try_from(row).unwrap());
