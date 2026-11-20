@@ -106,8 +106,8 @@ pub struct VendorTradeSettings {
     pub show_merchant_info: bool,
     /// `AutoVendor.OnlyFromMainPack`.
     pub only_from_main_pack: bool,
-    /// `AutoVendor.AutoStack`: a sell round with no room left stacks what
-    /// the run bought and plans again before it gives up.
+    /// `AutoVendor.AutoStack`: a sell round with no room left for the coin
+    /// stacks the packs and plans again before it gives up.
     pub auto_stack: bool,
     /// `AutoVendor.Tries`.
     pub tries: i32,
@@ -648,9 +648,9 @@ impl VendorTradeController {
             Phase::Restack => {
                 let busy = cx.stack_pass(step, self.first_stack_pass);
                 self.first_stack_pass = false;
-                if busy {
-                    self.since_progress = 0.0;
-                } else {
+                // As the first pass: a restack that stays busy runs out the
+                // bail timer like any other wait.
+                if !busy {
                     self.phase = Phase::Plan;
                     self.since_progress = 0.0;
                 }

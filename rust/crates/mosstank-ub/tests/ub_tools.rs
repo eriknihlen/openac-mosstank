@@ -203,6 +203,64 @@ fn a_stuck_stack_cram_pair_is_abandoned_only_after_eighty_attempts() {
     assert_eq!(81, host.merges.len());
 }
 
+/// A pass run to the end waits between moves for the next look, and ends
+/// only when a look finds nothing left: three loose stacks take two merges.
+#[test]
+fn a_pass_until_done_waits_between_moves_and_ends_when_nothing_is_left() {
+    let settings = InventorySettings {
+        auto_stack: true,
+        ..InventorySettings::default()
+    };
+    let mut host = maintenance_host(vec![
+        item(20, "Arrow", 77, PLAYER, 3, 10),
+        item(21, "Arrow", 77, PLAYER, 4, 10),
+        item(22, "Arrow", 77, PLAYER, 2, 10),
+    ]);
+    // The move goes through at once, with no receipt to wait for.
+    host.merge_makes_busy = false;
+    let mut controller = InventoryMaintenanceController::new();
+
+    assert!(controller.tick_until_done(&mut host, &settings, 0.1, true));
+    assert_eq!(1, host.merges.len());
+    apply_merge(&mut host, 0);
+
+    // The next look is not due on this frame, and the pass is not over.
+    assert!(controller.tick_until_done(&mut host, &settings, 0.1, true));
+    assert_eq!(1, host.merges.len());
+
+    let mut frames = 0;
+    while host.merges.len() < 2 {
+        assert!(controller.tick_until_done(&mut host, &settings, 0.1, true));
+        frames += 1;
+        assert!(frames < 20, "no second merge");
+    }
+    apply_merge(&mut host, 1);
+
+    let mut frames = 0;
+    while controller.tick_until_done(&mut host, &settings, 0.1, true) {
+        frames += 1;
+        assert!(frames < 20, "the pass did not end");
+    }
+    assert_eq!(2, host.merges.len());
+    assert_eq!(1, host.meta.owned_items.len());
+    assert_eq!(9, host.meta.owned_items[0].stack_size);
+    assert!(controller.found_nothing_to_do());
+}
+
+/// The packs after the `index`th merge the host was asked for.
+fn apply_merge(host: &mut FakeUbHost, index: usize) {
+    let (source, target, amount) = host.merges[index];
+    let moved = i32::try_from(amount).unwrap();
+    for item in &mut host.meta.owned_items {
+        if item.object_id == source {
+            item.stack_size -= moved;
+        } else if item.object_id == target {
+            item.stack_size += moved;
+        }
+    }
+    host.meta.owned_items.retain(|item| item.stack_size > 0);
+}
+
 fn stack_rig(inventory: Vec<InventoryItem>) -> Rig {
     let mut rig = Rig::new();
     rig.host.meta.item_state.is_available = true;

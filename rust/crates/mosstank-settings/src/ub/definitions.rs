@@ -735,7 +735,7 @@ fn add_behaviour_tools(rows: &mut Vec<UbSettingDefinition>) {
     ));
     rows.push(switch(
         "AutoVendor.AutoStack",
-        "Stack what a vendor run bought when the pack fills while selling.",
+        "Stack the packs to make room when a vendor run has no room for the coin from a sale.",
         true,
     ));
     rows.push(whole(

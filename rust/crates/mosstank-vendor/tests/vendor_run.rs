@@ -1252,3 +1252,18 @@ fn a_full_pack_with_auto_stack_off_stops_without_stacking() {
             .contains("No inventory room to sell Sword")
     );
 }
+
+#[test]
+fn a_restack_that_stays_busy_runs_out_the_bail_timer() {
+    let (mut shop, _) = full_pack_shop(VendorTradeSettings::default(), None);
+    shop.cx.stack = Box::new(|_, _| true);
+
+    shop.open(SHOPKEEPER);
+    // Five minutes of frames: well past the 60-second bail.
+    for _ in 0..3000 {
+        shop.tick(0.1, true);
+    }
+
+    assert!(!shop.controller.is_running());
+    assert!(shop.controller.status().contains("timeout expired"));
+}
