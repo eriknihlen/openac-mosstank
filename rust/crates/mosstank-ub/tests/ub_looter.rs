@@ -572,6 +572,20 @@ fn ub_use_with_the_looter_off_only_opens() {
 }
 
 #[test]
+fn a_second_ub_use_on_the_open_chest_closes_it() {
+    let mut rig = rig();
+    profile(&mut rig);
+    place(&mut rig, chest(), vec![loose(10, "Red Gem")], true);
+    use_and_serve(&mut rig, "Chest");
+    only_opened(&rig, CHEST, "Chest");
+
+    rig.ub("use Chest");
+    assert_eq!(vec![CHEST], rig.host.closed_loot);
+    assert_eq!(vec![CHEST], rig.host.opened_loot);
+    assert!(!looter(&rig).is_running());
+}
+
+#[test]
 fn ub_use_loots_a_chest_only_with_chests_on_and_the_own_corpse_only_with_its_switch() {
     let mut chest_rig = rig();
     set(&mut chest_rig, "Looter.Enabled", "True");
@@ -1238,6 +1252,37 @@ fn the_key_looter_goes_round_by_round_until_the_keys_run_out() {
     assert_eq!(3, messages.len(), "{messages:?}");
     assert!(messages[0].ends_with(" Scanned 1 items and looted 1 items"));
     assert!(messages[1].ends_with(" Scanned 1 items and looted 1 items"));
+    assert_eq!("[UB] Looter: Out of keys to use", messages[2]);
+}
+
+#[test]
+fn a_round_that_takes_nothing_goes_on_while_the_key_turns_the_lock() {
+    // The key unlocks the chest and is used up; the chest locks again and
+    // refills when it closes. Nothing in it is kept, and still every key is
+    // used.
+    let mut rig = key_rig();
+    rig.host.loot_contents = vec![loose(11, "Rusty Junk")];
+    rig.host.meta.objects.push(WorldObject {
+        object_id: 11,
+        name: "Rusty Junk".to_owned(),
+        object_class: ObjectClass::Misc,
+        has_appraisal_data: true,
+        ..WorldObject::default()
+    });
+    let mut server = KeyServer::new(0);
+
+    rig.ub("keyloot Legendary Key");
+    serve(&mut rig, &mut server, 120);
+
+    assert_eq!(vec![(KEY_ONE, CHEST), (KEY_TWO, CHEST)], rig.host.applied);
+    assert_eq!(vec![CHEST, CHEST], rig.host.opened_loot);
+    assert_eq!(vec![CHEST, CHEST], rig.host.closed_loot);
+    assert!(rig.host.pickups.is_empty());
+    assert!(!looter(&rig).is_running());
+    let messages = rig.messages();
+    assert_eq!(3, messages.len(), "{messages:?}");
+    assert!(messages[0].ends_with(" looted 0 items"));
+    assert!(messages[1].ends_with(" looted 0 items"));
     assert_eq!("[UB] Looter: Out of keys to use", messages[2]);
 }
 

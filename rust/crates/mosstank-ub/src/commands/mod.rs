@@ -1228,9 +1228,12 @@ fn use_single_object(
         }
         // A chest or a corpse goes through the looter, which opens it,
         // loots it and closes it (`Looter.OpenContainer`); a pack is only
-        // opened.
+        // opened. The one already open is closed, as using it by hand does.
         ObjectClass::Container | ObjectClass::Corpse => {
-            if looter::loot_container_kind(call.host, one).is_some() {
+            if call.host.open_container() == one.object_id {
+                looter.stop(call);
+                call.host.close_loot(one.object_id);
+            } else if looter::loot_container_kind(call.host, one).is_some() {
                 looter.open_container(call, one);
             } else {
                 call.host.open_loot(one.object_id);
