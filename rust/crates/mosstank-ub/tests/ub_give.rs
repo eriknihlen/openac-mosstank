@@ -6,7 +6,7 @@ mod common;
 use std::cell::RefMut;
 
 use ac_plugin_abi::items::{InventoryCommandKind, InventoryCompletion, InventoryItem, ItemStatus};
-use ac_plugin_abi::world::{ObjectClass, Position, WorldObject};
+use ac_plugin_abi::world::{ItemProperties, ObjectClass, Position, WorldObject};
 use common::Rig;
 use mosstank_formats::utl::{LootAction, LootRule};
 use mosstank_ub::commands::GiveNameMatch;
@@ -781,4 +781,134 @@ fn the_item_giver_splits_a_line_with_an_accented_profile_name() {
     assert!(rig.messages().contains(
         &"[UB] Error: InventoryManager: ItemGiver Profile does not exist: Épées".to_owned()
     ));
+}
+
+// Attuned items can't be handed to anyone but the Town Crier, who takes
+// every item in the game; bonded items go to anyone.
+
+/// Gives an item an integer property, as its appraisal would.
+fn mark(rig: &mut Rig, object_id: u32, property: u32) {
+    rig.host.meta.properties.insert(
+        object_id,
+        ItemProperties {
+            ints: vec![(property, 1)],
+            ..ItemProperties::default()
+        },
+    );
+}
+
+const BONDED: u32 = 33;
+const ATTUNED: u32 = 114;
+
+#[test]
+fn a_name_give_passes_over_attuned_items_but_gives_bonded_ones() {
+    let mut rig = nearby("Mule", 1.0);
+    owned(
+        &mut rig,
+        vec![
+            item(10, "Prismatic Taper"),
+            item(11, "Prismatic Taper"),
+            item(12, "Prismatic Taper"),
+        ],
+    );
+    mark(&mut rig, 10, ATTUNED);
+    mark(&mut rig, 11, BONDED);
+
+    assert!(by_name(
+        &mut rig,
+        "prismatic taper",
+        GiveNameMatch::Exact,
+        0,
+        "Mule",
+        false
+    ));
+    assert_eq!(vec![11, 12], queued(&mut rig));
+}
+
+#[test]
+fn a_counted_name_give_spends_its_count_on_items_that_can_go() {
+    let mut rig = nearby("Mule", 1.0);
+    owned(
+        &mut rig,
+        vec![item(10, "Prismatic Taper"), item(11, "Prismatic Taper")],
+    );
+    mark(&mut rig, 10, ATTUNED);
+
+    assert!(by_name(
+        &mut rig,
+        "prismatic taper",
+        GiveNameMatch::Exact,
+        1,
+        "Mule",
+        false
+    ));
+    assert_eq!(vec![11], queued(&mut rig));
+}
+
+#[test]
+fn a_profile_give_passes_over_attuned_items_but_gives_bonded_ones() {
+    let mut rig = nearby("Mule", 1.0);
+    owned(
+        &mut rig,
+        vec![
+            item(10, "Trade Pyreal"),
+            item(11, "Trade Note"),
+            item(12, "Trade Scarab"),
+        ],
+    );
+    mark(&mut rig, 10, BONDED);
+    mark(&mut rig, 12, ATTUNED);
+    rig.services
+        .loot_profiles
+        .push(("Mule Items".to_owned(), trade_profile()));
+
+    assert!(by_profile(&mut rig, "Mule Items", "Mule", false));
+    assert_eq!(vec![10, 11], queued(&mut rig));
+}
+
+#[test]
+fn the_town_crier_takes_attuned_items() {
+    let mut rig = nearby("Town Crier", 1.0);
+    rig.host.meta.objects[0].object_class = ObjectClass::Npc;
+    owned(
+        &mut rig,
+        vec![item(10, "Trade Pyreal"), item(11, "Trade Note")],
+    );
+    mark(&mut rig, 10, BONDED);
+    mark(&mut rig, 11, ATTUNED);
+    rig.services
+        .loot_profiles
+        .push(("Mule Items".to_owned(), trade_profile()));
+
+    assert!(by_profile(&mut rig, "Mule Items", "town crier", false));
+    assert_eq!(vec![10, 11], queued(&mut rig));
+    assert!(by_name(
+        &mut rig,
+        "trade",
+        GiveNameMatch::Partial,
+        0,
+        "Town Crier",
+        false
+    ));
+    assert_eq!(vec![10, 11], queued(&mut rig));
+}
+
+#[test]
+fn a_player_named_town_crier_takes_no_attuned_item() {
+    let mut rig = nearby("Town Crier", 1.0);
+    owned(
+        &mut rig,
+        vec![item(10, "Prismatic Taper"), item(11, "Prismatic Taper")],
+    );
+    mark(&mut rig, 10, ATTUNED);
+
+    assert!(by_name(
+        &mut rig,
+        "prismatic taper",
+        GiveNameMatch::Exact,
+        0,
+        "Town Crier",
+        false
+    ));
+    assert_eq!(vec![11], queued(&mut rig));
 }
