@@ -1081,3 +1081,56 @@ fn a_hold_taken_through_the_shared_handle_is_seen_at_once_and_its_release_pokes(
     // The release poked: the next frame runs a pass at once.
     assert!(scheduler.advance(&mut cx, 0.0));
 }
+
+// Register MACRO-1 (no C# source: the C# runs every rule while the
+// character is dead or in portal space).
+#[test]
+fn a_world_hold_runs_the_meta_but_lets_no_rule_act() {
+    let mut cx = Cx {
+        meta: Some(Vec::new()),
+        ..Cx::default()
+    };
+    let route = Probe::new("NavigateRouteIdle", true);
+    let pet = Probe::new("SummonPet", true);
+    let mut scheduler = MacroScheduler::new(vec![route.rule()], vec![pet.rule()], Vec::new());
+    scheduler.start(&mut cx);
+    assert!(scheduler.advance(&mut cx, HEARTBEAT_SECONDS));
+    assert!(route.running());
+    assert!(pet.running());
+
+    scheduler.world_hold = true;
+    scheduler.poke();
+    assert!(scheduler.advance(&mut cx, HEARTBEAT_SECONDS));
+
+    assert_eq!(
+        cx.meta.as_ref().map(Vec::len),
+        Some(2),
+        "the meta ran both passes"
+    );
+    assert_eq!(route.state.borrow().can_act_seen, vec![true, false]);
+    assert_eq!(pet.state.borrow().can_act_seen, vec![true, false]);
+    assert!(!route.running(), "the rule that held the turn lost it");
+    assert!(!pet.running());
+    assert_eq!(scheduler.last_executed_index(), None);
+
+    scheduler.world_hold = false;
+    scheduler.poke();
+    assert!(scheduler.advance(&mut cx, HEARTBEAT_SECONDS));
+
+    assert!(route.running(), "the rule takes its turn again");
+    assert_eq!(route.state.borrow().can_act_seen, vec![true, false, true]);
+}
+
+// Register MACRO-1.
+#[test]
+fn a_world_hold_lets_no_rule_of_the_stopped_list_act() {
+    let mut cx = Cx::default();
+    let when_off = Probe::new("RefillWieldedMana", true);
+    let mut scheduler = MacroScheduler::new(Vec::new(), Vec::new(), vec![when_off.rule()]);
+    scheduler.world_hold = true;
+
+    assert!(scheduler.advance(&mut cx, HEARTBEAT_SECONDS));
+
+    assert_eq!(when_off.state.borrow().can_act_seen, vec![false]);
+    assert!(!when_off.running());
+}

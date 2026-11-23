@@ -181,3 +181,43 @@ fn an_items_page_essence_is_appraised_in_a_fresh_session_and_then_summoned_with(
     }
     assert!(world.automation().used_item_ids.contains(&10));
 }
+
+// Register MACRO-1 (no C# source: the C# summons while the character is
+// dead).
+#[test]
+fn a_dead_summoner_summons_nothing_until_its_health_comes_back() {
+    let mut automation = essence_and_spirit(50);
+    automation.hostile_targets = vec![CombatTarget {
+        object_id: 30,
+        name: "Drudge".to_owned(),
+        weenie_class_id: 700,
+        distance: 2.0,
+        relative_angle_degrees: 0.0,
+        is_health_known: true,
+        health_fraction: 1.0,
+        ..CombatTarget::default()
+    }];
+    automation.skills = vec![skill(54, "Summoning", 300)];
+    automation.health = (0, 100);
+    let (mut world, mut plugin) = with_essence_on_the_items_page(automation);
+    let p = &mut plugin;
+    world.vt(p, "opt set StopMacroOnDeath false");
+    world.act(p, "ToggleCombat");
+
+    for _ in 0..20 {
+        tick(&mut world, p, 0.3);
+    }
+    assert!(
+        !world.automation().used_item_ids.contains(&10),
+        "no summon while dead"
+    );
+
+    world.automation().health = (75, 100);
+    for _ in 0..10 {
+        tick(&mut world, p, 0.3);
+    }
+    assert!(
+        world.automation().used_item_ids.contains(&10),
+        "the summon once alive"
+    );
+}

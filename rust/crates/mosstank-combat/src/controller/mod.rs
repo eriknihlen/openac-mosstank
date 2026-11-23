@@ -280,6 +280,9 @@ pub struct CombatController {
     mode_text: String,
     last_mode: CombatMode,
     paused: bool,
+    /// The character can do nothing in the world (dead, or in portal
+    /// space): a cast the server never answered is not sent again.
+    world_hold: bool,
     observed_physical_completion: i64,
     observed_attack_cast_completion: i64,
     pending_physical_target: u32,
@@ -430,6 +433,7 @@ impl CombatController {
             mode_text: "Mode  Unknown".to_owned(),
             last_mode: CombatMode::Unknown,
             paused: false,
+            world_hold: false,
             observed_physical_completion: 0,
             observed_attack_cast_completion: 0,
             pending_physical_target: 0,
@@ -1017,6 +1021,26 @@ impl CombatController {
         } else if self.enabled {
             self.until_scan = 0.0;
         }
+    }
+
+    /// Whether the character can do nothing in the world (dead, or in
+    /// portal space). While it holds, the cast tracker's re-sends of an
+    /// unanswered cast are dropped; the tracker times the cast out as usual.
+    pub fn set_world_hold(&mut self, held: bool) {
+        self.world_hold = held;
+    }
+
+    /// The character just came to be unable to do anything in the world
+    /// (dead, or in portal space): what the attack has in hand is put down
+    /// from the frame, without waiting for a pass (a turn in flight holds the
+    /// pass): the swing, the turn to the target, the walk to a monster and a
+    /// held wand's cast, which would otherwise hold the pass until its clock
+    /// ran out.
+    pub fn on_world_hold_began(&mut self, automation: &mut dyn Automation) {
+        self.set_paused(automation, true);
+        self.stop_breakable_turn_movement(automation);
+        self.stop_monster_approach_for_lost_turn(automation);
+        self.clear_pending_item_debuff();
     }
 
     /// One step of getting equipped for a named monster (the panel's

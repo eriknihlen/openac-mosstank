@@ -281,6 +281,13 @@ pub struct Core {
     pub(crate) route_held_for_rare: bool,
     pub(crate) death_saved: DeathSaved,
     pub(crate) was_dead_for_macro: bool,
+    /// Why the character can do nothing in the world this frame (it is
+    /// dead, or in portal space), if it cannot: the rules may not act, and
+    /// the movers and the swing stand still (register MACRO-1).
+    pub(crate) world_hold: Option<&'static str>,
+    /// The client said the character died and its health has not shown 0
+    /// yet: the seconds the death counts for without it.
+    pub(crate) death_event_seconds: Option<f64>,
     pub(crate) automation_was_available: bool,
     pub(crate) prologue_owns_action: bool,
     /// The last frame did a frame's worth of once-only work (the name tags'
@@ -817,6 +824,8 @@ impl Tank {
             route_held_for_rare: false,
             death_saved: DeathSaved::default(),
             was_dead_for_macro: false,
+            world_hold: None,
+            death_event_seconds: None,
             automation_was_available: false,
             prologue_owns_action: false,
             heavy_frame: false,
@@ -1281,7 +1290,12 @@ impl Tank {
             Event::Logoff => {
                 cx.with_engine(|engine, host, services| engine.on_logoff(host, services));
             }
-            Event::LocalPlayerDied(message) => cx.meta.on_local_player_died(message),
+            Event::LocalPlayerDied(message) => {
+                // The death holds the macro from the client's word on, in
+                // case the health that shows it comes a frame later.
+                cx.core.death_event_seconds = Some(frame::DEATH_EVENT_HOLD_SECONDS);
+                cx.meta.on_local_player_died(message);
+            }
             Event::PortalTransition(transition) => {
                 // The route hears the teleport too: a recall waypoint is done
                 // by it.

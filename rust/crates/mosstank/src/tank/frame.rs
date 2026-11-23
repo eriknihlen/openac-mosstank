@@ -42,6 +42,11 @@ const LOCAL_SPEECH_CHAT_KIND: u32 = 0;
 /// character's pack alone is some hundreds of objects).
 const HEAVY_SCAN_OBJECTS: usize = 200;
 
+/// How long the client's word that the character died holds the macro when
+/// the health does not show the death (it normally shows it in the same
+/// frame), seconds.
+pub(crate) const DEATH_EVENT_HOLD_SECONDS: f64 = 5.0;
+
 impl Tank {
     /// One frame (`OnTick`).
     #[allow(clippy::too_many_lines)]
@@ -171,6 +176,42 @@ impl Tank {
             cx.handle_death(macro_running);
         }
         cx.core.was_dead_for_macro = dead;
+        // From a death until the server gives the character its health back,
+        // and in portal space, the character can do nothing in the world:
+        // nothing is sent for it (register MACRO-1). A recall cast while
+        // the server still carries out the death has left the character
+        // unplaced on the server for good.
+        // The client's word of the death counts until the health shows it
+        // (then the health decides) or for a few seconds without it.
+        cx.core.death_event_seconds = match cx.core.death_event_seconds {
+            Some(_) if dead => None,
+            Some(left) => Some(left - elapsed_seconds.max(0.0)).filter(|left| *left > 0.0),
+            None => None,
+        };
+        let world_hold = if dead || cx.core.death_event_seconds.is_some() {
+            Some("the character is dead")
+        } else if cx.client.rules().navigation_snapshot().is_portal_space {
+            Some("the character is in portal space")
+        } else {
+            None
+        };
+        if world_hold.is_some() != cx.core.world_hold.is_some() {
+            // The rule that held the turn lets go at once, and the macro
+            // takes up its work again as soon as the hold ends.
+            scheduler.poke();
+        }
+        if world_hold.is_some() && cx.core.world_hold.is_none() {
+            // Put down from the frame what the attack and the corpse walk
+            // hold: a turn in flight holds the pass, so the pass alone would
+            // not take their turns away.
+            cx.core.combat.on_world_hold_began(cx.client.rules());
+            cx.core
+                .corpse_approach
+                .stop_for_lost_turn(cx.client.looter());
+            cx.core.write_out(cx.client);
+        }
+        cx.core.world_hold = world_hold;
+        cx.core.combat.set_world_hold(world_hold.is_some());
         cx.meta
             .current_state()
             .clone_into(&mut cx.core.settings.combat.meta_state);
@@ -226,10 +267,12 @@ impl Tank {
         cx.observe_pending_transactions(elapsed_seconds);
         cx.observe_cast_suspension(scheduler, elapsed_seconds);
         // A turn in flight freezes the pass, so it needs a driver beside the
-        // pass rather than inside it.
-        cx.core
-            .combat
-            .advance_held_turn(cx.client.rules(), elapsed_seconds);
+        // pass rather than inside it. The hold put the turn down.
+        if cx.core.world_hold.is_none() {
+            cx.core
+                .combat
+                .advance_held_turn(cx.client.rules(), elapsed_seconds);
+        }
         cx.core.write_out(cx.client);
         // What the other clients cast is read on the frame too.
         {
@@ -242,15 +285,26 @@ impl Tank {
         cx.report_scheduler_suspension(scheduler, command_jump_owns_action, owners);
         // The movers run on the host's frame, before the pass, so the pass
         // sees the frame's work done. Only one of them is ever armed.
+        let held = cx.core.world_hold.is_some();
         {
             let core = &mut *cx.core;
-            let clear = core.navigation_slots_are_clear();
+            let clear = core.navigation_slots_are_clear() && !held;
             let mut turn: RouteTurn<'_> = route_turn!(cx.client, core);
             core.navigation
                 .step_armed_mover(&mut turn, elapsed_seconds, clear);
+            if held && scheduler.is_running() {
+                // The route takes no turn of the pass while the character
+                // can do nothing, but it still watches: a portal or recall
+                // waypoint is done by the portal space it sees.
+                let _ = core.navigation.tick(&mut turn, 0.0, false);
+            }
         }
         cx.core.write_out(cx.client);
-        {
+        // While the character can do nothing, the corpse walk, the walk to a
+        // monster and the swing stand still; the pass takes their rules'
+        // turns away, which lets go of what they hold.
+        scheduler.world_hold = held;
+        if !held {
             let core = &mut *cx.core;
             let lent = LentLoot::new(&mut core.loot, &mut core.settings.inventory.loot);
             let mut turn = ApproachTurn {
@@ -265,7 +319,7 @@ impl Tank {
                 .step_armed_mover(&mut turn, elapsed_seconds);
         }
         cx.core.write_out(cx.client);
-        {
+        if !held {
             let core = &mut *cx.core;
             let mut ctx = combat_ctx!(cx.client, core);
             core.combat
@@ -273,14 +327,16 @@ impl Tank {
         }
         cx.core.write_out(cx.client);
         // The swing runs on the host's frame, not on the pass that armed it.
-        cx.core
-            .combat
-            .drive_swing_executor(cx.client.rules(), elapsed_seconds);
+        if !held {
+            cx.core
+                .combat
+                .drive_swing_executor(cx.client.rules(), elapsed_seconds);
+        }
         cx.core.write_out(cx.client);
         scheduler.advance(&mut cx, elapsed_seconds);
         // After the pass: a held item's cast is driven by the frame on every
         // frame the attack's own turn did not drive it.
-        {
+        if !held {
             let core = &mut *cx.core;
             let mut ctx = combat_ctx!(cx.client, core);
             core.combat
@@ -683,6 +739,8 @@ impl TankCx<'_> {
     ) {
         let cause = if !scheduler.is_running() {
             None
+        } else if let Some(why) = self.core.world_hold {
+            Some(why)
         } else if command_jump_owns_action {
             Some("a command jump owns the character")
         } else if owners.give {

@@ -649,6 +649,10 @@ impl SummonPetRule {
         if !turn.settings.enabled || !turn.settings.summon_pets {
             return false;
         }
+        // The character can do nothing in the world (register MACRO-1).
+        if !context.can_act {
+            return false;
+        }
         if !is_summoning_trained(automation) {
             return false;
         }

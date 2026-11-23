@@ -613,6 +613,11 @@ pub struct MacroScheduler<F: MacroFamily> {
     hold: PassHold,
     /// Holds the pass from outside (the plugin's own suspension).
     pub external_suspension: bool,
+    /// The character can do nothing in the world (it is dead, or in portal
+    /// space): the meta still runs, but every rule is told it may not act.
+    /// Unlike a suspension it lets the pass go on, so the rule that held the
+    /// turn loses it and lets go of what it was doing.
+    pub world_hold: bool,
     last_executed: Option<usize>,
     pass_count: i64,
     suspended_meta_seconds: f64,
@@ -655,6 +660,7 @@ impl<F: MacroFamily> MacroScheduler<F> {
             since_pass: 0.0,
             hold: PassHold::default(),
             external_suspension: false,
+            world_hold: false,
             last_executed: None,
             pass_count: 0,
             suspended_meta_seconds: 0.0,
@@ -823,7 +829,7 @@ impl<F: MacroFamily> MacroScheduler<F> {
         if self.is_suspended() {
             return;
         }
-        let context = MacroPassContext::new(elapsed, true);
+        let context = MacroPassContext::new(elapsed, !self.world_hold);
         let mut winner = None;
         for (index, rule) in self.macro_disabled.iter_mut().enumerate() {
             if rule.valid_now(cx, context) {
@@ -867,7 +873,8 @@ impl<F: MacroFamily> MacroScheduler<F> {
         self.meta_seconds_given_between_passes = 0.0;
 
         self.pass_clock += elapsed;
-        let independent_context = MacroPassContext::new(elapsed, true);
+        let can_act = !self.world_hold;
+        let independent_context = MacroPassContext::new(elapsed, can_act);
         for rule in &mut self.independent {
             let valid = rule.valid_now(cx, independent_context);
             rule.set_running(cx, valid);
@@ -896,7 +903,7 @@ impl<F: MacroFamily> MacroScheduler<F> {
             let since_asked = self.pass_clock - self.last_evaluated_at[index];
             self.last_evaluated_at[index] = self.pass_clock;
             evaluated = index + 1;
-            let context = MacroPassContext::new(since_asked, true);
+            let context = MacroPassContext::new(since_asked, can_act);
             if self.main[index].valid_now(cx, context) {
                 winner = Some(index);
                 break;

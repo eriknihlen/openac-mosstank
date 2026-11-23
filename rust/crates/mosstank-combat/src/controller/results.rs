@@ -241,12 +241,19 @@ impl CombatController {
                         spell_id,
                         target_object_id,
                     } => {
-                        // A request the server never answered is sent again.
+                        // A request the server never answered is sent again,
+                        // unless the character can do nothing in the world.
+                        if self.world_hold {
+                            continue;
+                        }
                         if target_object_id == 0 {
                             cx.automation.cast(spell_id, None);
                         } else {
                             cx.automation.cast(spell_id, Some(target_object_id));
                         }
+                    }
+                    CastEvent::Attempted(_) if self.world_hold => {
+                        // Nothing was sent: no attempt at the monster.
                     }
                     CastEvent::Attempted(object_id) => {
                         if self.failures.record_spell_attempt(object_id, cx.settings) {
