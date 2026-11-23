@@ -410,6 +410,11 @@ impl TankCx<'_> {
         self.core.clear_fast_cast_movement(self.client);
         self.core.buff_rule.reset();
         self.core.selection_before_pass = None;
+        // A death the gone character's health never showed holds nobody
+        // else (register MACRO-1).
+        self.core.death_event_seconds = None;
+        self.core.world_hold = None;
+        self.core.combat.set_world_hold(false);
         "Lost the session.".clone_into(&mut self.core.status);
         self.core.gate.borrow_mut().reset();
         self.reset_session_scoped_controllers();
