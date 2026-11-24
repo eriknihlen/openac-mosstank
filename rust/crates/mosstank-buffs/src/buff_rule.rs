@@ -12,7 +12,7 @@ use ac_plugin_abi::CharacterInfo;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-use ac_plugin_abi::character::{Skill, Training};
+use ac_plugin_abi::character::{ActiveEnchantment, Skill, Training};
 use ac_plugin_abi::combat::CombatMode;
 use ac_plugin_abi::items::{InventoryItem, ItemStatus};
 use ac_plugin_abi::magic::{CastGate, CastResult, SpellInfo};
@@ -1260,6 +1260,8 @@ impl BuffSelfRule {
         let owned = automation.owned_items_shared();
         // The names said this scan: one line per name, from its first item.
         let mut reported: Vec<&str> = Vec::new();
+        // The character's enchantments, read once a scan when first wanted.
+        let mut timed: Option<Vec<ActiveEnchantment>> = None;
         for item in owned.iter() {
             let gem = turn
                 .settings
@@ -1274,6 +1276,8 @@ impl BuffSelfRule {
             if !configured_gem && !configured_consumable {
                 continue;
             }
+            // Read before the hold after a use: an item held after a
+            // refused use is still asked about meanwhile.
             let assessed = automation
                 .object(item.object_id)
                 .is_some_and(|world| world.last_id_time != 0);
@@ -1298,6 +1302,7 @@ impl BuffSelfRule {
                 configured_gem,
                 assessed,
                 threshold,
+                &mut timed,
             ) {
                 Ok(spell) => {
                     return Some(BuffPick {
@@ -1321,7 +1326,9 @@ impl BuffSelfRule {
     }
 
     /// Whether one configured consumable can be used now for the spell
-    /// `spell_id`, and why not.
+    /// `spell_id`, and why not. `timed` is the scan's reading of the
+    /// character's enchantments, made here the first time one is wanted.
+    #[allow(clippy::too_many_arguments)]
     fn consumable_verdict(
         &self,
         automation: &mut dyn Automation,
@@ -1330,6 +1337,7 @@ impl BuffSelfRule {
         configured_gem: bool,
         assessed: bool,
         threshold: f64,
+        timed: &mut Option<Vec<ActiveEnchantment>>,
     ) -> Result<SpellInfo, ConsumableSkip> {
         if self
             .consumable_retry_at
@@ -1343,8 +1351,11 @@ impl BuffSelfRule {
                 "the profile's GemFoodItems names no spell for it".to_owned()
             } else if assessed {
                 "its assessment names no spell".to_owned()
+            } else if self.consumable_appraisals.is_asked(item.object_id) {
+                "not assessed yet, so its spell is unknown; its assessment is requested".to_owned()
             } else {
-                "not assessed yet, so its spell is unknown; its assessment is asked for".to_owned()
+                "not assessed yet, so its spell is unknown; waiting to request its assessment"
+                    .to_owned()
             }));
         }
         let Some(spell) = automation.spells().try_get(spell_id) else {
@@ -1422,7 +1433,8 @@ impl BuffSelfRule {
             ));
         }
         let forced = self.buff_due.forced_spell_ids();
-        if automation.timed_enchantments().iter().any(|effect| {
+        let timed = timed.get_or_insert_with(|| automation.timed_enchantments());
+        if timed.iter().any(|effect| {
             effect.family == spell.family
                 && effect.tier >= spell.tier
                 && !forced.contains(&effect.spell_id)

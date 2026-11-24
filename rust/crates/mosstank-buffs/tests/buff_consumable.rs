@@ -90,6 +90,7 @@ struct Surface {
     identify_requests: Vec<u32>,
     identify_status: Option<ItemStatus>,
     used: Vec<u32>,
+    completion: ItemUseCompletion,
     infos: Vec<String>,
 }
 
@@ -191,7 +192,7 @@ impl Automation for Surface {
     }
 
     fn last_item_completion(&mut self) -> ItemUseCompletion {
-        ItemUseCompletion::default()
+        self.completion.clone()
     }
 
     fn use_item(&mut self, object_id: u32) -> ItemResult {
@@ -518,4 +519,145 @@ fn a_request_the_client_does_not_take_is_retried_after_a_pause() {
     advance(&mut rule, &mut surface, appraisal::NOT_TAKEN_HOLD_SECONDS);
     tick(&mut rule, &mut surface, &settings);
     assert_eq!(surface.identify_requests, [STONE, STONE]);
+}
+
+/// An item that leaves the inventory while its appraisal is out lets the
+/// question go at once: the next configured item is asked about on the
+/// next pass, not after the reply window.
+#[test]
+fn an_item_leaving_mid_request_frees_the_request_at_once() {
+    const SECOND_STONE: u32 = 0x8000_0202;
+    let mut surface = Surface::new();
+    surface.inventory = vec![item(STONE, STONE_NAME), item(SECOND_STONE, STONE_NAME)];
+    let settings = Settings::new();
+    let mut rule = bound_rule();
+
+    tick(&mut rule, &mut surface, &settings);
+    assert_eq!(surface.identify_requests, [STONE]);
+
+    surface.inventory.retain(|item| item.object_id != STONE);
+    advance(&mut rule, &mut surface, 0.5);
+    tick(&mut rule, &mut surface, &settings);
+    assert_eq!(surface.identify_requests, [STONE, SECOND_STONE]);
+
+    surface.answer_appraisal(SECOND_STONE, &[], &[STONE_SPELL]);
+    advance(&mut rule, &mut surface, 0.5);
+    tick(&mut rule, &mut surface, &settings);
+    assert_eq!(surface.used, [SECOND_STONE]);
+    assert_eq!(surface.identify_requests, [STONE, SECOND_STONE]);
+}
+
+/// A reason is said once, and said again each time it changes.
+#[test]
+fn a_new_line_is_said_when_the_skip_reason_changes() {
+    let mut surface = Surface::new();
+    surface.inventory = vec![item(PEARL, PEARL_NAME)];
+    surface.answer_appraisal(PEARL, &[(280, 7)], &[PEARL_SPELL]);
+    surface.buff_on(PEARL_SPELL, PEARL_FAMILY);
+    let settings = Settings::new();
+    let mut rule = bound_rule();
+    let active = "not used: its buff (Burning Spirit) is already active";
+    let cooling = "not used: its shared cooldown is running";
+
+    tick(&mut rule, &mut surface, &settings);
+    advance(&mut rule, &mut surface, 0.3);
+    tick(&mut rule, &mut surface, &settings);
+    assert_eq!(
+        (surface.info_count(active), surface.info_count(cooling)),
+        (1, 0)
+    );
+
+    surface.catalog.cooldowns.insert(PEARL_COOLDOWN, 120.0);
+    advance(&mut rule, &mut surface, 0.3);
+    tick(&mut rule, &mut surface, &settings);
+    advance(&mut rule, &mut surface, 0.3);
+    tick(&mut rule, &mut surface, &settings);
+    assert_eq!(
+        (surface.info_count(active), surface.info_count(cooling)),
+        (1, 1)
+    );
+
+    surface.catalog.cooldowns.clear();
+    advance(&mut rule, &mut surface, 0.3);
+    tick(&mut rule, &mut surface, &settings);
+    assert_eq!(
+        (surface.info_count(active), surface.info_count(cooling)),
+        (2, 1)
+    );
+    assert!(surface.used.is_empty());
+}
+
+/// A hand-added consumable's line says the assessment is requested only
+/// while a request is out.
+#[test]
+fn the_line_says_requested_only_while_a_request_is_out() {
+    let mut surface = Surface::new();
+    surface.inventory = vec![item(STONE, STONE_NAME)];
+    surface.identify_status = Some(ItemStatus::Busy);
+    let settings = Settings::new();
+    let mut rule = bound_rule();
+
+    tick(&mut rule, &mut surface, &settings);
+    advance(&mut rule, &mut surface, 0.5);
+    tick(&mut rule, &mut surface, &settings);
+    assert_eq!(surface.info_count("waiting to request its assessment"), 1);
+    assert_eq!(surface.info_count("its assessment is requested"), 0);
+
+    surface.identify_status = None;
+    advance(&mut rule, &mut surface, appraisal::NOT_TAKEN_HOLD_SECONDS);
+    tick(&mut rule, &mut surface, &settings);
+    advance(&mut rule, &mut surface, 0.5);
+    tick(&mut rule, &mut surface, &settings);
+    assert_eq!(surface.identify_requests, [STONE, STONE]);
+    assert_eq!(surface.info_count("its assessment is requested"), 1);
+}
+
+/// The server refuses the first use of a never-appraised gem: the gem is
+/// held back, its appraisal is asked for meanwhile, and once the hold is
+/// over the gem is used again, this time with success.
+#[test]
+fn a_refused_first_use_is_followed_by_the_appraisal_and_a_good_use() {
+    let mut surface = Surface::new();
+    surface.inventory = vec![item(PEARL, PEARL_NAME)];
+    let settings = Settings::new();
+    let mut rule = bound_rule();
+
+    tick(&mut rule, &mut surface, &settings);
+    assert_eq!(surface.used, [PEARL]);
+
+    // The server answers the use with an error.
+    surface.completion = ItemUseCompletion {
+        revision: 1,
+        source_id: PEARL,
+        target_id: 0,
+        weenie_error: 0x0001,
+    };
+    advance(&mut rule, &mut surface, 0.3);
+    tick(&mut rule, &mut surface, &settings);
+    assert_eq!(surface.used, [PEARL]);
+    assert_eq!(surface.identify_requests, [PEARL]);
+
+    surface.answer_appraisal(PEARL, &[], &[PEARL_SPELL]);
+    advance(&mut rule, &mut surface, 0.3);
+    tick(&mut rule, &mut surface, &settings);
+    assert_eq!(surface.used, [PEARL]);
+
+    // Past the hold a failed use earns, it is used again and succeeds.
+    advance(&mut rule, &mut surface, 30.0);
+    tick(&mut rule, &mut surface, &settings);
+    assert_eq!(surface.used, [PEARL, PEARL]);
+    surface.completion = ItemUseCompletion {
+        revision: 2,
+        source_id: PEARL,
+        target_id: 0,
+        weenie_error: 0,
+    };
+    surface.buff_on(PEARL_SPELL, PEARL_FAMILY);
+    advance(&mut rule, &mut surface, 0.3);
+    for _ in 0..5 {
+        tick(&mut rule, &mut surface, &settings);
+        advance(&mut rule, &mut surface, 0.3);
+    }
+    assert_eq!(surface.used, [PEARL, PEARL]);
+    assert_eq!(surface.identify_requests, [PEARL]);
 }

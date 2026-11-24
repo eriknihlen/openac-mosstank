@@ -51,7 +51,13 @@ impl AppraisalRequests {
         let Some(asked) = self.asked else {
             return;
         };
-        let current = assessment_version(automation, asked.object_id);
+        // An item the client no longer knows (used up, dropped, given away)
+        // will not be answered for: the question is let go at once.
+        let Some(object) = automation.object(asked.object_id) else {
+            self.asked = None;
+            return;
+        };
+        let current = object.last_id_time;
         if current != 0 && current != asked.version {
             self.asked = None;
         } else if now - asked.at >= REPLY_SECONDS {
@@ -65,6 +71,12 @@ impl AppraisalRequests {
     #[must_use]
     pub fn is_waiting(&self) -> bool {
         self.asked.is_some()
+    }
+
+    /// Whether the question out is about `object_id`.
+    #[must_use]
+    pub fn is_asked(&self, object_id: u32) -> bool {
+        self.asked.is_some_and(|asked| asked.object_id == object_id)
     }
 
     /// Whether `object_id` may be asked about now: nothing else is out and
