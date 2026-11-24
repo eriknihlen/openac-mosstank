@@ -5,7 +5,7 @@
 //! it in flight. The recharge boost reads a vital as worse off than it is
 //! for a while after a recharge was asked for, so it is carried through.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use ac_plugin_abi::combat::CombatMode;
 use ac_plugin_abi::magic::CastGate;
@@ -54,6 +54,21 @@ const HELPER_STEP_ASIDE_SECONDS: f64 = 60.0;
 /// The reference's wait after a cast at a network peer that is not a
 /// fellow before the same vital is cast at that peer again, seconds.
 const PEER_RECAST_SECONDS: f64 = 5.0;
+
+/// The reference's time after which a player outside the fellowship is
+/// forgotten, seconds: here, once the network has not listed it for that
+/// long.
+const PEER_FORGET_SECONDS: f64 = 120.0;
+
+/// A network peer's reported vitals as the helper last read them. The
+/// client stamps no time on a peer's record, so its vitals count as
+/// arrived when they change (or when the peer is first listed).
+#[derive(Debug, Clone)]
+struct PeerSighting {
+    vitals: [u32; 6],
+    arrived_at: f64,
+    listed_at: f64,
+}
 
 /// A member the helper leaves alone for one vital, for a while.
 #[derive(Debug, Clone)]
@@ -116,6 +131,7 @@ pub struct VitalRechargeController {
     frame_observed_seconds: f64,
     helper_holds: Vec<HelperHold>,
     helper_stall: Option<HelperStall>,
+    peer_sightings: HashMap<u32, PeerSighting>,
 }
 
 impl Default for VitalRechargeController {
@@ -147,6 +163,7 @@ impl VitalRechargeController {
             frame_observed_seconds: 0.0,
             helper_holds: Vec::new(),
             helper_stall: None,
+            peer_sightings: HashMap::new(),
         }
     }
 
@@ -570,17 +587,29 @@ impl VitalRechargeController {
     fn plan_helper(&mut self, turn: &mut VitalTurn<'_>) -> Option<VitalRechargeChoice> {
         let mut traced: Vec<String> = Vec::new();
         let mut sink = |line: &str| traced.push(line.to_owned());
+        let now = self.action_locks.borrow().now();
+        self.observe_peers(turn, now);
         let holds = &self.helper_holds;
         let excluded = |target: u32, vital: VitalKind| {
             holds
                 .iter()
                 .any(|hold| hold.target == target && hold.vital == vital)
         };
-        let (choice, decision) = recharge::plan_helper_excluding(
+        let sightings = &self.peer_sightings;
+        let peer_vitals_age = |player_id: u32| {
+            sightings
+                .get(&player_id)
+                .map(|sighting| (now - sighting.arrived_at).max(0.0))
+        };
+        let filters = recharge::HelperFilters {
+            excluded: &excluded,
+            peer_vitals_age: &peer_vitals_age,
+        };
+        let (choice, decision) = recharge::plan_helper_with(
             turn.automation,
             turn.settings,
             turn.combat,
-            &excluded,
+            &filters,
             Some(&mut sink),
         );
         self.last_helper_decision = Some(decision);
@@ -590,6 +619,42 @@ impl VitalRechargeController {
             }
         }
         choice
+    }
+
+    /// Reads the network peers' records at `now`: a peer's vitals arrive
+    /// when they differ from the last reading (or it is listed for the
+    /// first time), and a peer the network has not listed for
+    /// [`PEER_FORGET_SECONDS`] is forgotten.
+    fn observe_peers(&mut self, turn: &mut VitalTurn<'_>, now: f64) {
+        if !turn.settings.help_network_peers || !turn.automation.network_available() {
+            self.peer_sightings.clear();
+            return;
+        }
+        for peer in turn.automation.network_clients() {
+            let vitals = [
+                peer.current_health,
+                peer.max_health,
+                peer.current_stamina,
+                peer.max_stamina,
+                peer.current_mana,
+                peer.max_mana,
+            ];
+            let sighting = self
+                .peer_sightings
+                .entry(peer.player_id)
+                .or_insert(PeerSighting {
+                    vitals,
+                    arrived_at: now,
+                    listed_at: now,
+                });
+            if sighting.vitals != vitals {
+                sighting.vitals = vitals;
+                sighting.arrived_at = now;
+            }
+            sighting.listed_at = now;
+        }
+        self.peer_sightings
+            .retain(|_, sighting| now - sighting.listed_at <= PEER_FORGET_SECONDS);
     }
 
     /// Drops everything: the use in flight (and its slot), the delays, the
@@ -607,6 +672,7 @@ impl VitalRechargeController {
         self.vitals_requested = false;
         self.helper_holds.clear();
         self.helper_stall = None;
+        self.peer_sightings.clear();
         self.helper_trace_lines.clear();
         self.last_helper_decision = None;
         IDLE_STATUS.clone_into(&mut self.status);

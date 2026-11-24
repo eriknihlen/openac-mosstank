@@ -37,8 +37,8 @@ const LIFE_MAGIC_SKILL: u32 = 33;
 const ARCANE_LORE_SKILL: u32 = 14;
 
 /// A fellow's vitals are trusted this long after the server last streamed
-/// them, seconds; older samples (or none) mean "unknown", never "still
-/// low".
+/// them, and a network peer's after they last arrived, seconds; older
+/// samples (or none) mean "unknown", never "still low".
 pub const FELLOW_VITALS_TRUST_SECONDS: f64 = 10.0;
 
 /// Where a recharge comes from.
@@ -423,18 +423,34 @@ pub fn plan_helper(
     combat: &CombatSettings,
     trace: Option<&mut dyn FnMut(&str)>,
 ) -> (Option<VitalRechargeChoice>, HelperDecision) {
-    plan_helper_excluding(automation, settings, combat, &|_, _| false, trace)
+    let filters = HelperFilters {
+        excluded: &|_, _| false,
+        peer_vitals_age: &|_| Some(0.0),
+    };
+    plan_helper_with(automation, settings, combat, &filters, trace)
 }
 
-/// [`plan_helper`], passing over every member `excluded` names for a vital
-/// (the controller's members it is leaving alone for a while).
-pub fn plan_helper_excluding(
+/// What the helper's caller knows that the client does not say.
+#[allow(missing_debug_implementations)]
+pub struct HelperFilters<'a> {
+    /// Whether a member is left alone for a vital for now.
+    pub excluded: &'a dyn Fn(u32, VitalKind) -> bool,
+    /// How old a network peer's reported vitals are, seconds since they
+    /// last arrived (by its character's id); `None` when they never did.
+    pub peer_vitals_age: &'a dyn Fn(u32) -> Option<f64>,
+}
+
+/// [`plan_helper`] with the caller's `filters`: members it leaves alone
+/// are passed over, and a network peer's vitals are only as fresh as the
+/// caller says.
+pub fn plan_helper_with(
     automation: &mut dyn Automation,
     settings: &VitalSettings,
     combat: &CombatSettings,
-    excluded: &dyn Fn(u32, VitalKind) -> bool,
+    filters: &HelperFilters<'_>,
     trace: Option<&mut dyn FnMut(&str)>,
 ) -> (Option<VitalRechargeChoice>, HelperDecision) {
+    let excluded = filters.excluded;
     // Two switches: the fellows (`HelpFellows`, VTank's `DoHelp`) and the
     // network peers, fellows or not (`HelpNetworkPeers`).
     if !settings.help_others && !settings.help_network_peers {
@@ -445,7 +461,12 @@ pub fn plan_helper_excluding(
         return (None, HelperDecision::NotInFellowship);
     }
     let mut report = HelperReport { trace };
-    let members = helper_candidates(automation, settings, settings.help_others && in_fellowship);
+    let members = helper_candidates_aged(
+        automation,
+        settings,
+        settings.help_others && in_fellowship,
+        filters.peer_vitals_age,
+    );
     if members.is_empty() {
         return (None, HelperDecision::NobodyInSight);
     }
@@ -1113,12 +1134,26 @@ pub fn estimated_transfer(spell_name: &str, source_current: i32) -> i32 {
 /// Who the helper may cast on (`HelperCandidates`): the fellows when
 /// `fellows` (the caller's "helps fellows and is in a fellowship"), plus,
 /// when the profile helps network peers, the network's other clients not
-/// already listed, described as a fellow would be (their last reported
-/// vitals, their distance from here in metres).
+/// already listed, described as a fellow would be. Every peer record is
+/// taken as just arrived; [`helper_candidates_aged`] is told better.
 pub fn helper_candidates(
     automation: &mut dyn Automation,
     settings: &VitalSettings,
     fellows: bool,
+) -> Vec<FellowMember> {
+    helper_candidates_aged(automation, settings, fellows, &|_| Some(0.0))
+}
+
+/// [`helper_candidates`], a network peer's vitals as old as
+/// `peer_vitals_age` says (by its character's id). As the reference treats
+/// a player outside the fellowship, a peer counts only while the client
+/// sees it in the world, at the distance the world puts it from here in
+/// metres; its reported place is not used.
+pub fn helper_candidates_aged(
+    automation: &mut dyn Automation,
+    settings: &VitalSettings,
+    fellows: bool,
+    peer_vitals_age: &dyn Fn(u32) -> Option<f64>,
 ) -> Vec<FellowMember> {
     let fellows = if fellows {
         automation.fellowship_members()
@@ -1143,6 +1178,12 @@ pub fn helper_candidates(
         {
             continue;
         }
+        let Some(there) = automation
+            .object(peer.player_id)
+            .and_then(|seen| seen.position)
+        else {
+            continue;
+        };
         candidates.push(FellowMember {
             object_id: peer.player_id,
             name: peer.name.clone(),
@@ -1152,16 +1193,15 @@ pub fn helper_candidates(
             max_stamina: peer.max_stamina,
             current_mana: peer.current_mana,
             max_mana: peer.max_mana,
-            distance: peer_distance(&here, &peer.position),
+            distance: peer_distance(&here, &there),
             share_loot: false,
-            vitals_age_seconds: Some(0.0),
+            vitals_age_seconds: peer_vitals_age(peer.player_id),
             // The other clients do not publish a level.
             ..FellowMember::default()
         });
     }
     candidates
 }
-
 fn peer_distance(here: &Position, there: &Position) -> f32 {
     let flat = here.horizontal_distance_metres(there);
     let rise = (here.elevation - there.elevation) * 240.0;

@@ -61,6 +61,9 @@ struct Surface {
     accepts_targets: bool,
     /// Who each cast at an object was aimed at.
     cast_targets: Vec<u32>,
+    /// The world shows each listed peer where its record puts it; off,
+    /// the client sees none of them.
+    peers_in_sight: bool,
 }
 
 impl Default for Surface {
@@ -91,6 +94,7 @@ impl Default for Surface {
             infos: Vec::new(),
             accepts_targets: false,
             cast_targets: Vec::new(),
+            peers_in_sight: true,
         }
     }
 }
@@ -228,6 +232,16 @@ impl Automation for Surface {
     }
 
     fn object(&mut self, object_id: u32) -> Option<WorldObject> {
+        if self.peers_in_sight
+            && let Some(peer) = self.peers.iter().find(|peer| peer.player_id == object_id)
+        {
+            return Some(WorldObject {
+                object_id,
+                name: peer.name.clone(),
+                position: Some(peer.position.clone()),
+                ..WorldObject::default()
+            });
+        }
         let item = self.items.iter().find(|item| item.object_id == object_id)?;
         Some(WorldObject {
             object_id: item.object_id,
@@ -2456,4 +2470,167 @@ fn a_normal_heal_other_still_casts_and_completes() {
     assert!(!helper_tick(&mut helper, &mut surface, &settings, 0.3));
     assert_eq!(surface.cast_targets, [71, 71]);
     assert!(step_asides(&surface).is_empty());
+}
+
+/// Helping the network peers alone, below 90% health.
+fn helping_peers() -> VitalSettings {
+    VitalSettings {
+        help_others: false,
+        help_network_peers: true,
+        helper_health: 0.9,
+        ..VitalSettings::default()
+    }
+}
+
+/// A Life mage whose casts at others go out, and one network peer, `Net`
+/// (id 90), at `health` of 100 by its own record.
+fn peer_reading(health: u32) -> Surface {
+    Surface {
+        accepts_targets: true,
+        peers: vec![peer(90, "Net", health, 0.0)],
+        ..hurt_fellowship()
+    }
+}
+
+/// A helper on the macro's clock, its casts answered as they go out.
+struct PeerRun {
+    helper: VitalRechargeController,
+    locks: SharedActionLocks,
+    surface: Surface,
+    settings: VitalSettings,
+    at: f64,
+    casts_at: Vec<f64>,
+}
+
+impl PeerRun {
+    fn new(surface: Surface) -> Self {
+        let (helper, locks) = with_locks();
+        Self {
+            helper,
+            locks,
+            surface,
+            settings: helping_peers(),
+            at: 0.0,
+            casts_at: Vec::new(),
+        }
+    }
+
+    /// Turns of 0.3 s for `seconds`; each cast is answered on the next
+    /// turn.
+    fn run(&mut self, seconds: f64) {
+        let turns = (seconds / 0.3).round() as usize;
+        for _ in 0..turns {
+            self.locks.borrow_mut().advance(0.3);
+            self.at += 0.3;
+            let before = self.surface.cast_spell_ids.len();
+            helper_tick(&mut self.helper, &mut self.surface, &self.settings, 0.3);
+            if self.surface.cast_spell_ids.len() > before {
+                self.casts_at.push(self.at);
+                let revision = self.surface.last_cast_completion.revision + 1;
+                self.surface.last_cast_completion = CastCompletion {
+                    revision,
+                    spell_id: *self.surface.cast_spell_ids.last().expect("a cast"),
+                    target_id: 90,
+                    weenie_error: 0,
+                };
+            }
+        }
+    }
+}
+
+/// The live case: a peer's record keeps saying 10% while the peer is fine
+/// (the record no longer changes). As the reference trusts a player
+/// outside the fellowship only on an update in the last ten seconds, the
+/// helper helps it while the reading is fresh and then leaves it.
+#[test]
+fn a_peer_whose_record_stops_changing_is_not_helped_after_ten_seconds() {
+    let mut run = PeerRun::new(peer_reading(10));
+    run.run(60.0);
+
+    assert!(!run.casts_at.is_empty(), "never helped while fresh");
+    assert!(
+        run.casts_at.iter().all(|&at| at < 10.5),
+        "helped on a reading older than ten seconds: {:?}",
+        run.casts_at
+    );
+    assert_eq!(
+        run.helper.last_helper_decision(),
+        Some(&HelperDecision::VitalsTooOld {
+            name: "Net".to_owned()
+        })
+    );
+}
+
+/// A peer still taking damage (its record changing) is helped as long as
+/// it stays low.
+#[test]
+fn a_peer_whose_reported_health_keeps_changing_is_still_helped() {
+    let mut run = PeerRun::new(peer_reading(10));
+    for step in 0..20 {
+        run.surface.peers[0].current_health = 10 + step % 2;
+        run.run(3.0);
+    }
+
+    assert!(
+        run.casts_at.iter().any(|&at| at > 30.0),
+        "stopped helping a peer whose reading still moves: {:?}",
+        run.casts_at
+    );
+}
+
+/// A peer whose record says it healed stops being helped.
+#[test]
+fn a_peer_whose_health_update_shows_it_healed_stops_being_a_candidate() {
+    let mut run = PeerRun::new(peer_reading(10));
+    run.run(3.0);
+    assert_eq!(run.casts_at.len(), 1);
+
+    run.surface.peers[0].current_health = 100;
+    run.run(30.0);
+
+    assert_eq!(run.casts_at.len(), 1, "{:?}", run.casts_at);
+    assert_eq!(
+        run.helper.last_helper_decision(),
+        Some(&HelperDecision::NobodyBelowThreshold)
+    );
+}
+
+/// A peer the network stops listing is forgotten two minutes on, as the
+/// reference forgets a player it has not heard from: back sooner, its
+/// unchanged reading is still old; back later, it is read as new.
+#[test]
+fn a_peer_not_listed_for_two_minutes_is_forgotten() {
+    let mut run = PeerRun::new(peer_reading(10));
+    run.run(15.0);
+    let helped = run.casts_at.len();
+    let listed = run.surface.peers.clone();
+
+    // Gone a minute, back with the same reading: still too old.
+    run.surface.peers.clear();
+    run.run(60.0);
+    run.surface.peers.clone_from(&listed);
+    run.run(6.0);
+    assert_eq!(run.casts_at.len(), helped, "{:?}", run.casts_at);
+
+    // Gone over two minutes: forgotten, and its reading is new again.
+    run.surface.peers.clear();
+    run.run(130.0);
+    run.surface.peers.clone_from(&listed);
+    run.run(3.0);
+    assert_eq!(run.casts_at.len(), helped + 1, "{:?}", run.casts_at);
+}
+
+/// As the reference does for a player outside the fellowship, a peer the
+/// client does not see in the world is not helped, wherever its own
+/// record says it stands.
+#[test]
+fn a_peer_the_client_does_not_see_is_not_helped() {
+    let mut surface = Surface {
+        peers_in_sight: false,
+        ..peer_reading(10)
+    };
+    assert_eq!(
+        decide(&mut surface, &helping_peers()),
+        HelperDecision::NobodyInSight
+    );
 }
