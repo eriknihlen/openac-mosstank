@@ -29,7 +29,8 @@ fn busy(rig: &mut Rig, tool: Option<&'static str>) {
 
 /// The plugin runs the line the route submitted.
 fn run_line(rig: &mut Rig) {
-    rig.automation.ub_activity.lines_run += 1;
+    let line = rig.automation.submitted_chat.last().unwrap().clone();
+    rig.automation.run_ub_line(&line);
 }
 
 /// Ticks for so many seconds, a tenth of a second at a time.
@@ -148,8 +149,8 @@ fn a_ub_tool_that_never_finishes_lets_the_route_go_on_after_120_seconds() {
 fn a_line_held_back_by_a_tool_that_never_finishes_is_sent_after_120_seconds() {
     let mut rig = chat_then_pause("/say done");
     rig.automation.ub_activity = UbActivity {
-        busy_tool: Some("autopack"),
-        lines_run: 0,
+        busy_tool: Some("looter"),
+        last_line: 0,
     };
 
     run_for(&mut rig, 119.0);
@@ -159,6 +160,85 @@ fn a_line_held_back_by_a_tool_that_never_finishes_is_sent_after_120_seconds() {
     assert_eq!(rig.index(), 1);
     assert_eq!(
         rig.automation.posted_system_messages,
-        ["[MossTank] UB autopack still running after 120 s, continuing."]
+        ["[MossTank] UB looter still running after 120 s, continuing."]
     );
+}
+
+/// A wait that goes from one tool to another keeps the waypoint's one
+/// clock: 60 s on the looter and 60 s on the give are its 120 s.
+#[test]
+fn a_wait_that_moves_from_one_tool_to_another_keeps_one_clock() {
+    let mut rig = chat_then_pause("/say done");
+    busy(&mut rig, Some("looter"));
+    run_for(&mut rig, 60.0);
+    busy(&mut rig, Some("give"));
+    run_for(&mut rig, 59.0);
+    assert!(rig.automation.submitted_chat.is_empty());
+    run_for(&mut rig, 1.5);
+    assert_eq!(rig.automation.submitted_chat, ["/say done"]);
+    assert_eq!(
+        rig.automation.logged,
+        [
+            "Waiting for UB looter to finish.",
+            "Waiting for UB give to finish.",
+            "UB give still running after 120 s, continuing.",
+        ]
+    );
+}
+
+/// `/ub give stop` does not wait for the give it stops: it goes after the
+/// guard, and the route goes on once the plugin has run it.
+#[test]
+fn a_stop_line_does_not_wait_for_the_tool_it_stops() {
+    let mut rig = chat_then_pause("/ub give stop");
+    busy(&mut rig, Some("give"));
+
+    assert!(rig.tick(0.2, true));
+    assert_eq!(rig.automation.submitted_chat, ["/ub give stop"]);
+    assert!(rig.tick(0.1, true));
+    assert_eq!(rig.index(), 0, "it waits for the plugin to run it");
+    run_line(&mut rig);
+    assert!(rig.tick(0.1, true));
+    assert_eq!(rig.index(), 1);
+}
+
+/// Another `/ub` line run in the meantime (a meta's) is not the route's: the
+/// route waits for its own.
+#[test]
+fn another_ub_line_run_in_the_meantime_is_not_the_routes_own() {
+    let mut rig = chat_then_pause("/ub give Taper to Mule");
+
+    assert!(rig.tick(0.2, true));
+    rig.automation.run_ub_line("/ub listvars");
+    assert!(rig.tick(0.1, true));
+    assert_eq!(rig.index(), 0);
+    assert_eq!(
+        rig.status(),
+        "Waiting for UB to run: /ub give Taper to Mule"
+    );
+
+    run_line(&mut rig);
+    assert!(rig.tick(0.1, true));
+    assert_eq!(rig.index(), 1);
+}
+
+/// A macro stop with the line out keeps it out: the next start waits on the
+/// give the line started and does not send the line again.
+#[test]
+fn a_line_already_out_is_not_sent_again_after_a_macro_stop() {
+    let mut rig = chat_then_pause("/ub give Taper to Mule");
+
+    assert!(rig.tick(0.2, true));
+    run_line(&mut rig);
+    busy(&mut rig, Some("give"));
+    assert!(rig.tick(0.1, true));
+    rig.stop_for_macro_stop();
+
+    run_for(&mut rig, 1.0);
+    assert_eq!(rig.automation.submitted_chat, ["/ub give Taper to Mule"]);
+    assert_eq!(rig.index(), 0);
+    busy(&mut rig, None);
+    assert!(rig.tick(0.1, true));
+    assert_eq!(rig.index(), 1);
+    assert_eq!(rig.automation.submitted_chat, ["/ub give Taper to Mule"]);
 }

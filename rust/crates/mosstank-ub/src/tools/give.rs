@@ -9,6 +9,7 @@ use std::collections::{HashSet, VecDeque};
 
 use ac_plugin_abi::items::{InventoryCommandKind, InventoryItem};
 use ac_plugin_abi::world::{ItemProperties, ObjectClass, WorldObject};
+use mosstank_automation::locks::ActionLockKind;
 use mosstank_dotnet::text::{casing, ordinal};
 use mosstank_formats::utl::{LootAction, LootRule};
 use mosstank_settings::model::InventorySettings;
@@ -23,6 +24,10 @@ use crate::search;
 /// bails: the whole run's clock, restarted when a new item is first asked
 /// for.
 pub const BAIL_SECONDS: f64 = 10.0;
+
+/// How long the navigation and item-use locks are armed for, as the
+/// reference arms them (30 000 ms).
+const LOCK_SECONDS: f64 = 30.0;
 
 /// The line printed when a give is missing its target.
 const GIVE_USAGE: &str = "/ub give[p|P|r] [itemCount] <itemName> to <target>";
@@ -71,6 +76,8 @@ pub struct ProfileGiveController {
     refusal: String,
     finished_line: String,
     end_error: String,
+    /// The navigation and item-use locks are armed for the run.
+    holds_locks: bool,
 }
 
 impl Default for ProfileGiveController {
@@ -104,6 +111,7 @@ impl ProfileGiveController {
             refusal: String::new(),
             finished_line: String::new(),
             end_error: String::new(),
+            holds_locks: false,
         }
     }
 
@@ -235,6 +243,7 @@ impl ProfileGiveController {
     /// when none was (`StopGive`).
     fn stop_command(&mut self, call: &mut UbCall<'_>) {
         if self.stop_requested() {
+            self.hold_locks(call);
             self.report_end(call);
         } else {
             call.write_ub_error("ItemGiver is not running.");
@@ -307,6 +316,7 @@ impl ProfileGiveController {
             requested + ".utl"
         };
         self.begin(&target, &file, target_name);
+        self.hold_locks(call);
         true
     }
 
@@ -406,6 +416,7 @@ impl ProfileGiveController {
             casing::to_lower_invariant(text)
         };
         self.begin(&target, &subject, target_name);
+        self.hold_locks(call);
         true
     }
 
@@ -446,10 +457,30 @@ impl ProfileGiveController {
     pub fn tick(&mut self, call: &mut UbCall<'_>, elapsed_seconds: f64, can_act: bool) -> bool {
         let was_running = self.is_running;
         let owns = self.step(call, elapsed_seconds, can_act);
+        self.hold_locks(call);
         if was_running && !self.is_running {
             self.report_end(call);
         }
         owns
+    }
+
+    /// The reference's hold on the macro while a hand-over runs: the
+    /// navigation and item-use locks, 30 s at the start, kept up while it
+    /// runs (the reference tops them up when under a second is left; arming
+    /// them each frame holds them the same), and let go when it ends however
+    /// it ends. The route stops for the navigation lock, so a give from a
+    /// meta or typed by hand holds the route as one from a route does.
+    pub fn hold_locks(&mut self, call: &mut UbCall<'_>) {
+        let mut locks = call.locks.borrow_mut();
+        if self.is_running {
+            locks.arm(ActionLockKind::Navigation, LOCK_SECONDS);
+            locks.arm(ActionLockKind::ItemUse, LOCK_SECONDS);
+            self.holds_locks = true;
+        } else if self.holds_locks {
+            locks.release(ActionLockKind::Navigation);
+            locks.release(ActionLockKind::ItemUse);
+            self.holds_locks = false;
+        }
     }
 
     fn step(&mut self, call: &mut UbCall<'_>, elapsed_seconds: f64, can_act: bool) -> bool {

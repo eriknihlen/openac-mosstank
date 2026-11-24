@@ -237,7 +237,10 @@ impl Tank {
                 },
             )
         });
-        cx.core.prologue_owns_action = command_jump_owns_action || owners.any();
+        // The give, the vendor run and the equip run hold the macro's pass;
+        // the counter, stacking, cramming and packing let it run (register
+        // UB-15).
+        cx.core.prologue_owns_action = command_jump_owns_action || owners.suspend_macro();
         // Not owners: the experience spender and /ub clearbugged.
         cx.with_ub(|commands, call| {
             commands
@@ -288,7 +291,7 @@ impl Tank {
         let held = cx.core.world_hold.is_some();
         // The route's chat waypoints wait on the UB tools as they stand now
         // (a meta may have started one since the last UB call).
-        cx.client.set_ub_activity(cx.ub.activity());
+        cx.ub.publish_activity(&mut *cx.client);
         {
             let core = &mut *cx.core;
             let clear = core.navigation_slots_are_clear() && !held;
@@ -753,8 +756,6 @@ impl TankCx<'_> {
             Some("a command jump owns the character")
         } else if owners.give {
             Some("a profile give owns the character")
-        } else if owners.count {
-            Some("a profile count owns the character")
         } else if owners.vendor {
             Some("a vendor run owns the character")
         } else if owners.equip {

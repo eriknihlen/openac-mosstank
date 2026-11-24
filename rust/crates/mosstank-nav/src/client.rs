@@ -16,13 +16,32 @@ use mosstank_automation::Automation;
 /// The plugin's UB tools as a route's chat waypoint waits on them.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct UbActivity {
-    /// The UB tool running now, named by the command that starts it
-    /// (`give`, `autopack`, ...).
+    /// The UB tool running now that holds the route, named by the command
+    /// that starts it (`give`, `equip`, `looter`, ...).
     pub busy_tool: Option<&'static str>,
-    /// How many `/ub` lines the plugin has run so far: a line the route
-    /// submitted has been run once this moves on from where it stood at the
-    /// submit.
-    pub lines_run: u64,
+    /// The number of the last `/ub` line the plugin ran: where a line the
+    /// route submits is looked for from.
+    pub last_line: u64,
+}
+
+/// A chat line the plugin's UB commands run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UbLine {
+    /// A command.
+    Command,
+    /// A command that only stops a tool (`/ub give stop`).
+    Stop,
+}
+
+/// What became of a `/ub` line the route submitted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UbLineState {
+    /// The plugin has not run it yet.
+    NotRun,
+    /// Run, but the line it put off (`/ub delay`, `/ub bc`) has not run yet.
+    PutOff,
+    /// Run, with whatever it put off.
+    Run,
 }
 
 /// The client as the route sees it.
@@ -99,10 +118,18 @@ pub trait NavigationAutomation: Automation {
     }
 
     /// Whether `text` is a line the plugin's UB commands run once the
-    /// client hands it back, after the call that submitted it.
-    fn is_ub_line(&mut self, text: &str) -> bool {
+    /// client hands it back, after the call that submitted it, and of what
+    /// kind; `None` for any other line.
+    fn ub_line(&mut self, text: &str) -> Option<UbLine> {
         let _ = text;
-        false
+        None
+    }
+
+    /// What became of the `/ub` line `text`, submitted when the last line
+    /// the plugin had run was `since` ([`UbActivity::last_line`]).
+    fn ub_line_state(&mut self, since: u64, text: &str) -> UbLineState {
+        let _ = (since, text);
+        UbLineState::Run
     }
 
     /// The vendor the client has open (`Items.ActiveVendorObjectId`), 0

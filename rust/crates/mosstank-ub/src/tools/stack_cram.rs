@@ -383,19 +383,6 @@ impl StackCramCommandRun {
     pub fn is_running(&self) -> bool {
         self.run.is_some()
     }
-
-    /// The command of the pass under way, `autostack` or `autocram`.
-    #[must_use]
-    pub fn running_command(&self) -> Option<&'static str> {
-        self.run.as_ref().map(|(_, settings)| {
-            if settings.auto_stack {
-                "autostack"
-            } else {
-                "autocram"
-            }
-        })
-    }
-
     /// Starts a stack pass, or a cram pass into the side packs, replacing
     /// any pass under way.
     pub fn start(&mut self, call: &mut UbCall<'_>, stack: bool) {

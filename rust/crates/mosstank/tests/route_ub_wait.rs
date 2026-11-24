@@ -181,6 +181,60 @@ impl Rig {
     fn refused(&self) -> bool {
         self.world.chat().iter().any(|line| line == ALREADY_RUNNING)
     }
+
+    /// Every item asked for has landed: the client gives at once.
+    fn hand_over_what_was_given(&mut self) {
+        for object_id in self.given() {
+            self.hand_over(object_id);
+        }
+    }
+
+    /// Frames for at most `seconds`, the client giving at once, until
+    /// `done`; whether it came.
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    fn give_until(&mut self, seconds: f64, mut done: impl FnMut(&Self) -> bool) -> bool {
+        let frames = (seconds / ac_plugin_abi::TICK_SECONDS).round() as usize;
+        for _ in 0..frames {
+            if done(self) {
+                return true;
+            }
+            self.frame();
+            self.hand_over_what_was_given();
+        }
+        done(self)
+    }
+
+    /// How many walks forward the route asked the client for.
+    fn forward_walks(&self) -> usize {
+        self.world
+            .requests::<calls::NavigationSetIntent>()
+            .iter()
+            .filter(|intent| intent.forward)
+            .count()
+    }
+
+    /// How often the plugin let go of the movement keys.
+    fn stops(&self) -> usize {
+        self.world.requests::<calls::NavigationClearIntent>().len()
+    }
+
+    fn set_macro_running(&mut self, running: bool) {
+        self.world.with_tank(&mut self.plugin, |tank, client| {
+            tank.set_macro_running(client, running);
+        });
+    }
+}
+
+/// A point the character never reaches.
+fn far_point() -> RouteWaypoint {
+    RouteWaypoint {
+        kind: RouteWaypointType::Point,
+        position: Position {
+            north_south: 60.0,
+            ..here()
+        },
+        ..RouteWaypoint::default()
+    }
 }
 
 /// Two gives with a pause of `milliseconds` between them: the second is
@@ -249,12 +303,6 @@ fn a_pause_after_a_long_give_counts_from_the_end_of_the_give() {
     assert_eq!(rig.submitted().len(), 1, "{:?}", rig.submitted());
     assert!(rig.run_until(1.5, |rig| rig.given() == [PYREAL, TAPER]));
     assert!(!rig.refused(), "{:?}", rig.world.chat());
-    let logs = rig.world.all_logs();
-    assert!(
-        logs.iter()
-            .any(|line| line.contains("Waiting for UB give to finish.")),
-        "{logs:?}"
-    );
 }
 
 /// `/ub give stop` ends the give, and the route goes on at once.
@@ -275,5 +323,144 @@ fn stopping_the_give_lets_the_route_go_on() {
 
     rig.world.command(&mut rig.plugin, "ub", "give stop");
     assert!(rig.run_until(1.0, |rig| rig.given() == [PYREAL, MOTE]));
+    assert!(!rig.refused(), "{:?}", rig.world.chat());
+}
+
+/// UtilityBelt locks the route's navigation while a give runs: a give typed
+/// by hand (or started by a meta) stops a route walking to its point, and
+/// the route walks on once the give is done.
+#[test]
+fn a_give_typed_by_hand_stops_the_route_walking_until_it_is_done() {
+    let mut rig = Rig::new(
+        vec![far_point()],
+        vec![bare(PYREAL, "Pyreal"), bare(TAPER, "Taper")],
+    );
+    assert!(rig.run_until(2.0, |rig| rig.forward_walks() > 0));
+    let stops = rig.stops();
+
+    rig.world
+        .command(&mut rig.plugin, "ub", "give Pyreal to Mule");
+    rig.run_for(0.5);
+    assert!(rig.stops() > stops, "the walk is stopped for the give");
+    let walks = rig.forward_walks();
+    rig.run_for(3.0);
+    assert_eq!(rig.forward_walks(), walks, "no walk while the give runs");
+
+    rig.hand_over(PYREAL);
+    assert!(
+        rig.run_until(3.0, |rig| rig.forward_walks() > walks),
+        "the route walks on after the give"
+    );
+}
+
+/// The live case's hand-over by profile: 41 items given one at a time, and
+/// the give after them waits for the last.
+#[test]
+fn a_profile_give_of_41_items_is_waited_for() {
+    use mosstank_formats::utl::{self, LootAction, LootRule};
+
+    let mut owned: Vec<InventoryItem> = (0..41)
+        .map(|index| bare(0x8000_0100 + index, "Mote"))
+        .collect();
+    owned.push(bare(TAPER, "Taper"));
+    let mut rig = Rig::new(
+        vec![
+            chat("/ub ig Motes to Mule"),
+            pause(1),
+            chat("/ub give Taper to Mule"),
+        ],
+        owned,
+    );
+    // The profile keeps the motes and not the taper.
+    let mut keep = LootRule::named("Motes", "name ~= Mote");
+    keep.action = LootAction::Keep;
+    rig.world.profiles.insert(
+        "mosstank/ub/itemgiver/Motes.utl",
+        &utl::serialize_rules(&[keep]),
+    );
+
+    assert!(rig.give_until(60.0, |rig| rig.given().contains(&TAPER)));
+    let given = rig.given();
+    assert_eq!(given.len(), 42, "{given:x?}");
+    assert_eq!(given.last(), Some(&TAPER));
+    assert_eq!(
+        rig.submitted(),
+        ["/ub ig Motes to Mule", "/ub give Taper to Mule"]
+    );
+    assert!(!rig.refused(), "{:?}", rig.world.chat());
+}
+
+/// Another `/ub` line run before the client hands the route's own back (a
+/// meta's, in the same frame) does not let the route go on: it walks to the
+/// point after the give only once the give is done.
+#[test]
+fn another_ub_line_in_the_same_frame_does_not_end_the_wait() {
+    let mut rig = Rig::new(
+        vec![chat("/ub give Pyreal to Mule"), far_point()],
+        vec![bare(PYREAL, "Pyreal")],
+    );
+    assert!(rig.run_until(2.0, |rig| !rig.submitted().is_empty()));
+    // The route's line is out; another runs first, and the plugin ticks
+    // before the client hands the route's line back.
+    rig.handed_back = rig.world.requests::<calls::ChatSubmit>().len();
+    rig.world.command(&mut rig.plugin, "ub", "listvars");
+    for _ in 0..20 {
+        rig.world.tick(&mut rig.plugin);
+    }
+    assert_eq!(rig.forward_walks(), 0, "the route waits for its own line");
+
+    rig.world
+        .command(&mut rig.plugin, "ub", "give Pyreal to Mule");
+    rig.run_for(2.0);
+    assert_eq!(rig.forward_walks(), 0, "and then for the give");
+    rig.hand_over(PYREAL);
+    assert!(rig.run_until(3.0, |rig| rig.forward_walks() > 0));
+}
+
+/// A `/ub delay` line holds the route until the line it put off has run, and
+/// the give that line starts is waited for.
+#[test]
+fn a_delayed_give_is_waited_for() {
+    let mut rig = Rig::new(
+        vec![
+            chat("/ub delay 500 /ub give Pyreal to Mule"),
+            pause(0),
+            chat("/ub give Taper to Mule"),
+        ],
+        vec![bare(PYREAL, "Pyreal"), bare(TAPER, "Taper")],
+    );
+    assert!(rig.run_until(2.0, |rig| rig.given() == [PYREAL]));
+    rig.run_for(2.0);
+    assert_eq!(rig.submitted().len(), 2, "{:?}", rig.submitted());
+    rig.hand_over(PYREAL);
+    assert!(rig.run_until(2.0, |rig| rig.given() == [PYREAL, TAPER]));
+    assert!(!rig.refused(), "{:?}", rig.world.chat());
+}
+
+/// The macro stopped and started again while a chat waypoint waits on its
+/// give: the line is not sent again, and the route goes on after the give.
+#[test]
+fn a_waypoint_waiting_across_a_macro_stop_does_not_send_its_line_again() {
+    let mut rig = Rig::new(
+        vec![
+            chat("/ub give Pyreal to Mule"),
+            pause(0),
+            chat("/ub give Taper to Mule"),
+        ],
+        vec![bare(PYREAL, "Pyreal"), bare(TAPER, "Taper")],
+    );
+    assert!(rig.run_until(2.0, |rig| rig.given() == [PYREAL]));
+    rig.set_macro_running(false);
+    rig.run_for(1.0);
+    rig.set_macro_running(true);
+    rig.run_for(2.0);
+    assert_eq!(rig.submitted(), ["/ub give Pyreal to Mule"]);
+
+    rig.hand_over(PYREAL);
+    assert!(rig.run_until(3.0, |rig| rig.given() == [PYREAL, TAPER]));
+    assert_eq!(
+        rig.submitted(),
+        ["/ub give Pyreal to Mule", "/ub give Taper to Mule"]
+    );
     assert!(!rig.refused(), "{:?}", rig.world.chat());
 }

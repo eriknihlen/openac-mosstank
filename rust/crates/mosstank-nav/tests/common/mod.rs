@@ -28,7 +28,9 @@ use mosstank_formats::route::{
 };
 use mosstank_meta::scheduler::{MacroContext, MacroFamily};
 use mosstank_nav::door_rule::DoorRuleHost;
-use mosstank_nav::{NavigationAutomation, NavigationController, RouteTurn, UbActivity};
+use mosstank_nav::{
+    NavigationAutomation, NavigationController, RouteTurn, UbActivity, UbLine, UbLineState,
+};
 use mosstank_settings::model::{CombatSettings, VitalSettings};
 
 /// `NavigationTests.FakeMagic`: what a recall waypoint asks of the magic
@@ -95,6 +97,8 @@ pub struct FakeAutomation {
     pub stopped_moves: Vec<Option<MoveChannel>>,
     /// What the plugin's UB tools are doing.
     pub ub_activity: UbActivity,
+    /// The `/ub` lines the plugin ran, by number.
+    pub ub_lines_run: Vec<(u64, String)>,
     /// The lines logged, info and warning alike.
     pub logged: Vec<String>,
 }
@@ -132,12 +136,20 @@ impl Default for FakeAutomation {
             jumps: Vec::new(),
             stopped_moves: Vec::new(),
             ub_activity: UbActivity::default(),
+            ub_lines_run: Vec::new(),
             logged: Vec::new(),
         }
     }
 }
 
 impl FakeAutomation {
+    /// The plugin runs a `/ub` line.
+    pub fn run_ub_line(&mut self, line: &str) {
+        self.ub_activity.last_line += 1;
+        self.ub_lines_run
+            .push((self.ub_activity.last_line, line.to_owned()));
+    }
+
     /// A client standing at `snapshot`.
     pub fn at(snapshot: NavigationSnapshot) -> Self {
         Self {
@@ -419,8 +431,25 @@ impl NavigationAutomation for FakeAutomation {
         self.ub_activity
     }
 
-    fn is_ub_line(&mut self, text: &str) -> bool {
-        text.starts_with("/ub ")
+    fn ub_line(&mut self, text: &str) -> Option<UbLine> {
+        let arguments = text.strip_prefix("/ub ")?;
+        Some(if arguments.ends_with(" stop") {
+            UbLine::Stop
+        } else {
+            UbLine::Command
+        })
+    }
+
+    fn ub_line_state(&mut self, since: u64, text: &str) -> UbLineState {
+        if self
+            .ub_lines_run
+            .iter()
+            .any(|(sequence, line)| *sequence > since && line == text)
+        {
+            UbLineState::Run
+        } else {
+            UbLineState::NotRun
+        }
     }
 }
 
