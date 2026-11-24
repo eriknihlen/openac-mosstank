@@ -430,3 +430,35 @@ fn the_periodic_sweep_does_not_overrule_an_imported_consumable_kind() {
     assert_eq!(rows.len(), 1);
     assert_eq!(cell(&saved, rows[0], "Type").as_int().unwrap(), 5);
 }
+
+#[test]
+fn a_consumable_already_listed_is_not_added_again() {
+    let mut automation = gem_food_automation("Blackmoor's Favor");
+    automation
+        .item_entries
+        .push(gem(102, "Ui Authored Gem", &[3810]));
+    let mut world = World::with_automation(automation);
+    let mut plugin = world.enable();
+    let p = &mut plugin;
+    let before = world.ui_list(p, "ConsumableRows");
+    assert!(before.iter().any(|row| row == "Blackmoor's Favor"));
+
+    // A gem the profile's gems and food already name.
+    world.select_object(101);
+    world.act(p, "AddSelectedConsumable");
+    assert_eq!(world.ui_list(p, "ConsumableRows"), before);
+    assert_eq!(
+        world.ui_text(p, "ProfileNotice"),
+        "Blackmoor's Favor is already in this list."
+    );
+
+    // One added by hand, then again.
+    world.select_object(102);
+    world.act(p, "AddSelectedConsumable");
+    world.act(p, "AddSelectedConsumable");
+    assert_eq!(world.ui_list(p, "ConsumableRows").len(), before.len() + 1);
+    assert_eq!(
+        world.ui_text(p, "ProfileNotice"),
+        "Ui Authored Gem is already in this list."
+    );
+}
