@@ -220,6 +220,8 @@ struct ActiveAction {
 #[derive(Debug, Clone, Copy)]
 struct SentChat {
     action: ActiveAction,
+    /// The route's place in its walk at that visit ([`NavigationController::progress`]).
+    progress: i64,
     elapsed: f64,
     line_sent: Option<u64>,
     wait_began: Option<f64>,
@@ -249,6 +251,13 @@ pub struct NavigationController {
     /// A wait on a UB tool or on the plugin running the line ran out: this
     /// waypoint waits on neither again.
     ub_wait_given_up: bool,
+    /// The route's place in its walk: one more for every step to the next
+    /// waypoint, and moved by the same count of steps when a macro start
+    /// puts the route on another waypoint. Two visits of a waypoint are the
+    /// same visit only at the same place.
+    progress: i64,
+    /// A chat waypoint whose line was out when the macro stopped.
+    kept_chat: Option<SentChat>,
     saw_portal_space: bool,
     jump_released: bool,
     jump_aligned: bool,
@@ -355,6 +364,37 @@ fn is_anchor_candidate(kind: RouteWaypointType) -> bool {
     )
 }
 
+/// How many steps of the route's walk lead from one waypoint (its place in
+/// the route and whether the route walks backwards) to another, the shorter
+/// way: negative when the other lies behind. A circular route's walk comes
+/// round every `count` steps; a back-and-forth route's every `2 * count`
+/// (each end is taken twice, once each way). Two ways of equal length count
+/// as behind, so a line already sent is not sent again. A once route does
+/// not move.
+fn travel_steps(mode: RouteMode, count: i32, from: (i32, bool), to: (i32, bool)) -> i64 {
+    let period = match mode {
+        RouteMode::Circular => count,
+        RouteMode::Linear => 2 * count,
+        RouteMode::Once | RouteMode::Target => return 0,
+    };
+    let place = |(index, reverse): (i32, bool)| match (mode, reverse) {
+        (RouteMode::Linear, true) => 2 * count - 1 - index,
+        (_, true) => -index,
+        (_, false) => index,
+    };
+    if period <= 0 {
+        return 0;
+    }
+    let ahead = (place(to) - place(from)).rem_euclid(period);
+    if ahead == 0 {
+        0
+    } else if ahead < period - ahead {
+        i64::from(ahead)
+    } else {
+        i64::from(ahead - period)
+    }
+}
+
 /// Straight-line distance including height: a point directly below on the
 /// floor of a dungeon is not the one the character stands at.
 fn spatial_distance_meters(from: &Position, to: &Position) -> f64 {
@@ -395,6 +435,8 @@ impl NavigationController {
             ub_wait_tool: None,
             ub_wait_began: None,
             ub_wait_given_up: false,
+            progress: 0,
+            kept_chat: None,
             saw_portal_space: false,
             jump_released: false,
             jump_aligned: false,
@@ -530,6 +572,7 @@ impl NavigationController {
     pub fn route_edited(&mut self, turn: &mut RouteTurn<'_>, index: i32) {
         self.stop_for_macro_stop(turn);
         self.clear_action(turn.automation);
+        self.kept_chat = None;
         let count = count_of(turn.settings);
         let last = (count - 1).max(0);
         match turn.settings.mode {
@@ -641,6 +684,8 @@ impl NavigationController {
         }
         let automation = &mut *turn.automation;
         self.stop_client_walk(automation);
+        // Going back is the player's say-so to work the waypoints again.
+        self.kept_chat = None;
         let last = count_of(turn.settings) - 1;
         let mut stepped = 0;
         while stepped < count
@@ -663,6 +708,7 @@ impl NavigationController {
     /// Turns the route round.
     pub fn toggle_reverse(&mut self) {
         self.reverse = !self.reverse;
+        self.kept_chat = None;
         self.voice.status = format!(
             "Nav backwards is {}.",
             if self.reverse { "True" } else { "False" }
@@ -704,6 +750,8 @@ impl NavigationController {
     pub fn reset(&mut self, turn: &mut RouteTurn<'_>) {
         self.stop_for_macro_stop(turn);
         self.clear_action(turn.automation);
+        self.kept_chat = None;
+        self.progress = 0;
         self.index = 0;
         self.reverse = false;
         self.once_complete = false;
@@ -726,6 +774,13 @@ impl NavigationController {
         if settings.mode == RouteMode::Target {
             return None;
         }
+        if settings.waypoints.is_empty() {
+            if settings.mode != RouteMode::Once {
+                self.index = 0;
+            }
+            return None;
+        }
+        self.clear_action_keeping_sent_chat(automation);
         // A once route keeps its cursor and its finished flag: they stand for
         // the points it has already used up.
         if settings.mode != RouteMode::Once {
@@ -743,14 +798,19 @@ impl NavigationController {
                 }
             }
             #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
-            {
-                self.index = nearest as i32;
-            }
+            let nearest = nearest as i32;
+            // The route's place in its walk moves by the steps from where it
+            // stood to the anchor, the shorter way round, so the visit a
+            // chat line went out on keeps its place.
+            let count = count_of(settings);
+            self.progress += travel_steps(
+                settings.mode,
+                count,
+                (self.index.clamp(0, count - 1), self.reverse),
+                (nearest, self.reverse),
+            );
+            self.index = nearest;
         }
-        if settings.waypoints.is_empty() {
-            return None;
-        }
-        self.clear_action_keeping_sent_chat(automation);
         Some(if settings.mode != RouteMode::Once {
             format!(
                 "Route starts at Waypoint {}/{} (the nearest point to the character)",
@@ -1706,6 +1766,9 @@ impl NavigationController {
                 .map(|message| message.sequence)
                 .max()
                 .unwrap_or(0);
+            if kind == RouteWaypointType::ChatCommand {
+                self.resume_kept_chat(index);
+            }
         }
         self.action_elapsed += elapsed_seconds;
         self.retry_elapsed += elapsed_seconds;
@@ -1916,31 +1979,47 @@ impl NavigationController {
         true
     }
 
-    /// Puts down the action in flight for a macro stop or start, except a
-    /// chat waypoint whose line is out, while the route still stands on it:
-    /// the macro's next run waits on what the line started instead of
+    /// Puts down the action in flight for a macro stop or start. A chat
+    /// waypoint whose line is out is noted with the route's place in its
+    /// walk ([`Self::progress`]): when the route comes to that same visit of
+    /// the waypoint again, it waits on what the line started instead of
     /// sending it again.
     fn clear_action_keeping_sent_chat(&mut self, automation: &mut dyn NavigationAutomation) {
-        let sent = self.active_action.filter(|action| {
+        if let Some(action) = self.active_action.filter(|action| {
             action.kind == RouteWaypointType::ChatCommand
                 && self.action_sent
                 && i32::try_from(action.index).is_ok_and(|index| index == self.index)
-        });
-        let kept = sent.map(|action| SentChat {
-            action,
-            elapsed: self.action_elapsed,
-            line_sent: self.ub_line_sent,
-            wait_began: self.ub_wait_began,
-            given_up: self.ub_wait_given_up,
-        });
+        }) {
+            self.kept_chat = Some(SentChat {
+                action,
+                progress: self.progress,
+                elapsed: self.action_elapsed,
+                line_sent: self.ub_line_sent,
+                wait_began: self.ub_wait_began,
+                given_up: self.ub_wait_given_up,
+            });
+        }
         self.clear_action(automation);
-        if let Some(sent) = kept {
-            self.active_action = Some(sent.action);
+    }
+
+    /// A chat waypoint's action begins: when it is the visit whose line went
+    /// out before a macro stop, the line is not sent again. A note the route
+    /// has walked past is let go.
+    fn resume_kept_chat(&mut self, index: usize) {
+        let Some(kept) = self.kept_chat else {
+            return;
+        };
+        if kept.progress > self.progress {
+            return;
+        }
+        self.kept_chat = None;
+        if kept.progress == self.progress && kept.action.index == index {
+            self.active_action = Some(kept.action);
             self.action_sent = true;
-            self.action_elapsed = sent.elapsed;
-            self.ub_line_sent = sent.line_sent;
-            self.ub_wait_began = sent.wait_began;
-            self.ub_wait_given_up = sent.given_up;
+            self.action_elapsed = kept.elapsed;
+            self.ub_line_sent = kept.line_sent;
+            self.ub_wait_began = kept.wait_began;
+            self.ub_wait_given_up = kept.given_up;
         }
     }
 
@@ -2525,6 +2604,7 @@ impl NavigationController {
         if count == 0 {
             return;
         }
+        self.progress += 1;
         match settings.mode {
             RouteMode::Circular => {
                 self.index = if self.reverse {

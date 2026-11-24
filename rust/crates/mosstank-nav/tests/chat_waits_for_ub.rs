@@ -242,3 +242,69 @@ fn a_line_already_out_is_not_sent_again_after_a_macro_stop() {
     assert_eq!(rig.index(), 1);
     assert_eq!(rig.automation.submitted_chat, ["/ub give Taper to Mule"]);
 }
+
+/// A round of a point, a give and a point, all where the character stands.
+fn give_round(mode: RouteMode) -> Rig {
+    let mut chat = waypoint(RouteWaypointType::ChatCommand, position(0.0, 0.0));
+    chat.text = "/ub give Taper to Mule".to_owned();
+    rig(
+        FakeAutomation::at(snapshot(position(0.0, 0.0))),
+        mode,
+        vec![
+            waypoint(RouteWaypointType::Point, position(0.0, 0.0)),
+            chat,
+            waypoint(RouteWaypointType::Point, position(0.0, 0.0)),
+        ],
+    )
+}
+
+/// The macro stops while the give runs and starts again; the start puts
+/// the round back on the point before the give (the nearest point). The
+/// route comes to the same visit of the give and does not send it again;
+/// the next time round it does.
+fn a_round_does_not_send_a_line_again_after_a_macro_stop(mode: RouteMode) {
+    let mut rig = give_round(mode);
+    assert!(rig.tick(0.1, true));
+    assert_eq!(rig.index(), 1);
+    assert!(rig.tick(0.2, true));
+    assert_eq!(rig.automation.submitted_chat.len(), 1);
+    run_line(&mut rig);
+    busy(&mut rig, Some("give"));
+    assert!(rig.tick(0.1, true));
+
+    rig.stop_for_macro_stop();
+    rig.anchor();
+    assert_eq!(rig.index(), 0, "the round starts at the nearest point");
+    run_for(&mut rig, 1.0);
+    assert_eq!(rig.index(), 1);
+    assert_eq!(
+        rig.automation.submitted_chat.len(),
+        1,
+        "the same visit is not sent again"
+    );
+
+    // The give is done: the waypoint is done with it, its line not sent
+    // again.
+    busy(&mut rig, None);
+    assert!(rig.tick(0.1, true));
+    assert_eq!(rig.automation.submitted_chat.len(), 1);
+    assert_eq!(rig.index(), 2, "{}", rig.status());
+
+    run_for(&mut rig, 1.0);
+    assert_eq!(
+        rig.automation.submitted_chat.len(),
+        2,
+        "the next time round is sent: {}",
+        rig.status()
+    );
+}
+
+#[test]
+fn a_circular_round_does_not_send_a_line_again_after_a_macro_stop() {
+    a_round_does_not_send_a_line_again_after_a_macro_stop(RouteMode::Circular);
+}
+
+#[test]
+fn a_back_and_forth_round_does_not_send_a_line_again_after_a_macro_stop() {
+    a_round_does_not_send_a_line_again_after_a_macro_stop(RouteMode::Linear);
+}
