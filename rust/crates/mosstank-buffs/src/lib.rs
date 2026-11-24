@@ -12,8 +12,11 @@
 //! - [`recharge_controller`]: the recharge and helper rules, one use at a
 //!   time, watched to the server's answer.
 //!
+//! - [`appraisal`]: asking for the appraisals a rule needs, one at a time.
+//!
 //! The client comes in through `mosstank-automation`.
 
+pub mod appraisal;
 pub mod buff_rule;
 pub mod castability;
 pub mod due;

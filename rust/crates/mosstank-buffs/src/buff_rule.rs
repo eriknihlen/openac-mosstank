@@ -34,6 +34,7 @@ use mosstank_settings::model::{
 use mosstank_stores::storage::PluginStorage;
 use openac_plugin_compat::number::format_f64;
 
+use crate::appraisal::AppraisalRequests;
 use crate::castability::{AutomationCastability, CastabilityReport};
 use crate::due::BuffDueTracker;
 use crate::element::{self, Element};
@@ -45,6 +46,8 @@ use crate::recharge_controller::SharedCastTracker;
 /// The item enchantment skill, which the client reports as a spell's
 /// school.
 const ITEM_ENCHANTMENT_SCHOOL: u32 = 32;
+/// An item's shared cooldown (int property).
+const SHARED_COOLDOWN: u32 = 280;
 
 /// What the rule asks of its owner (the C#'s `IBuffRuleHost`).
 pub trait BuffRuleHost {
@@ -108,6 +111,15 @@ struct BuffPick {
     consumable_object_id: u32,
 }
 
+/// Why a configured buff consumable is not used this pass.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ConsumableSkip {
+    /// The rule's own short hold after a use: nothing to say.
+    Held,
+    /// A reason worth a line in the log.
+    Because(String),
+}
+
 #[derive(Debug, Clone, Default)]
 struct ItemCast {
     item_id: u32,
@@ -149,6 +161,15 @@ pub struct BuffSelfRule {
     consumable_completion: i64,
     consumable_deadline: f64,
     consumables_bound: bool,
+    /// The appraisals asked for configured consumables never seen
+    /// appraised.
+    consumable_appraisals: AppraisalRequests,
+    /// The configured consumable the last scan found unappraised and free
+    /// to ask about (0 for none), with its name.
+    consumable_appraisal_wanted: (u32, String),
+    /// Why each configured consumable (by name) was last passed over, as
+    /// said in the log: a reason is said once, and again when it changes.
+    consumable_skip_reasons: HashMap<String, String>,
     /// Each skill's level the last time the rule read the skills with a
     /// caster wielded: what a cast reaches once the caster is out
     /// ([`Self::casting_skills`]).
@@ -195,6 +216,9 @@ impl BuffSelfRule {
             consumable_completion: 0,
             consumable_deadline: 0.0,
             consumables_bound: false,
+            consumable_appraisals: AppraisalRequests::new(),
+            consumable_appraisal_wanted: (0, String::new()),
+            consumable_skip_reasons: HashMap::new(),
             caster_skills: None,
             gate: std::rc::Rc::new(std::cell::RefCell::new(
                 mosstank_combat::gate::CombatModeGate::new(),
@@ -316,6 +340,9 @@ impl BuffSelfRule {
         self.clear_consumable_use();
         self.consumable_retry_at.clear();
         self.consumable_family_retry_at.clear();
+        self.consumable_appraisals.reset();
+        self.consumable_appraisal_wanted = (0, String::new());
+        self.consumable_skip_reasons.clear();
         self.bursting = false;
         self.buff_cast_recast_remaining = 0.0;
         self.now_seconds = 0.0;
@@ -335,6 +362,7 @@ impl BuffSelfRule {
     /// Lets the once-per-run warnings be said again.
     pub fn reset_once_per_run_warnings(&mut self) {
         self.item_missing_warnings.clear();
+        self.consumable_skip_reasons.clear();
     }
 
     /// Captures the self buffs' lines ahead of the pass that will want
@@ -722,6 +750,11 @@ impl BuffSelfRule {
         }
 
         let Some(pick) = self.try_pick_buff(turn, threshold) else {
+            // Only on the rule's own turn, and only with nothing to use:
+            // the client answers one appraisal at a time.
+            if can_act {
+                self.request_consumable_appraisal(turn.automation);
+            }
             let within = format_f64(threshold, "0.#").unwrap_or_default();
             let known = turn.automation.spells().known_self_buffs_shared().len();
             let carried = if turn.automation.items_available() {
@@ -1201,7 +1234,16 @@ impl BuffSelfRule {
 
     // --- Buff consumables (`BuffSelfRule.Consumables`).
 
+    /// The first configured buff consumable whose buff is wanted and that
+    /// can be used now. A gem the profile's GemFoodItems names carries its
+    /// spell in the profile, so it is used whether or not it has been
+    /// appraised, as the reference uses it; a buff consumable added by hand
+    /// takes its spell from its appraisal, so it waits for one. A
+    /// configured item never appraised is remembered for
+    /// [`Self::request_consumable_appraisal`], and why an item is passed
+    /// over is said in the log once.
     fn try_pick_consumable(&mut self, turn: &mut BuffTurn<'_>, threshold: f64) -> Option<BuffPick> {
+        self.consumable_appraisal_wanted.0 = 0;
         if !self.consumables_bound
             || !turn.automation.items_available()
             || self
@@ -1212,99 +1254,227 @@ impl BuffSelfRule {
             return None;
         }
         let automation = &mut *turn.automation;
+        self.consumable_appraisals
+            .observe(automation, self.now_seconds);
         let combat = turn.combat;
-        for item in automation.owned_items_shared().iter() {
+        let owned = automation.owned_items_shared();
+        // The names said this scan: one line per name, from its first item.
+        let mut reported: Vec<&str> = Vec::new();
+        for item in owned.iter() {
             let gem = turn
                 .settings
                 .gem_food_items
                 .iter()
                 .find(|entry| entry.name == item.name);
             let configured_gem = gem.is_some();
-            let configured_spell_id = gem.map_or(0, |gem| gem.spell_id);
-            let configured_consumable = combat.consumable_names.contains(&item.name)
+            let configured_consumable = !configured_gem
+                && combat.consumable_names.contains(&item.name)
                 && combat.consumable_categories.get(&item.name)
                     == Some(&ConsumableCategory::BuffConsumable);
-            let spell_id = if configured_gem {
-                configured_spell_id
-            } else {
-                item.appraised_spell_ids.first().copied().unwrap_or(0)
-            };
             if !configured_gem && !configured_consumable {
                 continue;
             }
-            if self
-                .consumable_retry_at
-                .get(&item.object_id)
-                .is_some_and(|&retry_at| retry_at > self.now_seconds)
-            {
-                continue;
-            }
-            if automation
+            let assessed = automation
                 .object(item.object_id)
-                .is_none_or(|world| world.last_id_time == 0)
-                || spell_id == 0
+                .is_some_and(|world| world.last_id_time != 0);
+            if !assessed
+                && self.consumable_appraisal_wanted.0 == 0
+                && self
+                    .consumable_appraisals
+                    .can_ask(item.object_id, self.now_seconds)
             {
-                continue;
+                self.consumable_appraisal_wanted.0 = item.object_id;
+                item.name
+                    .clone_into(&mut self.consumable_appraisal_wanted.1);
             }
-            let Some(spell) = automation.spells().try_get(spell_id) else {
-                continue;
-            };
-            if self
-                .consumable_family_retry_at
-                .get(&spell.family)
-                .is_some_and(|&retry_at| retry_at > self.now_seconds)
-            {
-                continue;
-            }
-            if spell.is_fellowship && !automation.in_fellowship() {
-                continue;
-            }
-            let Some(properties) = automation.item_properties(item.object_id) else {
-                continue;
-            };
-            if item.use_requires_skill > 0 {
-                #[allow(clippy::cast_sign_loss)]
-                let skill = automation.try_get_skill(item.use_requires_skill as u32);
-                let refused = match skill {
-                    None => true,
-                    Some(skill) => {
-                        matches!(skill.training, Training::Unknown | Training::Untrained)
-                            || i64::from(skill.current) < i64::from(item.use_requires_skill_level)
-                            || (item.use_requires_skill_specialized != 0
-                                && skill.training != Training::Specialized)
+            let spell_id = gem.map_or_else(
+                || item.appraised_spell_ids.first().copied().unwrap_or(0),
+                |gem| gem.spell_id,
+            );
+            match self.consumable_verdict(
+                automation,
+                item,
+                spell_id,
+                configured_gem,
+                assessed,
+                threshold,
+            ) {
+                Ok(spell) => {
+                    return Some(BuffPick {
+                        spell,
+                        target_object_id: automation.character().id,
+                        target_name: item.name.clone(),
+                        is_item_enchant: false,
+                        consumable_object_id: item.object_id,
+                    });
+                }
+                Err(ConsumableSkip::Held) => {}
+                Err(ConsumableSkip::Because(reason)) => {
+                    if !reported.contains(&item.name.as_str()) {
+                        reported.push(&item.name);
+                        self.note_consumable_skip(automation, item, &reason);
                     }
-                };
-                if refused {
-                    continue;
                 }
             }
-            if let Some(&(_, cooldown)) = properties.ints.iter().find(|(key, _)| *key == 280)
-                && cooldown > 0
-                && automation
-                    .spells()
-                    .cooldown_remaining(cooldown.unsigned_abs())
-                    > 0.0
-            {
-                continue;
-            }
-            let forced = self.buff_due.forced_spell_ids();
-            if automation.timed_enchantments().iter().any(|effect| {
-                effect.family == spell.family
-                    && effect.tier >= spell.tier
-                    && !forced.contains(&effect.spell_id)
-                    && effect.seconds_remaining >= threshold
-            }) {
-                continue;
-            }
-            return Some(BuffPick {
-                spell,
-                target_object_id: automation.character().id,
-                target_name: item.name.clone(),
-                is_item_enchant: false,
-                consumable_object_id: item.object_id,
-            });
         }
         None
+    }
+
+    /// Whether one configured consumable can be used now for the spell
+    /// `spell_id`, and why not.
+    fn consumable_verdict(
+        &self,
+        automation: &mut dyn Automation,
+        item: &InventoryItem,
+        spell_id: u32,
+        configured_gem: bool,
+        assessed: bool,
+        threshold: f64,
+    ) -> Result<SpellInfo, ConsumableSkip> {
+        if self
+            .consumable_retry_at
+            .get(&item.object_id)
+            .is_some_and(|&retry_at| retry_at > self.now_seconds)
+        {
+            return Err(ConsumableSkip::Held);
+        }
+        if spell_id == 0 {
+            return Err(ConsumableSkip::Because(if configured_gem {
+                "the profile's GemFoodItems names no spell for it".to_owned()
+            } else if assessed {
+                "its assessment names no spell".to_owned()
+            } else {
+                "not assessed yet, so its spell is unknown; its assessment is asked for".to_owned()
+            }));
+        }
+        let Some(spell) = automation.spells().try_get(spell_id) else {
+            return Err(ConsumableSkip::Because(format!(
+                "spell {spell_id} is unknown"
+            )));
+        };
+        if self
+            .consumable_family_retry_at
+            .get(&spell.family)
+            .is_some_and(|&retry_at| retry_at > self.now_seconds)
+        {
+            return Err(ConsumableSkip::Held);
+        }
+        if spell.is_fellowship && !automation.in_fellowship() {
+            return Err(ConsumableSkip::Because(format!(
+                "{} is a fellowship spell and the character is in no fellowship",
+                spell.name
+            )));
+        }
+        // The use requirement and the appraised cooldown are known once
+        // the item is appraised; the cooldown also comes with the item.
+        let properties = if assessed {
+            automation.item_properties(item.object_id)
+        } else {
+            None
+        };
+        if item.use_requires_skill > 0 {
+            #[allow(clippy::cast_sign_loss)]
+            let skill = automation.try_get_skill(item.use_requires_skill as u32);
+            let refused = match skill {
+                None => true,
+                Some(skill) => {
+                    matches!(skill.training, Training::Unknown | Training::Untrained)
+                        || i64::from(skill.current) < i64::from(item.use_requires_skill_level)
+                        || (item.use_requires_skill_specialized != 0
+                            && skill.training != Training::Specialized)
+                }
+            };
+            if refused {
+                return Err(ConsumableSkip::Because(format!(
+                    "skill too low (skill {} at {}{})",
+                    item.use_requires_skill,
+                    item.use_requires_skill_level,
+                    if item.use_requires_skill_specialized != 0 {
+                        ", specialized"
+                    } else {
+                        ""
+                    }
+                )));
+            }
+        }
+        let cooldown = if item.shared_cooldown_id != 0 {
+            item.shared_cooldown_id
+        } else {
+            properties
+                .as_ref()
+                .and_then(|properties| {
+                    properties
+                        .ints
+                        .iter()
+                        .find(|(key, _)| *key == SHARED_COOLDOWN)
+                })
+                .map_or(0, |&(_, cooldown)| {
+                    if cooldown > 0 {
+                        cooldown.unsigned_abs()
+                    } else {
+                        0
+                    }
+                })
+        };
+        if cooldown != 0 && automation.spells().cooldown_remaining(cooldown) > 0.0 {
+            return Err(ConsumableSkip::Because(
+                "its shared cooldown is running".to_owned(),
+            ));
+        }
+        let forced = self.buff_due.forced_spell_ids();
+        if automation.timed_enchantments().iter().any(|effect| {
+            effect.family == spell.family
+                && effect.tier >= spell.tier
+                && !forced.contains(&effect.spell_id)
+                && effect.seconds_remaining >= threshold
+        }) {
+            return Err(ConsumableSkip::Because(format!(
+                "its buff ({}) is already active",
+                spell.name
+            )));
+        }
+        Ok(spell)
+    }
+
+    /// Says in the log why a configured consumable was passed over: once
+    /// per name, and again when the reason changes.
+    fn note_consumable_skip(
+        &mut self,
+        automation: &mut dyn Automation,
+        item: &InventoryItem,
+        reason: &str,
+    ) {
+        if self
+            .consumable_skip_reasons
+            .get(item.name.as_str())
+            .is_some_and(|said| said == reason)
+        {
+            return;
+        }
+        self.consumable_skip_reasons
+            .insert(item.name.clone(), reason.to_owned());
+        automation.log_info(&format!(
+            "MossTank: buff consumable {} (0x{:08X}) not used: {reason}",
+            item.name, item.object_id
+        ));
+    }
+
+    /// Asks for the appraisal of the configured consumable the last scan
+    /// found never appraised: one at a time, an unanswered one held back.
+    fn request_consumable_appraisal(&mut self, automation: &mut dyn Automation) {
+        let object_id = std::mem::take(&mut self.consumable_appraisal_wanted.0);
+        if object_id == 0 {
+            return;
+        }
+        if self
+            .consumable_appraisals
+            .ask(automation, object_id, self.now_seconds)
+        {
+            automation.log_info(&format!(
+                "MossTank: asking for the assessment of buff consumable {} (0x{object_id:08X})",
+                self.consumable_appraisal_wanted.1
+            ));
+        }
     }
 
     fn use_buff_consumable(&mut self, turn: &mut BuffTurn<'_>, pick: &BuffPick) -> bool {
