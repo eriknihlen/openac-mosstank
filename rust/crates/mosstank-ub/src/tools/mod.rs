@@ -186,6 +186,39 @@ impl UbTools {
         self.item_info.tick(call, elapsed_seconds);
     }
 
+    /// The tool running now, named by the command that starts it, or none:
+    /// what a route's chat waypoint waits on before it sends its line, and
+    /// after it, before the route goes on.
+    ///
+    /// The tools that work the character's packs or the world's containers
+    /// count: the item giver, the counter, the equipment profile, the
+    /// stack-or-cram pass, the packer, the tinker run and the looter. Not
+    /// counted: the experience spender, which refuses to run while the macro
+    /// is on (and a route runs only while it is), and `/ub clearbugged`,
+    /// which only asks for descriptions and makes no other command wait.
+    #[must_use]
+    pub fn busy_tool(&self) -> Option<&'static str> {
+        if self.give.borrow().is_running() {
+            Some("give")
+        } else if self.count.borrow().is_running() {
+            Some("count")
+        } else if self.equip.is_running() {
+            Some("equip")
+        } else if let Some(command) = self.stack_cram.running_command() {
+            Some(command)
+        } else if self.pack.is_running() {
+            Some("autopack")
+        } else if self.tinker.manager().is_running() {
+            Some("autotinker")
+        } else if self.looter.is_key_looting() && self.looter.is_running() {
+            Some("keyloot")
+        } else if self.looter.is_running() {
+            Some("looter")
+        } else {
+            None
+        }
+    }
+
     /// A session ended or began (`ResetSessionScopedControllers`, the UB
     /// tools' part): every run is put down without a word.
     pub fn reset_session(&mut self, call: &mut UbCall<'_>) {

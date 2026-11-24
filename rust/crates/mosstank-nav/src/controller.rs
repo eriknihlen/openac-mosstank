@@ -39,6 +39,13 @@ use crate::client::{self, NavigationAutomation};
 use crate::jump_power;
 
 const CHAT_INITIAL_DELAY_SECONDS: f64 = 0.2;
+
+/// How long a chat waypoint waits on a UB tool, or on the plugin running its
+/// `/ub` line, before it goes on without it. Our own margin, not the
+/// reference's (its chat waypoint knows nothing of the UB tools): a
+/// hand-over that stops making progress already gives up after 10 s, so
+/// this only keeps a tool that hangs from holding the route for good.
+const UB_WAIT_TIMEOUT_SECONDS: f64 = 120.0;
 const USE_RETRY_SECONDS: f64 = 2.0;
 const PORTAL_TIMEOUT_SECONDS: f64 = 30.0;
 const OBJECT_REACQUIRE_RADIUS_METERS: f64 = 2.5;
@@ -215,6 +222,16 @@ pub struct NavigationController {
     use_completion_baseline: i64,
     chat_baseline: u64,
     action_sent: bool,
+    /// A chat waypoint's `/ub` line is out and the plugin has not run it
+    /// yet: the plugin's count of `/ub` lines run when it was sent, and the
+    /// waypoint's clock then.
+    ub_line_sent: Option<(u64, f64)>,
+    /// The UB tool a chat waypoint is waiting on, and the waypoint's clock
+    /// when the wait began.
+    ub_wait: Option<(&'static str, f64)>,
+    /// A wait on a UB tool or on the plugin running the line ran out: this
+    /// waypoint waits on neither again.
+    ub_wait_given_up: bool,
     saw_portal_space: bool,
     jump_released: bool,
     jump_aligned: bool,
@@ -357,6 +374,9 @@ impl NavigationController {
             use_completion_baseline: 0,
             chat_baseline: 0,
             action_sent: false,
+            ub_line_sent: None,
+            ub_wait: None,
+            ub_wait_given_up: false,
             saw_portal_space: false,
             jump_released: false,
             jump_aligned: false,
@@ -1689,11 +1709,25 @@ impl NavigationController {
                     return true;
                 }
                 if !self.action_sent {
+                    // A UB tool at work would refuse a second run, or fight
+                    // the line for the character: the line waits for it.
+                    if self.waits_on_ub_tool(automation) {
+                        return true;
+                    }
                     self.action_sent = automation.submit_chat(&text);
                     if !self.action_sent {
                         "Chat command was refused.".clone_into(&mut self.voice.status);
                         return true;
                     }
+                    if automation.is_ub_line(&text) {
+                        self.ub_line_sent =
+                            Some((automation.ub_activity().lines_run, self.action_elapsed));
+                    }
+                }
+                // The route goes on once the plugin has run its own line and
+                // the tool it started has finished.
+                if self.waits_on_ub_line(automation, &text) || self.waits_on_ub_tool(automation) {
+                    return true;
                 }
                 self.complete_action(automation, settings);
                 true
@@ -1797,6 +1831,69 @@ impl NavigationController {
         }
         self.complete_action(automation, settings);
         true
+    }
+
+    /// Holds a chat waypoint while one of the plugin's UB tools runs; whether
+    /// it holds. The wait is logged when it begins, and after
+    /// [`UB_WAIT_TIMEOUT_SECONDS`] the waypoint says so and goes on.
+    fn waits_on_ub_tool(&mut self, automation: &mut dyn NavigationAutomation) -> bool {
+        if self.ub_wait_given_up {
+            return false;
+        }
+        let Some(tool) = automation.ub_activity().busy_tool else {
+            self.ub_wait = None;
+            return false;
+        };
+        let began = match self.ub_wait {
+            Some((waiting_on, began)) if waiting_on == tool => began,
+            _ => {
+                automation.log_info(&format!("Waiting for UB {tool} to finish."));
+                self.ub_wait = Some((tool, self.action_elapsed));
+                self.action_elapsed
+            }
+        };
+        if self.action_elapsed - began >= UB_WAIT_TIMEOUT_SECONDS {
+            self.give_up_ub_wait(
+                automation,
+                &format!("UB {tool} still running after 120 s, continuing."),
+            );
+            return false;
+        }
+        self.voice.status = format!("Waiting for UB {tool} to finish.");
+        true
+    }
+
+    /// Holds a chat waypoint whose `/ub` line is out until the plugin has
+    /// run it (the client hands it back after the call that submitted it);
+    /// whether it holds.
+    fn waits_on_ub_line(&mut self, automation: &mut dyn NavigationAutomation, text: &str) -> bool {
+        let Some((lines_run, sent_at)) = self.ub_line_sent else {
+            return false;
+        };
+        if self.ub_wait_given_up || automation.ub_activity().lines_run != lines_run {
+            self.ub_line_sent = None;
+            return false;
+        }
+        if self.action_elapsed - sent_at >= UB_WAIT_TIMEOUT_SECONDS {
+            self.ub_line_sent = None;
+            self.give_up_ub_wait(
+                automation,
+                &format!("UB did not run \"{text}\" after 120 s, continuing."),
+            );
+            return false;
+        }
+        self.voice.status = format!("Waiting for UB to run: {text}");
+        true
+    }
+
+    /// A wait on the UB tools ran out: the waypoint says so in chat and in
+    /// the log, and waits on them no more.
+    fn give_up_ub_wait(&mut self, automation: &mut dyn NavigationAutomation, why: &str) {
+        self.ub_wait_given_up = true;
+        self.ub_wait = None;
+        automation.log_warn(why);
+        client::post(automation, why);
+        why.clone_into(&mut self.voice.status);
     }
 
     fn warn_once(&mut self, automation: &mut dyn NavigationAutomation, text: &str) {
@@ -2406,6 +2503,9 @@ impl NavigationController {
         self.use_completion_baseline = 0;
         self.chat_baseline = 0;
         self.action_sent = false;
+        self.ub_line_sent = None;
+        self.ub_wait = None;
+        self.ub_wait_given_up = false;
         self.saw_portal_space = false;
         self.jump_released = false;
         self.jump_aligned = false;

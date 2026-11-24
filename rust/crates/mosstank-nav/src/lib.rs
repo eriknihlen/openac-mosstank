@@ -28,7 +28,7 @@ pub mod door_rule;
 pub mod jump_power;
 pub mod route_view;
 
-pub use client::NavigationAutomation;
+pub use client::{NavigationAutomation, UbActivity};
 pub use controller::{NavigationController, RouteTurn};
 pub use door_rule::{DoorRuleHost, OpenDoorRule};
 pub use mosstank_combat::mover::NavigationMover;

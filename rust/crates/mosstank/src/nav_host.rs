@@ -7,7 +7,7 @@ use ac_plugin_abi::navigation::{
     GoToReport, MoveChannel, MoveDirection, MovePace, MoveUnit, NavigationObject, NavigationStatus,
 };
 use ac_plugin_abi::world::Position;
-use mosstank_nav::NavigationAutomation;
+use mosstank_nav::{NavigationAutomation, UbActivity};
 use openac_plugin::{Host, WalkPause};
 
 use crate::automation::HostAutomation;
@@ -110,6 +110,17 @@ impl NavigationAutomation for HostAutomation<'_, '_> {
     fn submit_chat(&mut self, text: &str) -> bool {
         self.host().chat_submit(text);
         true
+    }
+
+    /// As the plugin last said, before the route's turn.
+    fn ub_activity(&mut self) -> UbActivity {
+        self.ub_activity
+    }
+
+    /// A line naming the plugin's own `/ub` verb.
+    fn is_ub_line(&mut self, text: &str) -> bool {
+        ac_plugin_abi::verbs::split_command_line(text)
+            .is_some_and(|(_, verb, _)| verb.eq_ignore_ascii_case(crate::tank::UB_VERB))
     }
 
     fn active_vendor_id(&mut self) -> u32 {

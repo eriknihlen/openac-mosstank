@@ -362,6 +362,8 @@ impl TankCx<'_> {
 
     /// The route's turn.
     fn claim_route(&mut self, context: MacroPassContext) -> bool {
+        // The meta ran earlier in this pass and may have started a UB tool.
+        self.client.set_ub_activity(self.ub.activity());
         let core = &mut *self.core;
         let mut turn: RouteTurn<'_> = route_turn!(self.client, core);
         core.navigation

@@ -286,6 +286,9 @@ impl Tank {
         // The movers run on the host's frame, before the pass, so the pass
         // sees the frame's work done. Only one of them is ever armed.
         let held = cx.core.world_hold.is_some();
+        // The route's chat waypoints wait on the UB tools as they stand now
+        // (a meta may have started one since the last UB call).
+        cx.client.set_ub_activity(cx.ub.activity());
         {
             let core = &mut *cx.core;
             let clear = core.navigation_slots_are_clear() && !held;

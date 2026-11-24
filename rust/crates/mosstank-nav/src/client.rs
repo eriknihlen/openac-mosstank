@@ -13,6 +13,18 @@ use ac_plugin_abi::navigation::{
 use ac_plugin_abi::world::Position;
 use mosstank_automation::Automation;
 
+/// The plugin's UB tools as a route's chat waypoint waits on them.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct UbActivity {
+    /// The UB tool running now, named by the command that starts it
+    /// (`give`, `autopack`, ...).
+    pub busy_tool: Option<&'static str>,
+    /// How many `/ub` lines the plugin has run so far: a line the route
+    /// submitted has been run once this moves on from where it stood at the
+    /// submit.
+    pub lines_run: u64,
+}
+
 /// The client as the route sees it.
 pub trait NavigationAutomation: Automation {
     /// The object nearest `near` named exactly `name` (any case), within
@@ -76,6 +88,19 @@ pub trait NavigationAutomation: Automation {
     /// Submits a line as if typed into the chat bar (`Submit`); false when
     /// the client took no line.
     fn submit_chat(&mut self, text: &str) -> bool {
+        let _ = text;
+        false
+    }
+
+    /// What the plugin's UB tools are doing now; nothing for a client
+    /// without them.
+    fn ub_activity(&mut self) -> UbActivity {
+        UbActivity::default()
+    }
+
+    /// Whether `text` is a line the plugin's UB commands run once the
+    /// client hands it back, after the call that submitted it.
+    fn is_ub_line(&mut self, text: &str) -> bool {
         let _ = text;
         false
     }

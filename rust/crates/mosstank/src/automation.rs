@@ -233,6 +233,9 @@ pub struct HostAutomation<'h, 'a> {
     pub(crate) storage_view: StorageView,
     /// How each kind of UB line is shown, once the UB settings said so.
     pub(crate) ub_displays: Option<[mosstank_meta::host::UbDisplay; 4]>,
+    /// What the UB tools are doing, as the plugin last said
+    /// ([`crate::client::SessionClient::set_ub_activity`]).
+    pub(crate) ub_activity: mosstank_nav::UbActivity,
     /// The windows the meta draws, kept by the plugin between calls; with
     /// none, the meta's windows are not drawn.
     pub(crate) meta_windows: Option<&'h mut crate::meta_windows::MetaWindows>,
@@ -265,6 +268,7 @@ impl<'h, 'a> HostAutomation<'h, 'a> {
             observations: None,
             storage_view: StorageView::Meta,
             ub_displays: None,
+            ub_activity: mosstank_nav::UbActivity::default(),
             meta_windows: None,
             storage_bytes_read: 0,
             profiles_written: Vec::new(),

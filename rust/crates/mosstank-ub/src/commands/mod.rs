@@ -93,6 +93,8 @@ pub struct UbCommands {
     portal: PortalUse,
     prep_click: PrepClickController,
     tools: UbTools,
+    /// How many `/ub` lines have been run.
+    lines_run: u64,
 }
 
 /// Splits off the first word: the trimmed text up to the first space or
@@ -242,8 +244,23 @@ impl UbCommands {
         self.delayed.len()
     }
 
+    /// The UB tool running now ([`UbTools::busy_tool`]).
+    #[must_use]
+    pub fn busy_tool(&self) -> Option<&'static str> {
+        self.tools.busy_tool()
+    }
+
+    /// How many `/ub` lines have been run so far, whatever they did: a line
+    /// submitted to the client has been run once this has moved on from
+    /// where it stood at the submit.
+    #[must_use]
+    pub fn lines_run(&self) -> u64 {
+        self.lines_run
+    }
+
     /// Runs one line typed under `/ub` (`ExecuteUbCommand`).
     pub fn execute(&mut self, call: &mut UbCall<'_>, input: &str) {
+        self.lines_run = self.lines_run.wrapping_add(1);
         let (typed, arguments) = split_head(input);
 
         // The give verb carries its flags in the letters after it, and their

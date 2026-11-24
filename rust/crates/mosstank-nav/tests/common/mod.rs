@@ -28,7 +28,7 @@ use mosstank_formats::route::{
 };
 use mosstank_meta::scheduler::{MacroContext, MacroFamily};
 use mosstank_nav::door_rule::DoorRuleHost;
-use mosstank_nav::{NavigationAutomation, NavigationController, RouteTurn};
+use mosstank_nav::{NavigationAutomation, NavigationController, RouteTurn, UbActivity};
 use mosstank_settings::model::{CombatSettings, VitalSettings};
 
 /// `NavigationTests.FakeMagic`: what a recall waypoint asks of the magic
@@ -93,6 +93,10 @@ pub struct FakeAutomation {
     pub jumps: Vec<f32>,
     /// The channels it was asked to stop.
     pub stopped_moves: Vec<Option<MoveChannel>>,
+    /// What the plugin's UB tools are doing.
+    pub ub_activity: UbActivity,
+    /// The lines logged, info and warning alike.
+    pub logged: Vec<String>,
 }
 
 impl Default for FakeAutomation {
@@ -127,6 +131,8 @@ impl Default for FakeAutomation {
             moves: Vec::new(),
             jumps: Vec::new(),
             stopped_moves: Vec::new(),
+            ub_activity: UbActivity::default(),
+            logged: Vec::new(),
         }
     }
 }
@@ -330,9 +336,13 @@ impl Automation for FakeAutomation {
         self.posted_system_messages.push(text.to_owned());
     }
 
-    fn log_info(&mut self, _text: &str) {}
+    fn log_info(&mut self, text: &str) {
+        self.logged.push(text.to_owned());
+    }
 
-    fn log_warn(&mut self, _text: &str) {}
+    fn log_warn(&mut self, text: &str) {
+        self.logged.push(text.to_owned());
+    }
 }
 
 impl NavigationAutomation for FakeAutomation {
@@ -403,6 +413,14 @@ impl NavigationAutomation for FakeAutomation {
 
     fn active_vendor_id(&mut self) -> u32 {
         self.active_vendor_object_id
+    }
+
+    fn ub_activity(&mut self) -> UbActivity {
+        self.ub_activity
+    }
+
+    fn is_ub_line(&mut self, text: &str) -> bool {
+        text.starts_with("/ub ")
     }
 }
 
