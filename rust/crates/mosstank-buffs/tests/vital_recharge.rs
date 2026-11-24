@@ -2309,8 +2309,9 @@ fn a_helper_that_cannot_start_a_cast_steps_aside_and_says_why() {
             break;
         }
     }
+    // Refused at that fellow: it is left alone after five seconds of turns.
     let after = stepped_aside_after.expect("the helper stepped aside");
-    assert!(after >= 9.9, "held only {after} s");
+    assert!((4.9..6.0).contains(&after), "held {after} s");
     assert_eq!(
         step_asides(&surface),
         ["helper: can't heal Hurt: the client refuses Heal Other VI at that target (Refused); leaving it alone for 60 s".to_owned()]
@@ -2632,5 +2633,106 @@ fn a_peer_the_client_does_not_see_is_not_helped() {
     assert_eq!(
         decide(&mut surface, &helping_peers()),
         HelperDecision::NobodyInSight
+    );
+}
+
+/// The helper's count of turns without progress starts at its first turn:
+/// a long wait before that turn (other rules had the pass) is not counted,
+/// and neither is a long wait between two turns.
+#[test]
+fn a_long_wait_before_a_helper_turn_does_not_step_aside_at_once() {
+    let settings = helping_below(0.9);
+    let mut surface = Surface {
+        mode: CombatMode::Peace,
+        ..hurt_fellowship()
+    };
+    let mut helper = VitalRechargeController::new();
+
+    assert!(helper_tick(&mut helper, &mut surface, &settings, 30.0));
+    assert_eq!(
+        helper_claims_over(&mut helper, &mut surface, &settings, 6.0),
+        20
+    );
+    // Six seconds without progress, then half a minute without a turn.
+    assert!(helper_tick(&mut helper, &mut surface, &settings, 30.0));
+    assert_eq!(
+        helper_claims_over(&mut helper, &mut surface, &settings, 6.0),
+        20
+    );
+    assert!(step_asides(&surface).is_empty(), "{:?}", surface.infos);
+
+    // Turns in a row: it stops within the ten seconds.
+    assert!(helper_claims_over(&mut helper, &mut surface, &settings, 6.0) < 20);
+    assert_eq!(step_asides(&surface).len(), 1);
+}
+
+/// Two hurt fellows the client refuses every cast at, the lowest of them
+/// changing every turn: the helper still gives up within about ten
+/// seconds of turns that get nothing done.
+#[test]
+fn two_members_swapping_as_the_lowest_still_step_aside() {
+    let settings = helping_below(0.9);
+    let mut surface = Surface {
+        fellows: vec![fellow(71, "Hurt", 50, 10.0), fellow(72, "Other", 40, 10.0)],
+        ..hurt_fellowship()
+    };
+    let mut helper = VitalRechargeController::new();
+
+    let mut claimed_until = 0.0;
+    for turn in 1..=200 {
+        let (first, second) = if turn % 2 == 0 { (40, 50) } else { (50, 40) };
+        surface.fellows[0].current_health = first;
+        surface.fellows[1].current_health = second;
+        if helper_tick(&mut helper, &mut surface, &settings, 0.3) {
+            claimed_until = f64::from(turn) * 0.3;
+        }
+    }
+    assert!(
+        claimed_until < 11.0,
+        "still holding the pass at {claimed_until} s"
+    );
+    assert!(!step_asides(&surface).is_empty());
+}
+
+/// Many hurt fellows the client refuses every cast at: the helper does not
+/// leave them one by one while holding the pass for the next; the rules
+/// below it get most of the time.
+#[test]
+fn many_low_members_still_let_the_rules_below_run() {
+    let settings = helping_below(0.9);
+    let mut surface = Surface {
+        fellows: (0..8)
+            .map(|n| fellow(71 + n, &format!("Hurt {n}"), 10 + n, 10.0))
+            .collect(),
+        ..hurt_fellowship()
+    };
+    let mut helper = VitalRechargeController::new();
+
+    let turns = (140.0_f64 / 0.3).round() as usize;
+    let claims = helper_claims_over(&mut helper, &mut surface, &settings, 140.0);
+    assert!(
+        claims * 10 < turns * 3,
+        "the helper held {claims} of {turns} turns"
+    );
+}
+
+/// The network may list a character twice; the helper reads the first
+/// record, as the candidates do. A frozen first record next to a live one
+/// still ages out.
+#[test]
+fn a_frozen_first_record_of_a_listed_twice_peer_ages_out() {
+    let mut surface = peer_reading(10);
+    surface.peers.push(peer(90, "Net", 50, 0.0));
+    let mut run = PeerRun::new(surface);
+    for step in 0..20 {
+        run.surface.peers[1].current_health = 50 + step % 2;
+        run.run(3.0);
+    }
+
+    assert!(!run.casts_at.is_empty(), "never helped while fresh");
+    assert!(
+        run.casts_at.iter().all(|&at| at < 10.5),
+        "helped on a frozen record: {:?}",
+        run.casts_at
     );
 }

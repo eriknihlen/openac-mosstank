@@ -13,6 +13,7 @@ use ac_plugin_abi::character::Training;
 use ac_plugin_abi::combat::CombatMode;
 use ac_plugin_abi::items::InventoryItem;
 use ac_plugin_abi::magic::SpellInfo;
+use ac_plugin_abi::peers::NetworkClient;
 use ac_plugin_abi::social::FellowMember;
 use ac_plugin_abi::world::Position;
 use mosstank_automation::Automation;
@@ -1164,18 +1165,11 @@ pub fn helper_candidates_aged(
         return fellows;
     }
 
-    let mut known: HashSet<u32> = fellows.iter().map(|fellow| fellow.object_id).collect();
+    let known: HashSet<u32> = fellows.iter().map(|fellow| fellow.object_id).collect();
     let mut candidates = fellows;
-    let character = automation.character();
     let here = automation.position();
-    for peer in automation.network_clients() {
-        if peer.player_id == 0 || peer.player_id == character.id || !known.insert(peer.player_id) {
-            continue;
-        }
-        if !character.world.is_empty()
-            && !peer.world_name.is_empty()
-            && !ordinal::equals_ignore_case(&character.world, &peer.world_name)
-        {
+    for peer in listed_peers(automation) {
+        if known.contains(&peer.player_id) {
             continue;
         }
         let Some(there) = automation
@@ -1202,6 +1196,26 @@ pub fn helper_candidates_aged(
     }
     candidates
 }
+/// The network's other clients the helper reads: one record per
+/// character (the first the network lists), never this character's, and
+/// only characters in this world.
+pub fn listed_peers(automation: &mut dyn Automation) -> Vec<NetworkClient> {
+    let character = automation.character();
+    let mut seen = HashSet::new();
+    automation
+        .network_clients()
+        .into_iter()
+        .filter(|peer| {
+            peer.player_id != 0
+                && peer.player_id != character.id
+                && (character.world.is_empty()
+                    || peer.world_name.is_empty()
+                    || ordinal::equals_ignore_case(&character.world, &peer.world_name))
+                && seen.insert(peer.player_id)
+        })
+        .collect()
+}
+
 fn peer_distance(here: &Position, there: &Position) -> f32 {
     let flat = here.horizontal_distance_metres(there);
     let rise = (here.elevation - there.elevation) * 240.0;
