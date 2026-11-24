@@ -333,6 +333,13 @@ pub enum HelperDecision {
         /// How far, metres.
         distance: f32,
     },
+    /// A member is below a threshold, but the helper is leaving it alone
+    /// for that vital for a while: it was just helped (a network peer), or
+    /// nothing could be started on it.
+    SteppedAside {
+        /// The member.
+        name: String,
+    },
     /// A member needs help, but no tier of the line can be cast.
     NoCastableSpell {
         /// The vital.
@@ -354,7 +361,7 @@ impl HelperDecision {
     fn weight(&self) -> u8 {
         match self {
             Self::NoCastableSpell { .. } => 3,
-            Self::OutOfRange { .. } => 2,
+            Self::OutOfRange { .. } | Self::SteppedAside { .. } => 2,
             Self::VitalsTooOld { .. } => 1,
             _ => 0,
         }
@@ -380,6 +387,9 @@ impl std::fmt::Display for HelperDecision {
             ),
             Self::OutOfRange { name, distance } => {
                 write!(f, "{name} is low, but {distance:.0} m away")
+            }
+            Self::SteppedAside { name } => {
+                write!(f, "{name} is low, but left alone for a while")
             }
             Self::NoCastableSpell { vital, name, line } => write!(
                 f,
@@ -411,6 +421,18 @@ pub fn plan_helper(
     automation: &mut dyn Automation,
     settings: &VitalSettings,
     combat: &CombatSettings,
+    trace: Option<&mut dyn FnMut(&str)>,
+) -> (Option<VitalRechargeChoice>, HelperDecision) {
+    plan_helper_excluding(automation, settings, combat, &|_, _| false, trace)
+}
+
+/// [`plan_helper`], passing over every member `excluded` names for a vital
+/// (the controller's members it is leaving alone for a while).
+pub fn plan_helper_excluding(
+    automation: &mut dyn Automation,
+    settings: &VitalSettings,
+    combat: &CombatSettings,
+    excluded: &dyn Fn(u32, VitalKind) -> bool,
     trace: Option<&mut dyn FnMut(&str)>,
 ) -> (Option<VitalRechargeChoice>, HelperDecision) {
     // Two switches: the fellows (`HelpFellows`, VTank's `DoHelp`) and the
@@ -454,7 +476,7 @@ pub fn plan_helper(
         ),
     ] {
         #[allow(clippy::cast_possible_truncation)]
-        let fellow = match lowest(&members, vital, threshold, distance as f32) {
+        let fellow = match lowest(&members, vital, threshold, distance as f32, excluded) {
             Ok(fellow) => fellow,
             Err(reason) => {
                 note(reason);
@@ -1153,14 +1175,16 @@ fn peer_distance(here: &Position, there: &Position) -> f32 {
 }
 
 /// The member lowest on the vital below the threshold, within reach, with
-/// vitals streamed recently enough to trust; else why nobody qualified (a
-/// member out of reach before one with old vitals).
-fn lowest(
-    members: &[FellowMember],
+/// vitals streamed recently enough to trust, and not one `excluded` names
+/// for this vital; else why nobody qualified (a member out of reach or left
+/// alone before one with old vitals).
+fn lowest<'m>(
+    members: &'m [FellowMember],
     vital: VitalKind,
     threshold: f64,
     maximum_distance: f32,
-) -> Result<&FellowMember, HelperDecision> {
+    excluded: &dyn Fn(u32, VitalKind) -> bool,
+) -> Result<&'m FellowMember, HelperDecision> {
     let mut best: Option<&FellowMember> = None;
     let mut best_fraction = f64::INFINITY;
     let mut why = HelperDecision::NobodyBelowThreshold;
@@ -1193,6 +1217,14 @@ fn lowest(
                 name: member.name.clone(),
                 distance: member.distance,
             };
+            continue;
+        }
+        if excluded(member.object_id, vital) {
+            if why.weight() < 2 {
+                why = HelperDecision::SteppedAside {
+                    name: member.name.clone(),
+                };
+            }
             continue;
         }
         if fraction < best_fraction {

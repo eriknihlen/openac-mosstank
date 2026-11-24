@@ -57,6 +57,10 @@ struct Surface {
     cast_spell_ids: Vec<u32>,
     without_components: HashSet<u32>,
     infos: Vec<String>,
+    /// A cast or a gate at an object is answered as at the selection.
+    accepts_targets: bool,
+    /// Who each cast at an object was aimed at.
+    cast_targets: Vec<u32>,
 }
 
 impl Default for Surface {
@@ -85,6 +89,8 @@ impl Default for Surface {
             cast_spell_ids: Vec::new(),
             without_components: HashSet::new(),
             infos: Vec::new(),
+            accepts_targets: false,
+            cast_targets: Vec::new(),
         }
     }
 }
@@ -141,7 +147,7 @@ impl Automation for Surface {
     }
 
     fn evaluate_gate(&mut self, _spell_id: u32, target: Option<u32>) -> CastGate {
-        if target.is_some() {
+        if target.is_some() && !self.accepts_targets {
             CastGate::Refused
         } else {
             CastGate::Ready
@@ -153,8 +159,11 @@ impl Automation for Surface {
     }
 
     fn cast(&mut self, spell_id: u32, target: Option<u32>) -> bool {
-        if target.is_some() {
-            return false;
+        if let Some(target) = target {
+            if !self.accepts_targets {
+                return false;
+            }
+            self.cast_targets.push(target);
         }
         self.cast_spell_ids.push(spell_id);
         true
@@ -2220,4 +2229,231 @@ fn helping_network_peers_alone_heals_a_peer_and_not_a_fellow_off_the_network() {
             using: "Heal Other VI".to_owned(),
         }
     );
+}
+
+/// One helper turn of `seconds`, enabled, no target in sight.
+fn helper_tick(
+    helper: &mut VitalRechargeController,
+    surface: &mut Surface,
+    settings: &VitalSettings,
+    seconds: f64,
+) -> bool {
+    tick(
+        helper,
+        surface,
+        settings,
+        &CombatSettings::default(),
+        seconds,
+        true,
+        true,
+        true,
+    )
+}
+
+/// Runs helper turns of 0.3 s for `seconds`; how many of them claimed the
+/// pass.
+fn helper_claims_over(
+    helper: &mut VitalRechargeController,
+    surface: &mut Surface,
+    settings: &VitalSettings,
+    seconds: f64,
+) -> usize {
+    let turns = (seconds / 0.3).round() as usize;
+    (0..turns)
+        .filter(|_| helper_tick(helper, surface, settings, 0.3))
+        .count()
+}
+
+/// The lines the helper said it gave up on someone.
+fn step_asides(surface: &Surface) -> Vec<String> {
+    surface
+        .infos
+        .iter()
+        .filter(|line| line.starts_with("helper: can't heal"))
+        .cloned()
+        .collect()
+}
+
+/// The helper never holds the pass for good on a fellow it cannot start a
+/// cast at (the client refuses the cast at that target): it keeps trying
+/// for a while, then says why once, leaves that fellow alone for that
+/// vital, and the rules below it get the pass; later it tries again.
+#[test]
+fn a_helper_that_cannot_start_a_cast_steps_aside_and_says_why() {
+    let settings = helping_below(0.9);
+    let mut surface = hurt_fellowship();
+    let mut helper = VitalRechargeController::new();
+
+    // At first it holds the pass while it keeps trying.
+    assert!(helper_tick(&mut helper, &mut surface, &settings, 0.3));
+
+    // Within twenty seconds it has stopped claiming.
+    let mut stepped_aside_after = None;
+    for turn in 1..=66 {
+        if !helper_tick(&mut helper, &mut surface, &settings, 0.3) {
+            stepped_aside_after = Some(f64::from(turn) * 0.3);
+            break;
+        }
+    }
+    let after = stepped_aside_after.expect("the helper stepped aside");
+    assert!(after >= 9.9, "held only {after} s");
+    assert_eq!(
+        step_asides(&surface),
+        ["helper: can't heal Hurt: the client refuses Heal Other VI at that target (Refused); leaving it alone for 60 s".to_owned()]
+    );
+    assert_eq!(
+        helper.last_helper_decision(),
+        Some(&HelperDecision::SteppedAside {
+            name: "Hurt".to_owned()
+        })
+    );
+
+    // It leaves that fellow alone for the next minute, and says so once.
+    assert_eq!(
+        helper_claims_over(&mut helper, &mut surface, &settings, 55.0),
+        0
+    );
+    assert_eq!(step_asides(&surface).len(), 1);
+
+    // Then it tries again.
+    assert!(helper_claims_over(&mut helper, &mut surface, &settings, 10.0) > 0);
+}
+
+/// A stance the client never enters (the request is refused every time)
+/// holds the pass no longer than a cast it cannot start.
+#[test]
+fn a_helper_whose_magic_stance_never_comes_steps_aside() {
+    let settings = helping_below(0.9);
+    let mut surface = Surface {
+        mode: CombatMode::Peace,
+        ..hurt_fellowship()
+    };
+    let mut helper = VitalRechargeController::new();
+
+    assert!(helper_tick(&mut helper, &mut surface, &settings, 0.3));
+    let claims = helper_claims_over(&mut helper, &mut surface, &settings, 30.0);
+    assert!(claims < 40, "claimed {claims} of 100 turns");
+    let said = step_asides(&surface);
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(
+        said[0].starts_with("helper: can't heal Hurt: waiting for Magic mode"),
+        "{said:?}"
+    );
+}
+
+/// A cast at a fellow the server never answers is given up after the
+/// unanswered-use wait, and that fellow is then left alone rather than
+/// cast at again and again.
+#[test]
+fn an_unanswered_helper_cast_is_not_repeated_without_end() {
+    let settings = helping_below(0.9);
+    let mut surface = Surface {
+        accepts_targets: true,
+        ..hurt_fellowship()
+    };
+    let mut helper = VitalRechargeController::new();
+
+    assert!(helper_tick(&mut helper, &mut surface, &settings, 0.3));
+    assert_eq!(surface.cast_targets, [71]);
+    helper_claims_over(&mut helper, &mut surface, &settings, 60.0);
+
+    assert_eq!(
+        surface.cast_targets,
+        [71],
+        "cast again at an unanswering target"
+    );
+    assert_eq!(step_asides(&surface).len(), 1, "{:?}", surface.infos);
+}
+
+/// The reference's wait after a cast at a network peer (not a fellow):
+/// the same vital is not cast at that peer again for five seconds, so a
+/// peer whose reported vitals do not move does not hold the pass between
+/// casts.
+#[test]
+fn a_network_peer_just_helped_is_left_alone_for_five_seconds() {
+    let settings = VitalSettings {
+        help_others: false,
+        help_network_peers: true,
+        helper_health: 0.9,
+        ..VitalSettings::default()
+    };
+    let mut surface = Surface {
+        accepts_targets: true,
+        peers: vec![peer(90, "Net", 10, 0.0)],
+        ..hurt_fellowship()
+    };
+    let mut helper = VitalRechargeController::new();
+
+    assert!(helper_tick(&mut helper, &mut surface, &settings, 0.3));
+    assert_eq!(surface.cast_targets, [90]);
+    surface.last_cast_completion = CastCompletion {
+        revision: 1,
+        spell_id: 1166,
+        target_id: 90,
+        weenie_error: 0,
+    };
+    // The answer ends the wait; the peer still reads low.
+    assert!(!helper_tick(&mut helper, &mut surface, &settings, 0.3));
+    assert_eq!(
+        helper_claims_over(&mut helper, &mut surface, &settings, 4.2),
+        0
+    );
+    assert_eq!(surface.cast_targets, [90]);
+
+    // Five seconds on, it is helped again.
+    assert!(helper_claims_over(&mut helper, &mut surface, &settings, 1.2) > 0);
+    assert_eq!(surface.cast_targets, [90, 90]);
+    assert!(step_asides(&surface).is_empty());
+}
+
+/// A plain heal at a hurt fellow still casts, is answered, and ends the
+/// helper's turn once the fellow is healed; a fellow still low after a
+/// clean heal is healed again at once, as the reference does.
+#[test]
+fn a_normal_heal_other_still_casts_and_completes() {
+    let settings = helping_below(0.9);
+    let mut surface = Surface {
+        accepts_targets: true,
+        ..hurt_fellowship()
+    };
+    let mut helper = VitalRechargeController::new();
+
+    assert!(helper_tick(&mut helper, &mut surface, &settings, 0.3));
+    assert_eq!(surface.cast_spell_ids, [1166]);
+    assert_eq!(surface.cast_targets, [71]);
+    assert!(
+        surface
+            .infos
+            .iter()
+            .any(|line| line == "Vitals: Health \u{2192} Heal Other VI at teammate 0x00000047"),
+        "{:?}",
+        surface.infos
+    );
+    // Unanswered, the cast holds the pass.
+    assert!(helper_tick(&mut helper, &mut surface, &settings, 0.3));
+
+    // Answered, and the fellow still low: healed again after the short
+    // retry.
+    surface.last_cast_completion = CastCompletion {
+        revision: 1,
+        spell_id: 1166,
+        target_id: 71,
+        weenie_error: 0,
+    };
+    assert!(helper_tick(&mut helper, &mut surface, &settings, 0.3));
+    assert!(helper_tick(&mut helper, &mut surface, &settings, 0.3));
+    assert_eq!(surface.cast_targets, [71, 71]);
+
+    // Answered again, and healed: nothing more to do.
+    surface.last_cast_completion = CastCompletion {
+        revision: 2,
+        spell_id: 1166,
+        target_id: 71,
+        weenie_error: 0,
+    };
+    surface.fellows = vec![fellow(71, "Hurt", 100, 10.0)];
+    assert!(!helper_tick(&mut helper, &mut surface, &settings, 0.3));
+    assert!(!helper_tick(&mut helper, &mut surface, &settings, 0.3));
+    assert_eq!(surface.cast_targets, [71, 71]);
+    assert!(step_asides(&surface).is_empty());
 }
