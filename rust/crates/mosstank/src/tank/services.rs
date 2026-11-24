@@ -656,8 +656,28 @@ impl MetaServices for TankServices<'_, '_> {
     /// A meta's chat line: a meta load runs there and then (register
     /// META-2); any other `/vt` line, and a `/ub` line, waits for the engine
     /// to lend itself (register META-9); anything else goes to the client.
+    /// While the character can do nothing in the world, every line but a
+    /// `/vt` one (which only changes MossTank itself) is held and sent once
+    /// it can (register MACRO-1): a `/ub` line may start a tool that acts
+    /// for the character, and any other line reaches the server. With the
+    /// macro off (the meta does not run then) a line goes at once.
     fn submit_chat(&mut self, _host: &mut dyn MetaHost, line: &str) -> Option<MetaProfile> {
-        if let Some((_, verb, arguments)) = ac_plugin_abi::verbs::split_command_line(line) {
+        let split = ac_plugin_abi::verbs::split_command_line(line);
+        let local = split
+            .as_ref()
+            .is_some_and(|(_, verb, _)| verb.eq_ignore_ascii_case(commands::VTANK_VERB));
+        if !local {
+            let mut core = self.core.0.borrow_mut();
+            if let Some(why) = core.world_hold.filter(|_| core.combat.enabled()) {
+                core.held_meta_lines.push(line.to_owned());
+                core.queue_log(
+                    mosstank_meta::scheduler::MacroLogChannel::RuleInfo,
+                    &format!("(meta) held while {why}: {line}"),
+                );
+                return None;
+            }
+        }
+        if let Some((_, verb, arguments)) = split {
             if verb.eq_ignore_ascii_case(commands::VTANK_VERB) {
                 if let Some((name, af)) = commands::meta_load_request(arguments) {
                     let mut client = self.client.0.borrow_mut();
@@ -1003,6 +1023,11 @@ impl TankCx<'_> {
         f: impl FnOnce(&mut MetaEngine, &mut dyn MetaHost, &mut dyn MetaServices) -> R,
     ) -> R {
         let meta_enabled = self.meta.enabled();
+        if self.meta.profile_generation() != self.core.held_meta_generation {
+            // Lines another meta held are not this one's (register MACRO-1).
+            self.core.held_meta_lines.clear();
+        }
+        let held_before = self.core.held_meta_lines.len();
         let (result, requests) = {
             let cell = ClientCell(RefCell::new(&mut *self.client));
             let core = CoreCell(RefCell::new(&mut *self.core));
@@ -1023,6 +1048,11 @@ impl TankCx<'_> {
             let result = f(self.meta, &mut proxy, &mut services);
             (result, services.requests)
         };
+        if self.core.held_meta_lines.len() > held_before {
+            // The held lines belong to the meta in force once the call is
+            // over (a load among its own lines included).
+            self.core.held_meta_generation = self.meta.profile_generation();
+        }
         for request in requests {
             self.run_engine_request(request);
         }

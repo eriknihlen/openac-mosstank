@@ -42,11 +42,6 @@ const LOCAL_SPEECH_CHAT_KIND: u32 = 0;
 /// character's pack alone is some hundreds of objects).
 const HEAVY_SCAN_OBJECTS: usize = 200;
 
-/// How long the client's word that the character died holds the macro when
-/// the health does not show the death (it normally shows it in the same
-/// frame), seconds.
-pub(crate) const DEATH_EVENT_HOLD_SECONDS: f64 = 5.0;
-
 impl Tank {
     /// One frame (`OnTick`).
     #[allow(clippy::too_many_lines)]
@@ -174,24 +169,41 @@ impl Tank {
         let dead = character.health.1 > 0 && character.health.0 == 0;
         if dead && !cx.core.was_dead_for_macro {
             cx.handle_death(macro_running);
+            cx.core
+                .death_hold
+                .get_or_insert_with(super::death_hold::DeathHold::begin);
         }
         cx.core.was_dead_for_macro = dead;
-        // From a death until the server gives the character its health back,
-        // and in portal space, the character can do nothing in the world:
-        // nothing is sent for it (register MACRO-1). A recall cast while
-        // the server still carries out the death has left the character
-        // unplaced on the server for good.
-        // The client's word of the death counts until the health shows it
-        // (then the health decides) or for a few seconds without it.
-        cx.core.death_event_seconds = match cx.core.death_event_seconds {
-            Some(_) if dead => None,
-            Some(left) => Some(left - elapsed_seconds.max(0.0)).filter(|left| *left > 0.0),
-            None => None,
+        // From a death until the server has carried it out, and in portal
+        // space, the character can do nothing in the world: nothing is sent
+        // for it (register MACRO-1). A recall sent while the server still
+        // carries out the death has left the character unplaced on the
+        // server until a relog.
+        let portal_space = cx.client.rules().navigation_snapshot().is_portal_space;
+        let death_holds = match cx.core.death_hold.as_mut() {
+            Some(death) => {
+                let step = death.step(elapsed_seconds, dead, portal_space);
+                if step.say_lost {
+                    Core::announce(cx.client, super::death_hold::DEATH_TELEPORT_LOST_NOTICE);
+                    cx.client
+                        .rules()
+                        .log_warn(super::death_hold::DEATH_TELEPORT_LOST_NOTICE);
+                }
+                step.holds
+            }
+            None => false,
         };
-        let world_hold = if dead || cx.core.death_event_seconds.is_some() {
+        if !death_holds {
+            cx.core.death_hold = None;
+        }
+        // A health at 0 names the death; the death teleport itself is
+        // named as portal space.
+        let world_hold = if dead {
             Some("the character is dead")
-        } else if cx.client.rules().navigation_snapshot().is_portal_space {
+        } else if portal_space {
             Some("the character is in portal space")
+        } else if death_holds {
+            Some("the character is dead")
         } else {
             None
         };
@@ -212,6 +224,8 @@ impl Tank {
         }
         cx.core.world_hold = world_hold;
         cx.core.combat.set_world_hold(world_hold.is_some());
+        // Before the meta's pass, so what it says now follows them.
+        cx.release_held_meta_lines();
         cx.meta
             .current_state()
             .clone_into(&mut cx.core.settings.combat.meta_state);
@@ -411,8 +425,9 @@ impl TankCx<'_> {
         self.core.buff_rule.reset();
         self.core.selection_before_pass = None;
         // A death the gone character's health never showed holds nobody
-        // else (register MACRO-1).
-        self.core.death_event_seconds = None;
+        // else, and the meta lines it held go with it (register MACRO-1).
+        self.core.death_hold = None;
+        self.core.held_meta_lines.clear();
         self.core.world_hold = None;
         self.core.combat.set_world_hold(false);
         "Lost the session.".clone_into(&mut self.core.status);
@@ -587,6 +602,37 @@ impl TankCx<'_> {
         let _ = self.set_meta_option("EnableBuffing", &ExpressionValue::Boolean(saved.buff));
         let _ = self.set_meta_option("EnableCombat", &ExpressionValue::Boolean(saved.combat));
         Core::announce(self.client, DEATH_RESTORED_NOTICE);
+    }
+
+    /// The meta's chat lines held while the character could do nothing in
+    /// the world (register MACRO-1): once the hold is over they are sent in
+    /// order, each as the meta sends a line (its UB verb run before the
+    /// next line goes). They are dropped when the macro or the meta stopped
+    /// or another meta was loaded since they were held.
+    fn release_held_meta_lines(&mut self) {
+        if self.core.held_meta_lines.is_empty() {
+            return;
+        }
+        if !self.core.combat.enabled()
+            || !self.meta.enabled()
+            || self.meta.profile_generation() != self.core.held_meta_generation
+        {
+            self.core.held_meta_lines.clear();
+            return;
+        }
+        if self.core.world_hold.is_some() {
+            return;
+        }
+        let lines = std::mem::take(&mut self.core.held_meta_lines);
+        self.with_engine(|engine, host, services| {
+            for line in &lines {
+                if let Some(profile) = services.submit_chat(host, line) {
+                    engine.replace_profile(host, services, profile);
+                }
+                services.run_pending_lines(engine, host);
+            }
+        });
+        self.core.write_out(self.client);
     }
 
     /// Runs the next pass on the frame an answer the macro waits for

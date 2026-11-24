@@ -1,7 +1,8 @@
 //! The macro while the character can do nothing in the world (register
-//! MACRO-1): from a death until the server gives the character its health
-//! back, and in portal space, no rule acts. Not a port: the C# and the
-//! reference run their rules through both.
+//! MACRO-1): from a death until the server has carried it out (the health
+//! back, or for a death the health never showed, the death teleport over),
+//! and in portal space, no rule acts and the meta's chat lines wait. Not a
+//! port: the C# and the reference run their rules through both.
 
 mod common;
 
@@ -9,8 +10,8 @@ use ac_plugin_abi::combat::{CombatMode, CombatSnapshot};
 use ac_plugin_abi::items::{EquipmentItem, EquipmentPlacement};
 use ac_plugin_abi::magic::CastResult;
 use ac_plugin_abi::navigation::NavigationSnapshot;
-use ac_plugin_abi::world::{ObjectClass, Position, WorldObject};
-use ac_plugin_abi::{Event, calls};
+use ac_plugin_abi::world::{ObjectClass, PortalTransition, Position, WorldObject};
+use ac_plugin_abi::{Event, LogLevel, calls};
 use common::{World, character};
 use mosstank::MossTank;
 use mosstank_formats::route::{
@@ -211,8 +212,23 @@ fn nothing_at_all_is_cast_or_used_while_the_character_lies_dead() {
     assert!(world.requests::<calls::ItemsUse>().is_empty());
 }
 
-#[test]
-fn the_clients_word_of_a_death_holds_the_macro_before_the_health_shows_it() {
+/// The death teleport as the client reports it: portal space begins
+/// (`entered`), or the character is out of it again (the teleport completed).
+fn death_teleport(world: &mut World, plugin: &mut MossTank, entered: bool) {
+    stand(world, entered);
+    world.send(
+        plugin,
+        Event::PortalTransition(PortalTransition {
+            kind: 2,
+            is_completed: !entered,
+            ..PortalTransition::default()
+        }),
+    );
+}
+
+/// The macro runs with the recall route on, and the client says the
+/// character died; the health (still 100) never shows it.
+fn dead_by_the_clients_word_alone() -> (World, MossTank) {
     let mut world = World::with_character("Acdream");
     stand(&mut world, false);
     wield_wand(&mut world);
@@ -225,14 +241,173 @@ fn the_clients_word_of_a_death_holds_the_macro_before_the_health_shows_it() {
     });
     frames(&mut world, &mut plugin, 4);
 
-    // The death message comes; the health (still 100 here) has not caught up.
     world.send(&mut plugin, Event::LocalPlayerDied("You died!".to_owned()));
     world.vt(&mut plugin, "nav load VitaeRun");
     world.vt(&mut plugin, "opt set EnableNav true");
-    frames(&mut world, &mut plugin, 60);
-    assert_eq!(recalls(&world), 0, "the death holds the route");
+    (world, plugin)
+}
 
-    // A health that never shows the death lets the hold run out.
+#[test]
+fn the_clients_word_of_a_death_holds_until_the_death_teleport_is_over() {
+    let (mut world, mut plugin) = dead_by_the_clients_word_alone();
+
+    // Past the old 5 s, and past 30 s: no teleport yet.
+    frames(&mut world, &mut plugin, 120);
+    assert_eq!(recalls(&world), 0, "held past 5 s");
+    frames(&mut world, &mut plugin, 500);
+    assert_eq!(recalls(&world), 0, "held past 30 s");
+
+    // The death teleport: in portal space, then out of it.
+    death_teleport(&mut world, &mut plugin, true);
+    frames(&mut world, &mut plugin, 60);
+    assert_eq!(recalls(&world), 0, "no recall in portal space");
+    death_teleport(&mut world, &mut plugin, false);
+    frames(&mut world, &mut plugin, 60);
+    assert_eq!(recalls(&world), 1, "the recall goes after the teleport");
+}
+
+#[test]
+fn a_death_teleport_alone_does_not_end_a_death_the_health_still_shows() {
+    let (mut world, mut plugin) = dead_by_the_clients_word_alone();
+    death_teleport(&mut world, &mut plugin, true);
+    frames(&mut world, &mut plugin, 20);
+    // Out of portal space, and the health has caught up with the death.
+    health(&mut world, 0);
+    death_teleport(&mut world, &mut plugin, false);
+    frames(&mut world, &mut plugin, 1);
+    // The health's death turned the route off; the meta turns it on again.
+    world.vt(&mut plugin, "opt set EnableNav true");
+    frames(&mut world, &mut plugin, 100);
+    assert_eq!(recalls(&world), 0, "no recall while the health is 0");
+
+    health(&mut world, 75);
     frames(&mut world, &mut plugin, 60);
     assert_eq!(recalls(&world), 1);
+}
+
+#[test]
+fn a_death_teleport_that_never_comes_is_said_once_and_still_holds() {
+    let (mut world, mut plugin) = dead_by_the_clients_word_alone();
+    let said = |world: &World| {
+        world
+            .chat()
+            .iter()
+            .filter(|line| line.contains("Death teleport never came"))
+            .count()
+    };
+
+    // 59 s: nothing said yet.
+    frames(&mut world, &mut plugin, 1180);
+    assert_eq!(said(&world), 0);
+    // Past 60 s: said once, in the chat and the log.
+    frames(&mut world, &mut plugin, 40);
+    assert_eq!(said(&world), 1);
+    assert!(
+        world
+            .logs(LogLevel::Warn)
+            .iter()
+            .any(|line| line.contains("the character is likely lost")),
+        "{:?}",
+        world.all_logs()
+    );
+    // Another minute: still held, said no more.
+    frames(&mut world, &mut plugin, 1200);
+    assert_eq!(said(&world), 1);
+    assert_eq!(recalls(&world), 0, "still held");
+}
+
+#[test]
+fn portal_space_without_a_death_holds_only_while_it_lasts() {
+    let mut world = World::with_character("Acdream");
+    stand(&mut world, false);
+    let mut plugin = world.enable();
+    world.with_tank(&mut plugin, |tank, client| {
+        tank.set_macro_running(client, true)
+    });
+    frames(&mut world, &mut plugin, 4);
+
+    death_teleport(&mut world, &mut plugin, true);
+    frames(&mut world, &mut plugin, 20);
+    death_teleport(&mut world, &mut plugin, false);
+    frames(&mut world, &mut plugin, 1);
+
+    let lines = plugin.tank().expect("enabled").action_history_lines();
+    let pauses: Vec<&String> = lines
+        .iter()
+        .filter(|line| line.contains("Pause: "))
+        .collect();
+    assert_eq!(pauses.len(), 2, "{pauses:?}");
+    assert!(
+        pauses[0].ends_with("Pause: the character is in portal space"),
+        "{pauses:?}"
+    );
+    assert!(pauses[1].ends_with("Pause: Resumed."), "{pauses:?}");
+}
+
+/// A meta whose death state says two lines and changes one option.
+const DEATH_LINES_META: &str = "STATE: {Default} ~~ {\r\n\tIF:\tDeath\r\n\t\tDO:\tDoAll\r\n\t\t\t\tChat {/say first}\r\n\t\t\t\tChat {/vt opt set EnableLooting true}\r\n\t\t\t\tChat {/say second}\r\n\t\t\t\tSetState {Dead}\r\n~~ }\r\nSTATE: {Dead} ~~ {\r\n\tIF:\tNever\r\n\t\tDO:\tNone\r\n~~ }\r\n";
+
+fn said_lines(world: &World) -> Vec<String> {
+    world
+        .requests::<calls::ChatSubmit>()
+        .into_iter()
+        .filter(|line| line.starts_with("/say "))
+        .collect()
+}
+
+/// The death meta loaded and on, the macro running, and the client's word
+/// of a death; the health (still 100) never shows it.
+fn dead_with_the_death_lines_meta() -> (World, MossTank) {
+    let mut world = World::with_character("Acdream");
+    stand(&mut world, false);
+    world
+        .profiles
+        .insert("mosstank/metas/Deaths.af", DEATH_LINES_META);
+    let mut plugin = world.enable();
+    world.vt(&mut plugin, "meta load Deaths");
+    world.vt(&mut plugin, "opt set EnableMeta true");
+    world.vt(&mut plugin, "opt set EnableLooting false");
+    world.with_tank(&mut plugin, |tank, client| {
+        tank.set_macro_running(client, true)
+    });
+    frames(&mut world, &mut plugin, 4);
+    world.send(&mut plugin, Event::LocalPlayerDied("You died!".to_owned()));
+    (world, plugin)
+}
+
+#[test]
+fn a_meta_chat_line_waits_for_the_hold_to_end_and_goes_in_order() {
+    let (mut world, mut plugin) = dead_with_the_death_lines_meta();
+    frames(&mut world, &mut plugin, 200);
+    // The meta ran: its state changed and its /vt line took, on time.
+    assert_eq!(plugin.tank().unwrap().meta_state(), "Dead");
+    assert_eq!(world.option_text(&mut plugin, "EnableLooting"), "True");
+    assert!(said_lines(&world).is_empty(), "{:?}", said_lines(&world));
+
+    death_teleport(&mut world, &mut plugin, true);
+    frames(&mut world, &mut plugin, 60);
+    assert!(said_lines(&world).is_empty(), "held in portal space");
+
+    death_teleport(&mut world, &mut plugin, false);
+    frames(&mut world, &mut plugin, 20);
+    assert_eq!(said_lines(&world), vec!["/say first", "/say second"]);
+}
+
+#[test]
+fn held_meta_lines_are_dropped_when_the_macro_stops() {
+    let (mut world, mut plugin) = dead_with_the_death_lines_meta();
+    frames(&mut world, &mut plugin, 40);
+    assert_eq!(plugin.tank().unwrap().meta_state(), "Dead");
+    world.with_tank(&mut plugin, |tank, client| {
+        tank.set_macro_running(client, false)
+    });
+    death_teleport(&mut world, &mut plugin, true);
+    frames(&mut world, &mut plugin, 20);
+    death_teleport(&mut world, &mut plugin, false);
+    frames(&mut world, &mut plugin, 4);
+    world.with_tank(&mut plugin, |tank, client| {
+        tank.set_macro_running(client, true)
+    });
+    frames(&mut world, &mut plugin, 20);
+    assert!(said_lines(&world).is_empty(), "{:?}", said_lines(&world));
 }
