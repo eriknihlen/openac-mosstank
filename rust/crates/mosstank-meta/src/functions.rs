@@ -1198,6 +1198,33 @@ enum VitalObjectRead {
 
 const ACTION_TRY_MOVE_PARAMETERS: &str = "actiontrymove[WorldObject, WorldObject, number, number]";
 
+/// What a function that makes the character act, or sends to the server,
+/// answers while the character can do nothing in the world (each its own
+/// answer for not having acted); `None` for any other function.
+fn refusal_while_held(name: &str) -> Option<ExpressionValue> {
+    Some(match name {
+        // Number answers: "not attempted" for a cast, nothing for the rest.
+        "actiontryselect"
+        | "actiontrysplit"
+        | "actiontrycastbyid"
+        | "actiontrycastbyidontarget" => ExpressionValue::zero(),
+        "actiontryuseitem"
+        | "actiontryapplyitem"
+        | "actiontrygiveitem"
+        | "actiontrydrop"
+        | "actiontrymove"
+        | "actiontryequipanywand"
+        | "setcombatstate"
+        | "setmotion"
+        | "clearmotion"
+        | "wobjectrequestdata"
+        | "ustadd"
+        | "ustopen"
+        | "ustsalvage" => boolean(false),
+        _ => return None,
+    })
+}
+
 /// Runs the host function `name`; `None` for a name that is not one.
 #[allow(clippy::too_many_lines)]
 pub(crate) fn call(
@@ -1206,6 +1233,11 @@ pub(crate) fn call(
     context: &mut EvaluationContext<'_>,
     args: &[ExpressionValue],
 ) -> Option<Result<ExpressionValue>> {
+    if let Some(refused) = refusal_while_held(name)
+        && call.services.world_held()
+    {
+        return Some(Ok(refused));
+    }
     Some(match name {
         // ---- the character ----
         "getworldname" => Ok(ExpressionValue::string(&call.character().world)),

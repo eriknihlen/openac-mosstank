@@ -106,6 +106,16 @@ pub trait MetaServices {
         true
     }
 
+    /// Whether the character can do nothing in the world now (dead, or in
+    /// portal space) while the macro runs: an expression function that
+    /// would make it act or send to the server answers as refused.
+    fn world_held(&mut self) -> bool {
+        false
+    }
+
+    /// The engine took another profile.
+    fn profile_replaced(&mut self) {}
+
     /// Told when the meta changes state: the line the C# announces
     /// ("Meta state: A -> B.") and the new state.
     fn state_changed(&mut self, host: &mut dyn MetaHost, message: &str, state: &str) {

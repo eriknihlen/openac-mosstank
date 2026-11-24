@@ -164,14 +164,10 @@ impl Tank {
         cx.observe_command_portal_state();
         // The UB commands' delayed lines and the dialog watch.
         cx.with_ub(|commands, call| commands.tick_early(call, elapsed_seconds));
-        let macro_running = cx.core.combat.enabled();
         let character = cx.client.rules().character();
         let dead = character.health.1 > 0 && character.health.0 == 0;
         if dead && !cx.core.was_dead_for_macro {
-            cx.handle_death(macro_running);
-            cx.core
-                .death_hold
-                .get_or_insert_with(super::death_hold::DeathHold::begin);
+            cx.begin_death();
         }
         cx.core.was_dead_for_macro = dead;
         // From a death until the server has carried it out, and in portal
@@ -427,7 +423,8 @@ impl TankCx<'_> {
         // A death the gone character's health never showed holds nobody
         // else, and the meta lines it held go with it (register MACRO-1).
         self.core.death_hold = None;
-        self.core.held_meta_lines.clear();
+        self.core.last_portal_generation = 0;
+        self.core.drop_held_meta_lines("the session ended");
         self.core.world_hold = None;
         self.core.combat.set_world_hold(false);
         "Lost the session.".clone_into(&mut self.core.status);
@@ -604,26 +601,42 @@ impl TankCx<'_> {
         Core::announce(self.client, DEATH_RESTORED_NOTICE);
     }
 
+    /// A death, on the client's word of it or the health at 0, whichever
+    /// comes first: it is held (register MACRO-1) and handled once.
+    pub(crate) fn begin_death(&mut self) {
+        if self.core.death_hold.is_some() {
+            return;
+        }
+        let portal_space = self.client.rules().navigation_snapshot().is_portal_space;
+        self.core.death_hold = Some(super::death_hold::DeathHold::begin(
+            self.core.last_portal_generation,
+            portal_space,
+        ));
+        let macro_running = self.core.combat.enabled();
+        self.handle_death(macro_running);
+    }
+
     /// The meta's chat lines held while the character could do nothing in
     /// the world (register MACRO-1): once the hold is over they are sent in
     /// order, each as the meta sends a line (its UB verb run before the
-    /// next line goes). They are dropped when the macro or the meta stopped
-    /// or another meta was loaded since they were held.
+    /// next line goes). They are dropped when the macro or the meta stops
+    /// (another meta's load drops them as it happens).
     fn release_held_meta_lines(&mut self) {
         if self.core.held_meta_lines.is_empty() {
             return;
         }
-        if !self.core.combat.enabled()
-            || !self.meta.enabled()
-            || self.meta.profile_generation() != self.core.held_meta_generation
-        {
-            self.core.held_meta_lines.clear();
+        if !self.core.combat.enabled() {
+            self.core.drop_held_meta_lines("the macro stopped");
+            return;
+        }
+        if !self.meta.enabled() {
+            self.core.drop_held_meta_lines("the meta stopped");
             return;
         }
         if self.core.world_hold.is_some() {
             return;
         }
-        let lines = std::mem::take(&mut self.core.held_meta_lines);
+        let lines = self.core.held_meta_lines.take();
         self.with_engine(|engine, host, services| {
             for line in &lines {
                 if let Some(profile) = services.submit_chat(host, line) {

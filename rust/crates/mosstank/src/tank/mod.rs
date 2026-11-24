@@ -20,6 +20,7 @@ mod death_hold;
 mod diagnostics;
 mod display;
 mod frame;
+mod held_lines;
 pub(crate) mod mag;
 mod meta_windows;
 mod nav_lines;
@@ -292,10 +293,10 @@ pub struct Core {
     pub(crate) death_hold: Option<death_hold::DeathHold>,
     /// The meta's chat lines held while the character can do nothing in
     /// the world, sent in order once it can (register MACRO-1).
-    pub(crate) held_meta_lines: Vec<String>,
-    /// The meta profile generation the held lines were held under: a meta
-    /// loaded after them drops them.
-    pub(crate) held_meta_generation: u64,
+    pub(crate) held_meta_lines: held_lines::HeldMetaLines,
+    /// The newest portal or login transition generation the client has
+    /// reported this session (a death teleport is a newer one).
+    pub(crate) last_portal_generation: i64,
     pub(crate) automation_was_available: bool,
     pub(crate) prologue_owns_action: bool,
     /// The last frame did a frame's worth of once-only work (the name tags'
@@ -834,8 +835,8 @@ impl Tank {
             was_dead_for_macro: false,
             world_hold: None,
             death_hold: None,
-            held_meta_lines: Vec::new(),
-            held_meta_generation: 0,
+            held_meta_lines: held_lines::HeldMetaLines::default(),
+            last_portal_generation: 0,
             automation_was_available: false,
             prologue_owns_action: false,
             heavy_frame: false,
@@ -1301,21 +1302,23 @@ impl Tank {
                 cx.with_engine(|engine, host, services| engine.on_logoff(host, services));
             }
             Event::LocalPlayerDied(message) => {
-                // The death holds the macro from the client's word on, in
-                // case the health that shows it comes later or never.
-                cx.core
-                    .death_hold
-                    .get_or_insert_with(death_hold::DeathHold::begin);
+                // The death holds the macro, and the macro reacts to it, from
+                // the client's word on, in case the health that shows it
+                // comes later or never (as the reference reacts to the word).
+                cx.begin_death();
                 cx.meta.on_local_player_died(message);
             }
             Event::PortalTransition(transition) => {
                 // The route hears the teleport too: a recall waypoint is done
                 // by it.
                 cx.core.navigation.on_portal_transition(transition);
-                // A held death waits for the death teleport.
+                // A held death waits for the death teleport, one newer than
+                // the death.
                 if let Some(death) = cx.core.death_hold.as_mut() {
                     death.on_portal_transition(transition);
                 }
+                cx.core.last_portal_generation =
+                    cx.core.last_portal_generation.max(transition.generation);
                 // Entering portal space ends a portal command's use.
                 cx.with_ub(|commands, call| commands.on_portal_transition(call, transition));
                 cx.meta.on_portal_transition(transition);
