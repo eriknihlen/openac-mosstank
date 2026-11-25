@@ -977,7 +977,19 @@ impl TankCx<'_> {
         };
         let combat = &self.core.settings.combat;
         let already = if consumable {
-            combat.consumable_names.contains(item.name.as_str())
+            // The page lists the profile's gems and food too; a name already
+            // there, in any case, would only be listed twice.
+            let listed = |name: &String| {
+                mosstank_dotnet::text::ordinal::equals_ignore_case(name, &item.name)
+            };
+            combat.consumable_names.iter().any(listed)
+                || self
+                    .core
+                    .settings
+                    .buffs
+                    .gem_food_items
+                    .iter()
+                    .any(|entry| listed(&entry.name))
         } else {
             combat.combat_item_object_ids.contains(&item.object_id)
         };
