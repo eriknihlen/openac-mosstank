@@ -656,8 +656,23 @@ impl MetaServices for TankServices<'_, '_> {
     /// A meta's chat line: a meta load runs there and then (register
     /// META-2); any other `/vt` line, and a `/ub` line, waits for the engine
     /// to lend itself (register META-9); anything else goes to the client.
+    /// While the character can do nothing in the world, every line that
+    /// could act for it is held and sent once it can (register MACRO-1): a
+    /// `/ub` line that may start a tool, and any line that reaches the
+    /// server. A `/vt` line and a `/ub` line that only changes MossTank
+    /// itself (its options, an expression, a delay) run at once. With the
+    /// macro off (the meta does not run then) a line goes at once.
     fn submit_chat(&mut self, _host: &mut dyn MetaHost, line: &str) -> Option<MetaProfile> {
-        if let Some((_, verb, arguments)) = ac_plugin_abi::verbs::split_command_line(line) {
+        let split = ac_plugin_abi::verbs::split_command_line(line);
+        let local = split.as_ref().is_some_and(|(_, verb, arguments)| {
+            verb.eq_ignore_ascii_case(commands::VTANK_VERB)
+                || (verb.eq_ignore_ascii_case(commands::UB_VERB)
+                    && mosstank_ub::commands::is_local_line(arguments))
+        });
+        if !local && self.core.0.borrow_mut().hold_meta_line(line) {
+            return None;
+        }
+        if let Some((_, verb, arguments)) = split {
             if verb.eq_ignore_ascii_case(commands::VTANK_VERB) {
                 if let Some((name, af)) = commands::meta_load_request(arguments) {
                     let mut client = self.client.0.borrow_mut();
@@ -811,6 +826,16 @@ impl MetaServices for TankServices<'_, '_> {
             self.meta_enabled = value.is_truthy();
         }
         Ok(written)
+    }
+
+    /// Register MACRO-1.
+    fn world_held(&mut self) -> bool {
+        self.core.0.borrow().meta_world_held().is_some()
+    }
+
+    /// The old meta's held lines go (register MACRO-1).
+    fn profile_replaced(&mut self) {
+        self.core.0.borrow_mut().meta_replaced();
     }
 
     /// The UB settings page's switch for the event handlers.
@@ -1003,6 +1028,7 @@ impl TankCx<'_> {
         f: impl FnOnce(&mut MetaEngine, &mut dyn MetaHost, &mut dyn MetaServices) -> R,
     ) -> R {
         let meta_enabled = self.meta.enabled();
+        self.core.held_meta_lines.open_call();
         let (result, requests) = {
             let cell = ClientCell(RefCell::new(&mut *self.client));
             let core = CoreCell(RefCell::new(&mut *self.core));

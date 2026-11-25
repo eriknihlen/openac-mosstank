@@ -618,6 +618,10 @@ impl UbServices for ShellUbServices<'_, '_> {
     fn plugin_version(&self) -> String {
         crate::VERSION.to_owned()
     }
+    /// Register MACRO-1.
+    fn world_held(&mut self) -> bool {
+        self.core.0.borrow().meta_world_held().is_some()
+    }
 
     fn now_utc_ms(&mut self) -> i64 {
         self.client.0.borrow_mut().clock().utc_unix_ms
@@ -859,6 +863,7 @@ impl TankCx<'_> {
         f: impl FnOnce(&mut UbCommands, &mut UbCall<'_>) -> R,
     ) -> R {
         let meta_enabled = self.meta.enabled();
+        self.core.held_meta_lines.open_call();
         let locks = self.core.locks.clone();
         let reader = self.ub.reader.clone();
         let (result, requests, meta_written) = {

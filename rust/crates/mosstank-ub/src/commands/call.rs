@@ -25,6 +25,12 @@ use crate::host::UbHost;
 pub trait UbServices {
     /// The plugin's version, for the compatibility line.
     fn plugin_version(&self) -> String;
+    /// Whether the character can do nothing in the world now (dead, or in
+    /// portal space) while the macro runs: a delayed line that comes due
+    /// waits until it can.
+    fn world_held(&mut self) -> bool {
+        false
+    }
     /// Wall time, Unix milliseconds.
     fn now_utc_ms(&mut self) -> i64;
     /// The local offset from UTC, minutes.

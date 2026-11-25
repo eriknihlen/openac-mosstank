@@ -317,6 +317,7 @@ impl Core {
         profile: MetaProfile,
     ) {
         self.set_profile(profile);
+        services.profile_replaced();
         self.transition(host, services, DEFAULT_STATE);
         // A load from one of the old profile's own actions ends that pass.
         self.profile_just_loaded = true;

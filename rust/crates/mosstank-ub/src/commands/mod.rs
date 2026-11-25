@@ -44,6 +44,32 @@ use crate::tools::looter::{self, ChestLooter};
 pub const UNKNOWN_UB_COMMAND: &str =
     "[UB] Error: Command not found! Type \"ub help\" for a list of commands.";
 
+/// The `/ub` words that only change or read the plugin itself: options,
+/// expressions (whose functions that act, and whose chat lines, are
+/// gated on their own), a delay (whose line is gated when it comes due),
+/// variable lists and help. MossTank runs them at once while it holds the
+/// rest for a character that can do nothing in the world (its register
+/// MACRO-1).
+const LOCAL_WORDS: [&str; 8] = [
+    "opt",
+    "mexec",
+    "mexecm",
+    "delay",
+    "listvars",
+    "listpvars",
+    "listgvars",
+    "help",
+];
+
+/// Whether a line typed under `/ub` (`arguments`, without the `/ub`) only
+/// changes or reads the plugin itself.
+#[must_use]
+pub fn is_local_line(arguments: &str) -> bool {
+    let (typed, _) = split_head(arguments);
+    let verb = casing::to_lower_invariant(&typed);
+    LOCAL_WORDS.contains(&verb.as_str())
+}
+
 /// The default format a bare date command prints in.
 const DEFAULT_DATE_FORMAT: &str = "dddd dd MMMM HH:mm:ss";
 
@@ -578,12 +604,16 @@ impl UbCommands {
             return;
         }
         let step = elapsed_seconds.max(0.0);
+        // While the character can do nothing in the world the lines that
+        // come due wait, in their order, until it can (MossTank's register
+        // MACRO-1).
+        let held = call.services.world_held();
         let mut due = Vec::new();
         let mut index = self.delayed.len();
         while index > 0 {
             index -= 1;
             self.delayed[index].remaining_seconds -= step;
-            if self.delayed[index].remaining_seconds > 0.0 {
+            if held || self.delayed[index].remaining_seconds > 0.0 {
                 continue;
             }
             due.push(self.delayed.remove(index));
