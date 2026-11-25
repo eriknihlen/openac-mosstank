@@ -5,7 +5,7 @@
 //! it in flight. The recharge boost reads a vital as worse off than it is
 //! for a while after a recharge was asked for, so it is carried through.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use ac_plugin_abi::combat::CombatMode;
 use ac_plugin_abi::magic::CastGate;
@@ -40,6 +40,74 @@ const RETRY_AFTER_REFUSAL_SECONDS: f64 = 3.0;
 
 /// The status while the character is dead.
 const DEAD_STATUS: &str = "Dead";
+
+/// How long the helper keeps the pass on its turns without progress (no
+/// cast or use answered, whoever it tries), seconds, before it stops
+/// helping anyone for a while. MossTank's own margin, not a game value: a
+/// stance change or a wand swap is done in a few seconds.
+const HELPER_STALL_SECONDS: f64 = 10.0;
+
+/// How long the helper keeps trying one member and vital that the client
+/// refuses it (the cast or the use at that member), seconds, before it
+/// leaves that member alone and tries another. MossTank's own margin, not a
+/// game value; shorter than [`HELPER_STALL_SECONDS`], so the next member
+/// gets a turn before the helper as a whole gives up.
+const HELPER_TARGET_STALL_SECONDS: f64 = 5.0;
+
+/// How long the helper then leaves that member, or helping as a whole,
+/// alone, seconds. MossTank's own margin, not a game value.
+const HELPER_STEP_ASIDE_SECONDS: f64 = 60.0;
+
+/// A wait longer than this between two helper turns, seconds, means the
+/// helper did not have the pass meanwhile: its count of turns without
+/// progress starts again. MossTank's own margin (the macro passes every
+/// 0.3 s or so).
+const HELPER_TURN_GAP_SECONDS: f64 = 2.0;
+
+/// The reference's wait after a cast at a network peer that is not a
+/// fellow before the same vital is cast at that peer again, seconds.
+const PEER_RECAST_SECONDS: f64 = 5.0;
+
+/// The reference's time after which a player outside the fellowship is
+/// forgotten, seconds: here, once the network has not listed it for that
+/// long.
+const PEER_FORGET_SECONDS: f64 = 120.0;
+
+/// A network peer's reported vitals as the helper last read them. The
+/// client stamps no time on a peer's record, so its vitals count as
+/// arrived when they change (or when the peer is first listed).
+#[derive(Debug, Clone)]
+struct PeerSighting {
+    vitals: [u32; 6],
+    arrived_at: f64,
+    listed_at: f64,
+}
+
+/// A member the helper leaves alone for one vital, for a while.
+#[derive(Debug, Clone)]
+struct HelperHold {
+    target: u32,
+    vital: VitalKind,
+    remaining: f64,
+}
+
+/// The helper's run of turns without progress, whoever it tried.
+#[derive(Debug, Clone)]
+struct HelperStall {
+    seconds: f64,
+    reason: String,
+    /// Whether the last turn's cause was the member (the client refusing
+    /// the cast or the use at it) rather than the character.
+    targeted: bool,
+}
+
+/// The helper's run of turns refused at one member and vital.
+#[derive(Debug, Clone)]
+struct TargetStall {
+    target: u32,
+    vital: VitalKind,
+    seconds: f64,
+}
 
 /// The cast tracker as the rules share it.
 pub use mosstank_automation::cast_tracker::SharedCastTracker;
@@ -83,6 +151,12 @@ pub struct VitalRechargeController {
     action_locks: SharedActionLocks,
     pending_hold_until: f64,
     frame_observed_seconds: f64,
+    helper_holds: Vec<HelperHold>,
+    helper_stall: Option<HelperStall>,
+    target_stall: Option<TargetStall>,
+    /// Seconds left of the helper's rest from helping anyone.
+    helper_rest: f64,
+    peer_sightings: HashMap<u32, PeerSighting>,
 }
 
 impl Default for VitalRechargeController {
@@ -112,6 +186,11 @@ impl VitalRechargeController {
             action_locks: ActionLockTable::shared(),
             pending_hold_until: 0.0,
             frame_observed_seconds: 0.0,
+            helper_holds: Vec::new(),
+            helper_stall: None,
+            target_stall: None,
+            helper_rest: 0.0,
+            peer_sightings: HashMap::new(),
         }
     }
 
@@ -211,7 +290,13 @@ impl VitalRechargeController {
         self.health_boost_remaining = (self.health_boost_remaining - elapsed).max(0.0);
         self.stamina_boost_remaining = (self.stamina_boost_remaining - elapsed).max(0.0);
         self.mana_boost_remaining = (self.mana_boost_remaining - elapsed).max(0.0);
+        for hold in &mut self.helper_holds {
+            hold.remaining -= elapsed;
+        }
+        self.helper_holds.retain(|hold| hold.remaining > 0.0);
+        self.helper_rest = (self.helper_rest - elapsed).max(0.0);
         if !turn.settings.enabled || !turn.automation.is_available() {
+            self.forget_stalls();
             self.release_item_use();
             self.pending = None;
             self.frame_observed_seconds = 0.0;
@@ -224,6 +309,7 @@ impl VitalRechargeController {
         // waited on until the respawn gives it health again.
         let (health, max_health, _) = turn.automation.character().health;
         if max_health > 0 && health == 0 {
+            self.forget_stalls();
             self.release_item_use();
             self.pending = None;
             self.pending_seconds = 0.0;
@@ -273,6 +359,12 @@ impl VitalRechargeController {
         }
         let mut helper = None;
         if need.is_none() {
+            if self.helper_rest > 0.0 {
+                // Resting after turns that got nothing done (see
+                // `helper_waits`).
+                "Not helping for a while".clone_into(&mut self.status);
+                return false;
+            }
             // The reference gates both helper rows on the item-use slot,
             // the slot a kit or a heart holds while its animation runs.
             if !self
@@ -285,6 +377,7 @@ impl VitalRechargeController {
                 self.last_helper_decision = Some(HelperDecision::ItemSlotBusy);
             }
             if helper.is_none() {
+                self.forget_stalls();
                 "Vitals ready".clone_into(&mut self.status);
                 return false;
             }
@@ -299,12 +392,17 @@ impl VitalRechargeController {
         // The rule is valid whenever a vital is below its threshold,
         // whatever it then finds to use: a vital it has no answer for holds
         // the pass. The retry delay only paces how often a plan is looked
-        // for again.
+        // for again. The helper alone gives up on a member it makes no
+        // progress with (see `helper_waits`).
         if self.retry_delay > 0.0 {
             "Waiting to retry".clone_into(&mut self.status);
+            if let Some(choice) = &helper {
+                return self.helper_waits(turn.automation, choice, elapsed, None, None);
+            }
             return true;
         }
 
+        let helping = need.is_none();
         let choice = match (need, helper) {
             (None, Some(helper)) => helper,
             (Some(need), _) => match self.plan_self(turn, need) {
@@ -336,6 +434,17 @@ impl VitalRechargeController {
             if !gate.try_prepare(&mut gate_turn, request, None) {
                 self.arm_boost(turn.settings, choice.vital);
                 gate.status().clone_into(&mut self.status);
+                drop(gate);
+                if helping {
+                    let reason = format!("waiting for Magic mode: {}", self.status);
+                    return self.helper_waits(
+                        turn.automation,
+                        &choice,
+                        elapsed,
+                        Some(reason),
+                        Some(false),
+                    );
+                }
                 return true;
             }
         }
@@ -352,6 +461,21 @@ impl VitalRechargeController {
             } else {
                 format!("Waiting for {required:?}: {}", choice.name)
             };
+            if helping {
+                let asked = if mode.accepted() {
+                    "asked for, not entered"
+                } else {
+                    "the request is refused"
+                };
+                let reason = format!("waiting for {required:?} mode ({asked})");
+                return self.helper_waits(
+                    turn.automation,
+                    &choice,
+                    elapsed,
+                    Some(reason),
+                    Some(false),
+                );
+            }
             return true;
         }
 
@@ -360,10 +484,29 @@ impl VitalRechargeController {
         } else {
             turn.automation.last_item_completion().revision
         };
-        if !self.start(turn.automation, &choice) {
+        if let Err(refusal) = self.start(turn.automation, &choice) {
             self.status = format!("Waiting to use {}", choice.name);
             self.retry_delay = 0.25;
+            if helping {
+                return self.helper_waits(
+                    turn.automation,
+                    &choice,
+                    elapsed,
+                    Some(refusal.reason),
+                    Some(refusal.at_target),
+                );
+            }
             return true;
+        }
+        if helping && !is_fellow(turn.automation, choice.target_object_id) {
+            // The reference's wait before the same vital is cast at a
+            // network peer again: a peer's reported vitals may lag the
+            // heal, and the pass is not held for them meanwhile.
+            self.helper_holds.push(HelperHold {
+                target: choice.target_object_id,
+                vital: choice.vital,
+                remaining: PEER_RECAST_SECONDS,
+            });
         }
         if choice.uses_item() {
             // An item is in the character's hands until the server answers
@@ -397,6 +540,139 @@ impl VitalRechargeController {
         true
     }
 
+    /// A helper turn that got nothing done on `choice`: true while the
+    /// helper may go on holding the pass. Only turns in a row count: the
+    /// first counts as nothing, and a wait between two turns longer than
+    /// [`HELPER_TURN_GAP_SECONDS`] (the helper did not have the pass
+    /// meanwhile) starts the count again. Refused at that member
+    /// (`at_target`) for [`HELPER_TARGET_STALL_SECONDS`], the helper leaves
+    /// that member alone for that vital; with no progress at all for
+    /// [`HELPER_STALL_SECONDS`], whoever it tried, it stops helping anyone.
+    /// Either lasts [`HELPER_STEP_ASIDE_SECONDS`], is said once, and gives
+    /// the pass up, so the rules below it (the route among them) run.
+    /// `reason` and `at_target` are this turn's cause, `None` to keep the
+    /// last one's.
+    fn helper_waits(
+        &mut self,
+        automation: &mut dyn Automation,
+        choice: &VitalRechargeChoice,
+        elapsed: f64,
+        reason: Option<String>,
+        at_target: Option<bool>,
+    ) -> bool {
+        let counted = if elapsed > HELPER_TURN_GAP_SECONDS {
+            None
+        } else {
+            Some(elapsed)
+        };
+        let stall = match (self.helper_stall.as_mut(), counted) {
+            (Some(stall), Some(seconds)) => {
+                stall.seconds += seconds;
+                stall
+            }
+            (stall, _) => {
+                let targeted = stall.is_some_and(|stall| stall.targeted);
+                self.helper_stall.insert(HelperStall {
+                    seconds: 0.0,
+                    reason: String::new(),
+                    targeted,
+                })
+            }
+        };
+        if let Some(reason) = reason {
+            stall.reason = reason;
+        }
+        if let Some(at_target) = at_target {
+            stall.targeted = at_target;
+        }
+        let targeted = stall.targeted;
+        let stalled = stall.seconds >= HELPER_STALL_SECONDS;
+
+        let target_stalled = if targeted {
+            let same = self.target_stall.as_ref().is_some_and(|pair| {
+                pair.target == choice.target_object_id && pair.vital == choice.vital
+            });
+            match (self.target_stall.as_mut(), counted) {
+                (Some(pair), Some(seconds)) if same => pair.seconds += seconds,
+                _ => {
+                    self.target_stall = Some(TargetStall {
+                        target: choice.target_object_id,
+                        vital: choice.vital,
+                        seconds: 0.0,
+                    });
+                }
+            }
+            self.target_stall
+                .as_ref()
+                .is_some_and(|pair| pair.seconds >= HELPER_TARGET_STALL_SECONDS)
+        } else {
+            self.target_stall = None;
+            false
+        };
+        if !stalled && !target_stalled {
+            return true;
+        }
+
+        let reason = self
+            .helper_stall
+            .as_mut()
+            .map(|stall| std::mem::take(&mut stall.reason))
+            .filter(|reason| !reason.is_empty())
+            .unwrap_or_else(|| format!("nothing could be started with {}", choice.name));
+        let name = self.helper_target_name(automation, choice);
+        if targeted {
+            self.target_stall = None;
+            self.hold_member(choice, HELPER_STEP_ASIDE_SECONDS);
+        }
+        let leaving = if stalled {
+            self.helper_stall = None;
+            self.helper_rest = HELPER_STEP_ASIDE_SECONDS;
+            self.status = "Not helping for a while".to_owned();
+            "not helping anyone"
+        } else {
+            self.status = format!("Leaving {name} alone for a while");
+            "leaving it alone"
+        };
+        automation.log_info(&format!(
+            "helper: can't heal {name}: {reason}; {leaving} for {HELPER_STEP_ASIDE_SECONDS:.0} s"
+        ));
+        self.last_helper_decision = Some(HelperDecision::SteppedAside { name });
+        false
+    }
+
+    /// Leaves `choice`'s member alone for its vital for `seconds`.
+    fn hold_member(&mut self, choice: &VitalRechargeChoice, seconds: f64) {
+        self.helper_holds.push(HelperHold {
+            target: choice.target_object_id,
+            vital: choice.vital,
+            remaining: seconds,
+        });
+    }
+
+    /// The helper's counts of turns without progress start again.
+    fn forget_stalls(&mut self) {
+        self.helper_stall = None;
+        self.target_stall = None;
+    }
+    /// The name the helper's last decision gave `choice`'s member, else the
+    /// world's, else its id.
+    fn helper_target_name(
+        &self,
+        automation: &mut dyn Automation,
+        choice: &VitalRechargeChoice,
+    ) -> String {
+        if let Some(HelperDecision::Helping { target, vital, .. }) = &self.last_helper_decision
+            && *vital == choice.vital
+        {
+            return target.clone();
+        }
+        automation
+            .object(choice.target_object_id)
+            .map(|object| object.name)
+            .filter(|name| !name.is_empty())
+            .unwrap_or_else(|| format!("0x{:08X}", choice.target_object_id))
+    }
+
     /// The self plan, its trace (paced to one every five seconds) logged.
     fn plan_self(
         &mut self,
@@ -423,8 +699,31 @@ impl VitalRechargeController {
     fn plan_helper(&mut self, turn: &mut VitalTurn<'_>) -> Option<VitalRechargeChoice> {
         let mut traced: Vec<String> = Vec::new();
         let mut sink = |line: &str| traced.push(line.to_owned());
-        let (choice, decision) =
-            recharge::plan_helper(turn.automation, turn.settings, turn.combat, Some(&mut sink));
+        let now = self.action_locks.borrow().now();
+        self.observe_peers(turn, now);
+        let holds = &self.helper_holds;
+        let excluded = |target: u32, vital: VitalKind| {
+            holds
+                .iter()
+                .any(|hold| hold.target == target && hold.vital == vital)
+        };
+        let sightings = &self.peer_sightings;
+        let peer_vitals_age = |player_id: u32| {
+            sightings
+                .get(&player_id)
+                .map(|sighting| (now - sighting.arrived_at).max(0.0))
+        };
+        let filters = recharge::HelperFilters {
+            excluded: &excluded,
+            peer_vitals_age: &peer_vitals_age,
+        };
+        let (choice, decision) = recharge::plan_helper_with(
+            turn.automation,
+            turn.settings,
+            turn.combat,
+            &filters,
+            Some(&mut sink),
+        );
         self.last_helper_decision = Some(decision);
         for line in traced {
             if self.helper_trace_lines.insert(line.clone()) {
@@ -432,6 +731,42 @@ impl VitalRechargeController {
             }
         }
         choice
+    }
+
+    /// Reads the network peers' records at `now`: a peer's vitals arrive
+    /// when they differ from the last reading (or it is listed for the
+    /// first time), and a peer the network has not listed for
+    /// [`PEER_FORGET_SECONDS`] is forgotten.
+    fn observe_peers(&mut self, turn: &mut VitalTurn<'_>, now: f64) {
+        if !turn.settings.help_network_peers || !turn.automation.network_available() {
+            self.peer_sightings.clear();
+            return;
+        }
+        for peer in recharge::listed_peers(turn.automation) {
+            let vitals = [
+                peer.current_health,
+                peer.max_health,
+                peer.current_stamina,
+                peer.max_stamina,
+                peer.current_mana,
+                peer.max_mana,
+            ];
+            let sighting = self
+                .peer_sightings
+                .entry(peer.player_id)
+                .or_insert(PeerSighting {
+                    vitals,
+                    arrived_at: now,
+                    listed_at: now,
+                });
+            if sighting.vitals != vitals {
+                sighting.vitals = vitals;
+                sighting.arrived_at = now;
+            }
+            sighting.listed_at = now;
+        }
+        self.peer_sightings
+            .retain(|_, sighting| now - sighting.listed_at <= PEER_FORGET_SECONDS);
     }
 
     /// Drops everything: the use in flight (and its slot), the delays, the
@@ -447,6 +782,10 @@ impl VitalRechargeController {
         // The host drops its subscription with the session; only the
         // plugin-side memory of it is stale here.
         self.vitals_requested = false;
+        self.helper_holds.clear();
+        self.forget_stalls();
+        self.helper_rest = 0.0;
+        self.peer_sightings.clear();
         self.helper_trace_lines.clear();
         self.last_helper_decision = None;
         IDLE_STATUS.clone_into(&mut self.status);
@@ -497,23 +836,42 @@ impl VitalRechargeController {
         ordinal::equals_ignore_case(&choice.name, name)
     }
 
-    fn start(&mut self, automation: &mut dyn Automation, choice: &VitalRechargeChoice) -> bool {
+    /// Starts the use or the cast; why not when it cannot.
+    fn start(
+        &mut self,
+        automation: &mut dyn Automation,
+        choice: &VitalRechargeChoice,
+    ) -> Result<(), StartRefusal> {
+        let at_target = choice.target_object_id != 0;
         if choice.source_kind == VitalRechargeSourceKind::LearnedSpell {
             if let Some(tracker) = &self.cast_tracker {
                 let tracker = tracker.borrow();
                 if tracker.is_busy() {
-                    return false;
+                    return Err(StartRefusal::own("another cast is in flight".to_owned()));
                 }
                 let Some(candidate) = automation.spells().try_get(choice.spell_id) else {
-                    return false;
+                    return Err(StartRefusal::own(format!(
+                        "{} is not in the spell table",
+                        choice.name
+                    )));
                 };
                 if tracker.is_school_locked_out(candidate.school) {
-                    return false;
+                    return Err(StartRefusal::own(format!(
+                        "{}'s school is locked out for now",
+                        choice.name
+                    )));
                 }
             }
-            let target = (choice.target_object_id != 0).then_some(choice.target_object_id);
-            let started = automation.evaluate_gate(choice.spell_id, target) == CastGate::Ready
-                && automation.cast(choice.spell_id, target);
+            let target = at_target.then_some(choice.target_object_id);
+            let gate = automation.evaluate_gate(choice.spell_id, target);
+            if gate != CastGate::Ready {
+                let at = if at_target { " at that target" } else { "" };
+                return Err(StartRefusal {
+                    reason: format!("the client refuses {}{at} ({gate:?})", choice.name),
+                    at_target,
+                });
+            }
+            let started = automation.cast(choice.spell_id, target);
             if started
                 && let Some(tracker) = &self.cast_tracker
                 && let Some(spell) = automation.spells().try_get(choice.spell_id)
@@ -543,7 +901,14 @@ impl VitalRechargeController {
                     )
                 });
             }
-            return started;
+            return if started {
+                Ok(())
+            } else {
+                Err(StartRefusal {
+                    reason: format!("the client did not send {}", choice.name),
+                    at_target,
+                })
+            };
         }
 
         let result = if choice.source_kind == VitalRechargeSourceKind::Food {
@@ -556,7 +921,17 @@ impl VitalRechargeController {
             };
             automation.apply_item(choice.item_object_id, target)
         };
-        result.accepted()
+        if result.accepted() {
+            Ok(())
+        } else {
+            Err(StartRefusal {
+                reason: format!(
+                    "the use of {} is refused ({:?})",
+                    choice.name, result.status
+                ),
+                at_target,
+            })
+        }
     }
 
     /// Reads the server's answer to what this controller started, on the
@@ -591,6 +966,11 @@ impl VitalRechargeController {
                 self.clear_boost(vital);
             }
             let refused = self.pending.as_ref().is_some_and(|p| p.refused);
+            if !refused {
+                // A clean answer is progress: the helper's counts of turns
+                // without it start again.
+                self.forget_stalls();
+            }
             self.release_item_use();
             self.pending = None;
             self.pending_seconds = 0.0;
@@ -610,6 +990,19 @@ impl VitalRechargeController {
             .map(|p| p.choice.name.clone())
             .unwrap_or_default();
         self.status = format!("Timed out: {name}");
+        // A helper cast or use nobody answered: that member is left alone
+        // for that vital rather than tried again and again.
+        if let Some(waiting) = self.pending.as_ref().map(|p| p.choice.clone())
+            && waiting.target_object_id != 0
+        {
+            let member = self.helper_target_name(turn.automation, &waiting);
+            self.hold_member(&waiting, HELPER_STEP_ASIDE_SECONDS);
+            self.target_stall = None;
+            turn.automation.log_info(&format!(
+                "helper: can't heal {member}: {name} was never answered; leaving it alone for {HELPER_STEP_ASIDE_SECONDS:.0} s"
+            ));
+            self.last_helper_decision = Some(HelperDecision::SteppedAside { name: member });
+        }
         self.release_item_use();
         self.pending = None;
         self.pending_seconds = 0.0;
@@ -644,5 +1037,32 @@ impl VitalRechargeController {
         }
         pending.refused = used.weenie_error != 0;
         true
+    }
+}
+
+/// Whether `target` is a fellow the client sees (not only a network peer).
+fn is_fellow(automation: &mut dyn Automation, target: u32) -> bool {
+    automation
+        .fellowship_members()
+        .iter()
+        .any(|fellow| fellow.object_id == target)
+}
+
+/// Why a use or a cast could not be started.
+#[derive(Debug)]
+struct StartRefusal {
+    reason: String,
+    /// The client refused it at the member (not for the character's own
+    /// reasons).
+    at_target: bool,
+}
+
+impl StartRefusal {
+    /// A refusal for the character's own reasons.
+    fn own(reason: String) -> Self {
+        Self {
+            reason,
+            at_target: false,
+        }
     }
 }

@@ -13,6 +13,7 @@ use ac_plugin_abi::character::Training;
 use ac_plugin_abi::combat::CombatMode;
 use ac_plugin_abi::items::InventoryItem;
 use ac_plugin_abi::magic::SpellInfo;
+use ac_plugin_abi::peers::NetworkClient;
 use ac_plugin_abi::social::FellowMember;
 use ac_plugin_abi::world::Position;
 use mosstank_automation::Automation;
@@ -37,8 +38,8 @@ const LIFE_MAGIC_SKILL: u32 = 33;
 const ARCANE_LORE_SKILL: u32 = 14;
 
 /// A fellow's vitals are trusted this long after the server last streamed
-/// them, seconds; older samples (or none) mean "unknown", never "still
-/// low".
+/// them, and a network peer's after they last arrived, seconds; older
+/// samples (or none) mean "unknown", never "still low".
 pub const FELLOW_VITALS_TRUST_SECONDS: f64 = 10.0;
 
 /// Where a recharge comes from.
@@ -333,6 +334,13 @@ pub enum HelperDecision {
         /// How far, metres.
         distance: f32,
     },
+    /// A member is below a threshold, but the helper is leaving it alone
+    /// for that vital for a while: it was just helped (a network peer), or
+    /// nothing could be started on it.
+    SteppedAside {
+        /// The member.
+        name: String,
+    },
     /// A member needs help, but no tier of the line can be cast.
     NoCastableSpell {
         /// The vital.
@@ -354,7 +362,7 @@ impl HelperDecision {
     fn weight(&self) -> u8 {
         match self {
             Self::NoCastableSpell { .. } => 3,
-            Self::OutOfRange { .. } => 2,
+            Self::OutOfRange { .. } | Self::SteppedAside { .. } => 2,
             Self::VitalsTooOld { .. } => 1,
             _ => 0,
         }
@@ -380,6 +388,9 @@ impl std::fmt::Display for HelperDecision {
             ),
             Self::OutOfRange { name, distance } => {
                 write!(f, "{name} is low, but {distance:.0} m away")
+            }
+            Self::SteppedAside { name } => {
+                write!(f, "{name} is low, but left alone for a while")
             }
             Self::NoCastableSpell { vital, name, line } => write!(
                 f,
@@ -413,6 +424,34 @@ pub fn plan_helper(
     combat: &CombatSettings,
     trace: Option<&mut dyn FnMut(&str)>,
 ) -> (Option<VitalRechargeChoice>, HelperDecision) {
+    let filters = HelperFilters {
+        excluded: &|_, _| false,
+        peer_vitals_age: &|_| Some(0.0),
+    };
+    plan_helper_with(automation, settings, combat, &filters, trace)
+}
+
+/// What the helper's caller knows that the client does not say.
+#[allow(missing_debug_implementations)]
+pub struct HelperFilters<'a> {
+    /// Whether a member is left alone for a vital for now.
+    pub excluded: &'a dyn Fn(u32, VitalKind) -> bool,
+    /// How old a network peer's reported vitals are, seconds since they
+    /// last arrived (by its character's id); `None` when they never did.
+    pub peer_vitals_age: &'a dyn Fn(u32) -> Option<f64>,
+}
+
+/// [`plan_helper`] with the caller's `filters`: members it leaves alone
+/// are passed over, and a network peer's vitals are only as fresh as the
+/// caller says.
+pub fn plan_helper_with(
+    automation: &mut dyn Automation,
+    settings: &VitalSettings,
+    combat: &CombatSettings,
+    filters: &HelperFilters<'_>,
+    trace: Option<&mut dyn FnMut(&str)>,
+) -> (Option<VitalRechargeChoice>, HelperDecision) {
+    let excluded = filters.excluded;
     // Two switches: the fellows (`HelpFellows`, VTank's `DoHelp`) and the
     // network peers, fellows or not (`HelpNetworkPeers`).
     if !settings.help_others && !settings.help_network_peers {
@@ -423,7 +462,12 @@ pub fn plan_helper(
         return (None, HelperDecision::NotInFellowship);
     }
     let mut report = HelperReport { trace };
-    let members = helper_candidates(automation, settings, settings.help_others && in_fellowship);
+    let members = helper_candidates_aged(
+        automation,
+        settings,
+        settings.help_others && in_fellowship,
+        filters.peer_vitals_age,
+    );
     if members.is_empty() {
         return (None, HelperDecision::NobodyInSight);
     }
@@ -454,7 +498,7 @@ pub fn plan_helper(
         ),
     ] {
         #[allow(clippy::cast_possible_truncation)]
-        let fellow = match lowest(&members, vital, threshold, distance as f32) {
+        let fellow = match lowest(&members, vital, threshold, distance as f32, excluded) {
             Ok(fellow) => fellow,
             Err(reason) => {
                 note(reason);
@@ -1091,12 +1135,26 @@ pub fn estimated_transfer(spell_name: &str, source_current: i32) -> i32 {
 /// Who the helper may cast on (`HelperCandidates`): the fellows when
 /// `fellows` (the caller's "helps fellows and is in a fellowship"), plus,
 /// when the profile helps network peers, the network's other clients not
-/// already listed, described as a fellow would be (their last reported
-/// vitals, their distance from here in metres).
+/// already listed, described as a fellow would be. Every peer record is
+/// taken as just arrived; [`helper_candidates_aged`] is told better.
 pub fn helper_candidates(
     automation: &mut dyn Automation,
     settings: &VitalSettings,
     fellows: bool,
+) -> Vec<FellowMember> {
+    helper_candidates_aged(automation, settings, fellows, &|_| Some(0.0))
+}
+
+/// [`helper_candidates`], a network peer's vitals as old as
+/// `peer_vitals_age` says (by its character's id). As the reference treats
+/// a player outside the fellowship, a peer counts only while the client
+/// sees it in the world, at the distance the world puts it from here in
+/// metres; its reported place is not used.
+pub fn helper_candidates_aged(
+    automation: &mut dyn Automation,
+    settings: &VitalSettings,
+    fellows: bool,
+    peer_vitals_age: &dyn Fn(u32) -> Option<f64>,
 ) -> Vec<FellowMember> {
     let fellows = if fellows {
         automation.fellowship_members()
@@ -1107,20 +1165,19 @@ pub fn helper_candidates(
         return fellows;
     }
 
-    let mut known: HashSet<u32> = fellows.iter().map(|fellow| fellow.object_id).collect();
+    let known: HashSet<u32> = fellows.iter().map(|fellow| fellow.object_id).collect();
     let mut candidates = fellows;
-    let character = automation.character();
     let here = automation.position();
-    for peer in automation.network_clients() {
-        if peer.player_id == 0 || peer.player_id == character.id || !known.insert(peer.player_id) {
+    for peer in listed_peers(automation) {
+        if known.contains(&peer.player_id) {
             continue;
         }
-        if !character.world.is_empty()
-            && !peer.world_name.is_empty()
-            && !ordinal::equals_ignore_case(&character.world, &peer.world_name)
-        {
+        let Some(there) = automation
+            .object(peer.player_id)
+            .and_then(|seen| seen.position)
+        else {
             continue;
-        }
+        };
         candidates.push(FellowMember {
             object_id: peer.player_id,
             name: peer.name.clone(),
@@ -1130,14 +1187,33 @@ pub fn helper_candidates(
             max_stamina: peer.max_stamina,
             current_mana: peer.current_mana,
             max_mana: peer.max_mana,
-            distance: peer_distance(&here, &peer.position),
+            distance: peer_distance(&here, &there),
             share_loot: false,
-            vitals_age_seconds: Some(0.0),
+            vitals_age_seconds: peer_vitals_age(peer.player_id),
             // The other clients do not publish a level.
             ..FellowMember::default()
         });
     }
     candidates
+}
+/// The network's other clients the helper reads: one record per
+/// character (the first the network lists), never this character's, and
+/// only characters in this world.
+pub fn listed_peers(automation: &mut dyn Automation) -> Vec<NetworkClient> {
+    let character = automation.character();
+    let mut seen = HashSet::new();
+    automation
+        .network_clients()
+        .into_iter()
+        .filter(|peer| {
+            peer.player_id != 0
+                && peer.player_id != character.id
+                && (character.world.is_empty()
+                    || peer.world_name.is_empty()
+                    || ordinal::equals_ignore_case(&character.world, &peer.world_name))
+                && seen.insert(peer.player_id)
+        })
+        .collect()
 }
 
 fn peer_distance(here: &Position, there: &Position) -> f32 {
@@ -1153,14 +1229,16 @@ fn peer_distance(here: &Position, there: &Position) -> f32 {
 }
 
 /// The member lowest on the vital below the threshold, within reach, with
-/// vitals streamed recently enough to trust; else why nobody qualified (a
-/// member out of reach before one with old vitals).
-fn lowest(
-    members: &[FellowMember],
+/// vitals streamed recently enough to trust, and not one `excluded` names
+/// for this vital; else why nobody qualified (a member out of reach or left
+/// alone before one with old vitals).
+fn lowest<'m>(
+    members: &'m [FellowMember],
     vital: VitalKind,
     threshold: f64,
     maximum_distance: f32,
-) -> Result<&FellowMember, HelperDecision> {
+    excluded: &dyn Fn(u32, VitalKind) -> bool,
+) -> Result<&'m FellowMember, HelperDecision> {
     let mut best: Option<&FellowMember> = None;
     let mut best_fraction = f64::INFINITY;
     let mut why = HelperDecision::NobodyBelowThreshold;
@@ -1193,6 +1271,14 @@ fn lowest(
                 name: member.name.clone(),
                 distance: member.distance,
             };
+            continue;
+        }
+        if excluded(member.object_id, vital) {
+            if why.weight() < 2 {
+                why = HelperDecision::SteppedAside {
+                    name: member.name.clone(),
+                };
+            }
             continue;
         }
         if fraction < best_fraction {
