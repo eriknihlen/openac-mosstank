@@ -7,7 +7,8 @@ use ac_plugin_abi::navigation::{
     GoToReport, MoveChannel, MoveDirection, MovePace, MoveUnit, NavigationObject, NavigationStatus,
 };
 use ac_plugin_abi::world::Position;
-use mosstank_nav::NavigationAutomation;
+use mosstank_nav::{NavigationAutomation, UbActivity, UbLine, UbLineState};
+use mosstank_ub::commands::lines;
 use openac_plugin::{Host, WalkPause};
 
 use crate::automation::HostAutomation;
@@ -110,6 +111,38 @@ impl NavigationAutomation for HostAutomation<'_, '_> {
     fn submit_chat(&mut self, text: &str) -> bool {
         self.host().chat_submit(text);
         true
+    }
+
+    /// As the plugin last said, before the route's turn.
+    fn ub_activity(&mut self) -> UbActivity {
+        self.ub_activity
+    }
+
+    /// A line naming the plugin's own `/ub` verb.
+    fn ub_line(&mut self, text: &str) -> Option<UbLine> {
+        let arguments = lines::ub_arguments(text)?;
+        Some(if lines::is_stop_line(arguments) {
+            UbLine::Stop
+        } else {
+            UbLine::Command
+        })
+    }
+
+    /// From the plugin's log of the `/ub` lines it ran; a line not yet in
+    /// it (or a log busy being written) is not run yet.
+    fn ub_line_state(&mut self, since: u64, text: &str) -> UbLineState {
+        let (Some(log), Some(arguments)) = (self.ub_lines.as_ref(), lines::ub_arguments(text))
+        else {
+            return UbLineState::Run;
+        };
+        let Ok(log) = log.try_borrow() else {
+            return UbLineState::NotRun;
+        };
+        match log.state(since, arguments) {
+            lines::UbLineState::NotRun => UbLineState::NotRun,
+            lines::UbLineState::PutOff => UbLineState::PutOff,
+            lines::UbLineState::Run => UbLineState::Run,
+        }
     }
 
     fn active_vendor_id(&mut self) -> u32 {

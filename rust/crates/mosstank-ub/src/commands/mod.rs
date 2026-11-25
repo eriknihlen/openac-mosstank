@@ -10,6 +10,7 @@
 
 pub mod call;
 pub mod jumper;
+pub mod lines;
 pub mod opt;
 pub mod portal;
 mod property_dump;
@@ -27,8 +28,12 @@ use openac_plugin_compat::datetime::DateTime;
 use openac_plugin_compat::number::{self, MidpointRounding, NumberStyles};
 use openac_plugin_compat::text::utf16;
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
 pub use call::{UbCall, UbServices};
 use jumper::{CommandJump, JumpRequest, JumpTurn};
+use lines::UbLineLog;
 use portal::PortalUse;
 
 use crate::chat::{self, tools};
@@ -98,6 +103,8 @@ struct DelayedCommand {
     remaining_seconds: f64,
     command: String,
     delay_milliseconds: f64,
+    /// The run of the line that put it off ([`UbLineLog`]).
+    from: Option<u64>,
 }
 
 /// How a give matches the item's name.
@@ -119,6 +126,8 @@ pub struct UbCommands {
     portal: PortalUse,
     prep_click: PrepClickController,
     tools: UbTools,
+    /// The `/ub` lines run lately, shared with whoever waits on one.
+    lines: Rc<RefCell<UbLineLog>>,
 }
 
 /// Splits off the first word: the trimmed text up to the first space or
@@ -268,8 +277,27 @@ impl UbCommands {
         self.delayed.len()
     }
 
-    /// Runs one line typed under `/ub` (`ExecuteUbCommand`).
+    /// The UB tool running now ([`UbTools::busy_tool`]).
+    #[must_use]
+    pub fn busy_tool(&self) -> Option<&'static str> {
+        self.tools.busy_tool()
+    }
+
+    /// The `/ub` lines run lately, for whoever waits on a line it submitted.
+    #[must_use]
+    pub fn line_log(&self) -> Rc<RefCell<UbLineLog>> {
+        Rc::clone(&self.lines)
+    }
+
+    /// Runs one line typed under `/ub` (`ExecuteUbCommand`), noted in the
+    /// line log.
     pub fn execute(&mut self, call: &mut UbCall<'_>, input: &str) {
+        self.lines.borrow_mut().begin(input);
+        self.execute_line(call, input);
+        self.lines.borrow_mut().end();
+    }
+
+    fn execute_line(&mut self, call: &mut UbCall<'_>, input: &str) {
         let (typed, arguments) = split_head(input);
 
         // The give verb carries its flags in the letters after it, and their
@@ -587,10 +615,12 @@ impl UbCommands {
             "Scheduling command `{command}` with delay of {}ms",
             invariant(milliseconds)
         ));
+        let from = self.lines.borrow_mut().put_off();
         self.delayed.push(DelayedCommand {
             remaining_seconds: milliseconds / 1000.0,
             command: command.to_owned(),
             delay_milliseconds: milliseconds,
+            from,
         });
         // A stable sort, as the C#'s comparison sort happens to be on these
         // short lists; lines due together keep the order they were typed.
@@ -629,6 +659,9 @@ impl UbCommands {
                 ),
             );
             call.host.chat_submit(&line.command);
+            if let Some(from) = line.from {
+                self.lines.borrow_mut().released(from, &line.command);
+            }
         }
     }
 

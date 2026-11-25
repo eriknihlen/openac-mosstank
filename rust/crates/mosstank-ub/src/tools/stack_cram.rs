@@ -383,7 +383,6 @@ impl StackCramCommandRun {
     pub fn is_running(&self) -> bool {
         self.run.is_some()
     }
-
     /// Starts a stack pass, or a cram pass into the side packs, replacing
     /// any pass under way.
     pub fn start(&mut self, call: &mut UbCall<'_>, stack: bool) {

@@ -51,8 +51,9 @@ use tinker_page::TinkerPage;
 use xp::ExperienceSpendController;
 
 /// Which of the prologue owners after the command jump own the character
-/// this frame ([`UbTools::tick_prologue`]); the panel names the first three
-/// when it reports why the pass is held.
+/// this frame ([`UbTools::tick_prologue`]); the panel names the ones that
+/// hold the macro's pass ([`PrologueOwners::suspend_macro`]) when it reports
+/// why the pass is held.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct PrologueOwners {
     /// The item giver (`/ub give`, `/ub ig`).
@@ -70,10 +71,13 @@ pub struct PrologueOwners {
 }
 
 impl PrologueOwners {
-    /// Whether any of them owns the character.
+    /// Whether the macro's pass waits for them: while the item giver, the
+    /// vendor run or the equipment profile works. The counter, the
+    /// stack-or-cram pass and the packer hold back only the owners after
+    /// them; UtilityBelt takes no lock for them, so the macro goes on.
     #[must_use]
-    pub fn any(self) -> bool {
-        self.give || self.count || self.vendor || self.equip || self.stack_cram || self.pack
+    pub fn suspend_macro(self) -> bool {
+        self.give || self.vendor || self.equip
     }
 }
 
@@ -186,10 +190,39 @@ impl UbTools {
         self.item_info.tick(call, elapsed_seconds);
     }
 
+    /// The tool running now, named by the command that starts it, or none:
+    /// what a route's chat waypoint waits on before it sends its line, and
+    /// after it, before the route goes on.
+    ///
+    /// The tools that hold the route in UtilityBelt count: the ones that
+    /// lock its navigation while they run, the item giver (`give`, `ig`),
+    /// the equipment profile and the looter (a chest, the own corpse, the
+    /// key looter). The counter, the stack-or-cram pass, the packer and the
+    /// tinker run take no lock there and do not count; nor do the
+    /// experience spender and `/ub clearbugged`.
+    #[must_use]
+    pub fn busy_tool(&self) -> Option<&'static str> {
+        if self.give.borrow().is_running() {
+            Some("give")
+        } else if self.equip.is_running() {
+            Some("equip")
+        } else if self.looter.is_key_looting() && self.looter.is_running() {
+            Some("keyloot")
+        } else if self.looter.is_running() {
+            Some("looter")
+        } else {
+            None
+        }
+    }
+
     /// A session ended or began (`ResetSessionScopedControllers`, the UB
     /// tools' part): every run is put down without a word.
     pub fn reset_session(&mut self, call: &mut UbCall<'_>) {
-        self.give.borrow_mut().reset();
+        {
+            let mut give = self.give.borrow_mut();
+            give.reset();
+            give.hold_locks(call);
+        }
         self.stack_cram.reset();
         self.pack.reset();
         self.clear_bugged.reset();

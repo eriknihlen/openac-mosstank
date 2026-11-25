@@ -1678,6 +1678,7 @@ impl Tank {
         let (mut cx, _) = self.cx(client);
         cx.refresh_live_ub_rows(false);
         client.set_ub_displays(self.ub.displays());
+        self.ub.publish_activity(client);
     }
 
     /// The end of every call: the UB settings changed in it are written

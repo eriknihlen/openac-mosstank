@@ -108,6 +108,15 @@ pub trait SessionClient {
     /// How each kind of UB line is shown, from the UB settings (the four
     /// kinds in `UbLineKind` order).
     fn set_ub_displays(&mut self, displays: [mosstank_meta::host::UbDisplay; 4]);
+    /// What the UB tools are doing now and the `/ub` lines run lately, for
+    /// the route's chat waypoints to read
+    /// ([`mosstank_nav::NavigationAutomation::ub_activity`],
+    /// [`mosstank_nav::NavigationAutomation::ub_line_state`]).
+    fn set_ub_activity(
+        &mut self,
+        activity: mosstank_nav::UbActivity,
+        lines: std::rc::Rc<std::cell::RefCell<mosstank_ub::commands::lines::UbLineLog>>,
+    );
     /// Shows or hides one of the plugin's windows; whether the client took
     /// it (`IUiRegistry.ShowPanel` and `HidePanel`).
     fn show_window(&mut self, window_id: &str, visible: bool) -> bool;
@@ -186,6 +195,15 @@ impl SessionClient for crate::automation::HostAutomation<'_, '_> {
 
     fn set_ub_displays(&mut self, displays: [mosstank_meta::host::UbDisplay; 4]) {
         self.ub_displays = Some(displays);
+    }
+
+    fn set_ub_activity(
+        &mut self,
+        activity: mosstank_nav::UbActivity,
+        lines: std::rc::Rc<std::cell::RefCell<mosstank_ub::commands::lines::UbLineLog>>,
+    ) {
+        self.ub_activity = activity;
+        self.ub_lines = Some(lines);
     }
 
     fn show_window(&mut self, window_id: &str, visible: bool) -> bool {

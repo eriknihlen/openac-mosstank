@@ -165,3 +165,47 @@ fn a_running_dequip_pauses_the_macro_and_is_named_as_what_holds_the_pass() {
         "{lines:?}"
     );
 }
+
+// Not a port of a C# test: UtilityBelt takes no lock for `/ub autostack`
+// (nor autocram, autopack or count), so the macro is not paused while it
+// runs (register UB-15); the C# held the pass for it.
+#[test]
+fn a_running_autostack_does_not_pause_the_macro() {
+    let mut world = World::with_character("Barris");
+    let player = world.fake.character.as_ref().expect("in the world").id;
+    let arrows = |id: u32, stack: i32| InventoryItem {
+        object_id: id,
+        weenie_class_id: 77,
+        name: "Arrow".to_owned(),
+        item_type: 0x80,
+        container_id: player,
+        stack_size: stack,
+        maximum_stack_size: 10,
+        ..InventoryItem::default()
+    };
+    world.set_reply::<calls::ItemsOwned>(&vec![arrows(20, 3), arrows(21, 8)]);
+    world.set_reply::<calls::ItemsState>(&ac_plugin_abi::items::ItemState {
+        is_available: true,
+        ..ac_plugin_abi::items::ItemState::default()
+    });
+    world.set_reply::<calls::ItemsMerge>(&ItemResult::of(ItemStatus::Started));
+    let mut plugin = world.enable();
+    world.tick(&mut plugin);
+    world.with_tank(&mut plugin, |tank, client| {
+        tank.set_macro_running(client, true);
+    });
+    world.command(&mut plugin, "ub", "autostack");
+    world.ticks(&mut plugin, ticks_for(1.0));
+
+    assert!(
+        world.chat().contains(&"[UB] AutoStack running".to_owned()),
+        "{:?}",
+        world.chat()
+    );
+    assert!(!world.requests::<calls::ItemsMerge>().is_empty());
+    let lines = plugin.tank().expect("enabled").action_history_lines();
+    assert!(
+        !lines.iter().any(|line| line.contains("Pause:")),
+        "{lines:?}"
+    );
+}

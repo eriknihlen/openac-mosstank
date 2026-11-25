@@ -513,6 +513,20 @@ impl UbParts {
         }
     }
 
+    /// Tells the client view what the UB tools are doing now and which
+    /// `/ub` lines ran, as the route's chat waypoints wait on them.
+    pub(crate) fn publish_activity(&self, client: &mut dyn TankClient) {
+        let lines = self.commands.line_log();
+        let last_line = lines.borrow().last_sequence();
+        client.set_ub_activity(
+            mosstank_nav::UbActivity {
+                busy_tool: self.commands.busy_tool(),
+                last_line,
+            },
+            lines,
+        );
+    }
+
     /// Points the character tier at whoever is logged in now
     /// (`BindUbSettingsToCharacter`).
     pub(crate) fn bind(&mut self, client: &mut dyn TankClient, world: &str, character: &str) {
@@ -912,6 +926,7 @@ impl TankCx<'_> {
         }
         let displays = self.ub.displays();
         self.client.set_ub_displays(displays);
+        self.ub.publish_activity(&mut *self.client);
         for request in requests {
             self.run_engine_request(request);
         }

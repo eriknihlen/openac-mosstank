@@ -35,10 +35,22 @@ use mosstank_formats::route::{
 };
 use openac_plugin_compat::number::{format_f32, format_f64};
 
-use crate::client::{self, NavigationAutomation};
+use crate::client::{self, NavigationAutomation, UbLine, UbLineState};
 use crate::jump_power;
 
 const CHAT_INITIAL_DELAY_SECONDS: f64 = 0.2;
+
+/// How long a chat waypoint waits on a UB tool, or on the plugin running its
+/// `/ub` line, before it goes on without it. Our own margin, not the
+/// reference's (its chat waypoint knows nothing of the UB tools): a
+/// hand-over that stops making progress already gives up after 10 s, so
+/// this only keeps a tool that hangs from holding the route for good.
+const UB_WAIT_TIMEOUT_SECONDS: f64 = 120.0;
+
+/// [`UB_WAIT_TIMEOUT_SECONDS`] as the chat line says it.
+fn ub_wait_seconds() -> String {
+    format_f64(UB_WAIT_TIMEOUT_SECONDS, "0").expect("a supported format")
+}
 const USE_RETRY_SECONDS: f64 = 2.0;
 const PORTAL_TIMEOUT_SECONDS: f64 = 30.0;
 const OBJECT_REACQUIRE_RADIUS_METERS: f64 = 2.5;
@@ -204,6 +216,18 @@ struct ActiveAction {
     kind: RouteWaypointType,
 }
 
+/// A chat waypoint whose line is out, kept through a macro stop.
+#[derive(Debug, Clone, Copy)]
+struct SentChat {
+    action: ActiveAction,
+    /// The route's place in its walk at that visit ([`NavigationController::progress`]).
+    progress: i64,
+    elapsed: f64,
+    line_sent: Option<u64>,
+    wait_began: Option<f64>,
+    given_up: bool,
+}
+
 /// The route follower.
 pub struct NavigationController {
     index: i32,
@@ -215,6 +239,25 @@ pub struct NavigationController {
     use_completion_baseline: i64,
     chat_baseline: u64,
     action_sent: bool,
+    /// A chat waypoint's `/ub` line is out and the plugin has not run it
+    /// yet: the number of the last `/ub` line the plugin had run when it was
+    /// sent.
+    ub_line_sent: Option<u64>,
+    /// The UB tool a chat waypoint is waiting on now.
+    ub_wait_tool: Option<&'static str>,
+    /// The waypoint's clock when it first waited on the UB tools: one clock
+    /// for all its waits.
+    ub_wait_began: Option<f64>,
+    /// A wait on a UB tool or on the plugin running the line ran out: this
+    /// waypoint waits on neither again.
+    ub_wait_given_up: bool,
+    /// The route's place in its walk: one more for every step to the next
+    /// waypoint, and moved by the same count of steps when a macro start
+    /// puts the route on another waypoint. Two visits of a waypoint are the
+    /// same visit only at the same place.
+    progress: i64,
+    /// A chat waypoint whose line was out when the macro stopped.
+    kept_chat: Option<SentChat>,
     saw_portal_space: bool,
     jump_released: bool,
     jump_aligned: bool,
@@ -321,6 +364,37 @@ fn is_anchor_candidate(kind: RouteWaypointType) -> bool {
     )
 }
 
+/// How many steps of the route's walk lead from one waypoint (its place in
+/// the route and whether the route walks backwards) to another, the shorter
+/// way: negative when the other lies behind. A circular route's walk comes
+/// round every `count` steps; a back-and-forth route's every `2 * count`
+/// (each end is taken twice, once each way). Two ways of equal length count
+/// as behind, so a line already sent is not sent again. A once route does
+/// not move.
+fn travel_steps(mode: RouteMode, count: i32, from: (i32, bool), to: (i32, bool)) -> i64 {
+    let period = match mode {
+        RouteMode::Circular => count,
+        RouteMode::Linear => 2 * count,
+        RouteMode::Once | RouteMode::Target => return 0,
+    };
+    let place = |(index, reverse): (i32, bool)| match (mode, reverse) {
+        (RouteMode::Linear, true) => 2 * count - 1 - index,
+        (_, true) => -index,
+        (_, false) => index,
+    };
+    if period <= 0 {
+        return 0;
+    }
+    let ahead = (place(to) - place(from)).rem_euclid(period);
+    if ahead == 0 {
+        0
+    } else if ahead < period - ahead {
+        i64::from(ahead)
+    } else {
+        i64::from(ahead - period)
+    }
+}
+
 /// Straight-line distance including height: a point directly below on the
 /// floor of a dungeon is not the one the character stands at.
 fn spatial_distance_meters(from: &Position, to: &Position) -> f64 {
@@ -357,6 +431,12 @@ impl NavigationController {
             use_completion_baseline: 0,
             chat_baseline: 0,
             action_sent: false,
+            ub_line_sent: None,
+            ub_wait_tool: None,
+            ub_wait_began: None,
+            ub_wait_given_up: false,
+            progress: 0,
+            kept_chat: None,
             saw_portal_space: false,
             jump_released: false,
             jump_aligned: false,
@@ -491,6 +571,8 @@ impl NavigationController {
     /// that follows.
     pub fn route_edited(&mut self, turn: &mut RouteTurn<'_>, index: i32) {
         self.stop_for_macro_stop(turn);
+        self.clear_action(turn.automation);
+        self.kept_chat = None;
         let count = count_of(turn.settings);
         let last = (count - 1).max(0);
         match turn.settings.mode {
@@ -602,6 +684,8 @@ impl NavigationController {
         }
         let automation = &mut *turn.automation;
         self.stop_client_walk(automation);
+        // Going back is the player's say-so to work the waypoints again.
+        self.kept_chat = None;
         let last = count_of(turn.settings) - 1;
         let mut stepped = 0;
         while stepped < count
@@ -624,6 +708,7 @@ impl NavigationController {
     /// Turns the route round.
     pub fn toggle_reverse(&mut self) {
         self.reverse = !self.reverse;
+        self.kept_chat = None;
         self.voice.status = format!(
             "Nav backwards is {}.",
             if self.reverse { "True" } else { "False" }
@@ -664,6 +749,9 @@ impl NavigationController {
     /// back-and-forth route and leaves a once-through route where it was.
     pub fn reset(&mut self, turn: &mut RouteTurn<'_>) {
         self.stop_for_macro_stop(turn);
+        self.clear_action(turn.automation);
+        self.kept_chat = None;
+        self.progress = 0;
         self.index = 0;
         self.reverse = false;
         self.once_complete = false;
@@ -686,6 +774,13 @@ impl NavigationController {
         if settings.mode == RouteMode::Target {
             return None;
         }
+        if settings.waypoints.is_empty() {
+            if settings.mode != RouteMode::Once {
+                self.index = 0;
+            }
+            return None;
+        }
+        self.clear_action_keeping_sent_chat(automation);
         // A once route keeps its cursor and its finished flag: they stand for
         // the points it has already used up.
         if settings.mode != RouteMode::Once {
@@ -703,14 +798,19 @@ impl NavigationController {
                 }
             }
             #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
-            {
-                self.index = nearest as i32;
-            }
+            let nearest = nearest as i32;
+            // The route's place in its walk moves by the steps from where it
+            // stood to the anchor, the shorter way round, so the visit a
+            // chat line went out on keeps its place.
+            let count = count_of(settings);
+            self.progress += travel_steps(
+                settings.mode,
+                count,
+                (self.index.clamp(0, count - 1), self.reverse),
+                (nearest, self.reverse),
+            );
+            self.index = nearest;
         }
-        if settings.waypoints.is_empty() {
-            return None;
-        }
-        self.clear_action(automation);
         Some(if settings.mode != RouteMode::Once {
             format!(
                 "Route starts at Waypoint {}/{} (the nearest point to the character)",
@@ -742,7 +842,7 @@ impl NavigationController {
         self.checkpoint_elapsed = 0.0;
         self.follow_path.clear();
         self.clear_door();
-        self.clear_action(automation);
+        self.clear_action_keeping_sent_chat(automation);
         self.voice.status = if turn.settings.enabled {
             "Route ready."
         } else {
@@ -1666,6 +1766,9 @@ impl NavigationController {
                 .map(|message| message.sequence)
                 .max()
                 .unwrap_or(0);
+            if kind == RouteWaypointType::ChatCommand {
+                self.resume_kept_chat(index);
+            }
         }
         self.action_elapsed += elapsed_seconds;
         self.retry_elapsed += elapsed_seconds;
@@ -1688,12 +1791,32 @@ impl NavigationController {
                 if self.action_elapsed < CHAT_INITIAL_DELAY_SECONDS {
                     return true;
                 }
+                let line = automation.ub_line(&text);
+                // A line that stops a tool goes at once, and does not wait
+                // for the tool it stops.
+                let waits_on_tools = line != Some(UbLine::Stop);
                 if !self.action_sent {
+                    // A UB tool at work would refuse a second run, or fight
+                    // the line for the character: the line waits for it.
+                    if waits_on_tools && self.waits_on_ub_tool(automation) {
+                        return true;
+                    }
+                    let since = automation.ub_activity().last_line;
                     self.action_sent = automation.submit_chat(&text);
                     if !self.action_sent {
                         "Chat command was refused.".clone_into(&mut self.voice.status);
                         return true;
                     }
+                    if line.is_some() {
+                        self.ub_line_sent = Some(since);
+                    }
+                }
+                // The route goes on once the plugin has run its own line
+                // (and what it put off) and the tool it started has finished.
+                if self.waits_on_ub_line(automation, &text)
+                    || (waits_on_tools && self.waits_on_ub_tool(automation))
+                {
+                    return true;
                 }
                 self.complete_action(automation, settings);
                 true
@@ -1797,6 +1920,124 @@ impl NavigationController {
         }
         self.complete_action(automation, settings);
         true
+    }
+
+    /// Holds a chat waypoint while one of the plugin's UB tools runs; whether
+    /// it holds. Each tool's wait is logged when it begins; after
+    /// [`UB_WAIT_TIMEOUT_SECONDS`] of waiting, on any tool or on the line,
+    /// the waypoint says so and goes on.
+    fn waits_on_ub_tool(&mut self, automation: &mut dyn NavigationAutomation) -> bool {
+        if self.ub_wait_given_up {
+            return false;
+        }
+        let Some(tool) = automation.ub_activity().busy_tool else {
+            self.ub_wait_tool = None;
+            return false;
+        };
+        if self.ub_wait_tool != Some(tool) {
+            automation.log_info(&format!("Waiting for UB {tool} to finish."));
+            self.ub_wait_tool = Some(tool);
+        }
+        if self.ub_wait_ran_out() {
+            self.give_up_ub_wait(
+                automation,
+                &format!(
+                    "UB {tool} still running after {} s, continuing.",
+                    ub_wait_seconds()
+                ),
+            );
+            return false;
+        }
+        self.voice.status = format!("Waiting for UB {tool} to finish.");
+        true
+    }
+
+    /// Holds a chat waypoint whose `/ub` line is out until the plugin has
+    /// run that line (the client hands it back after the call that submitted
+    /// it), and the line it put off if it put one off; whether it holds.
+    fn waits_on_ub_line(&mut self, automation: &mut dyn NavigationAutomation, text: &str) -> bool {
+        let Some(since) = self.ub_line_sent else {
+            return false;
+        };
+        let state = automation.ub_line_state(since, text);
+        if self.ub_wait_given_up || state == UbLineState::Run {
+            self.ub_line_sent = None;
+            return false;
+        }
+        if self.ub_wait_ran_out() {
+            self.ub_line_sent = None;
+            self.give_up_ub_wait(
+                automation,
+                &format!(
+                    "UB did not run \"{text}\" after {} s, continuing.",
+                    ub_wait_seconds()
+                ),
+            );
+            return false;
+        }
+        self.voice.status = format!("Waiting for UB to run: {text}");
+        true
+    }
+
+    /// Puts down the action in flight for a macro stop or start. A chat
+    /// waypoint whose line is out is noted with the route's place in its
+    /// walk ([`Self::progress`]): when the route comes to that same visit of
+    /// the waypoint again, it waits on what the line started instead of
+    /// sending it again.
+    fn clear_action_keeping_sent_chat(&mut self, automation: &mut dyn NavigationAutomation) {
+        if let Some(action) = self.active_action.filter(|action| {
+            action.kind == RouteWaypointType::ChatCommand
+                && self.action_sent
+                && i32::try_from(action.index).is_ok_and(|index| index == self.index)
+        }) {
+            self.kept_chat = Some(SentChat {
+                action,
+                progress: self.progress,
+                elapsed: self.action_elapsed,
+                line_sent: self.ub_line_sent,
+                wait_began: self.ub_wait_began,
+                given_up: self.ub_wait_given_up,
+            });
+        }
+        self.clear_action(automation);
+    }
+
+    /// A chat waypoint's action begins: when it is the visit whose line went
+    /// out before a macro stop, the line is not sent again. A note the route
+    /// has walked past is let go.
+    fn resume_kept_chat(&mut self, index: usize) {
+        let Some(kept) = self.kept_chat else {
+            return;
+        };
+        if kept.progress > self.progress {
+            return;
+        }
+        self.kept_chat = None;
+        if kept.progress == self.progress && kept.action.index == index {
+            self.active_action = Some(kept.action);
+            self.action_sent = true;
+            self.action_elapsed = kept.elapsed;
+            self.ub_line_sent = kept.line_sent;
+            self.ub_wait_began = kept.wait_began;
+            self.ub_wait_given_up = kept.given_up;
+        }
+    }
+
+    /// Starts the waypoint's one wait clock, if not yet; whether it has run
+    /// out.
+    fn ub_wait_ran_out(&mut self) -> bool {
+        let began = *self.ub_wait_began.get_or_insert(self.action_elapsed);
+        self.action_elapsed - began >= UB_WAIT_TIMEOUT_SECONDS
+    }
+
+    /// A wait on the UB tools ran out: the waypoint says so in chat and in
+    /// the log, and waits on them no more.
+    fn give_up_ub_wait(&mut self, automation: &mut dyn NavigationAutomation, why: &str) {
+        self.ub_wait_given_up = true;
+        self.ub_wait_tool = None;
+        automation.log_warn(why);
+        client::post(automation, why);
+        why.clone_into(&mut self.voice.status);
     }
 
     fn warn_once(&mut self, automation: &mut dyn NavigationAutomation, text: &str) {
@@ -2363,6 +2604,7 @@ impl NavigationController {
         if count == 0 {
             return;
         }
+        self.progress += 1;
         match settings.mode {
             RouteMode::Circular => {
                 self.index = if self.reverse {
@@ -2406,6 +2648,10 @@ impl NavigationController {
         self.use_completion_baseline = 0;
         self.chat_baseline = 0;
         self.action_sent = false;
+        self.ub_line_sent = None;
+        self.ub_wait_tool = None;
+        self.ub_wait_began = None;
+        self.ub_wait_given_up = false;
         self.saw_portal_space = false;
         self.jump_released = false;
         self.jump_aligned = false;
