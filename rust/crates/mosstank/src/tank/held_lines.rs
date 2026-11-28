@@ -11,12 +11,31 @@ use super::Core;
 /// frame the hold ends would flood the server's chat.
 pub(crate) const HELD_META_LINES_LIMIT: usize = 16;
 
+/// How long a held line stays worth sending, seconds: one held longer is
+/// dropped when the hold ends, as the world it was said for has moved on.
+/// Not a game value: our own margin, well past a death and its teleport
+/// (a few seconds on the server).
+pub(crate) const HELD_META_LINE_MAX_AGE_SECONDS: f64 = 30.0;
+
+/// How many held lines of one hold are logged one by one; the rest of the
+/// hold's are counted when it ends.
+const HELD_META_LINES_LOGGED: usize = 4;
+
+/// One held line and when it was first said.
+#[derive(Debug)]
+struct HeldLine {
+    text: String,
+    held_at: f64,
+}
+
 /// The meta's held lines and what was said about them.
 #[derive(Debug, Default)]
 pub(crate) struct HeldMetaLines {
-    lines: Vec<String>,
-    /// The first line of this hold was logged.
-    began_said: bool,
+    lines: Vec<HeldLine>,
+    /// Seconds of frames since the plugin began: the lines' age.
+    clock: f64,
+    /// The lines of this hold logged one by one.
+    logged: usize,
     /// A line over the limit was dropped and said.
     overflow_said: bool,
     /// A meta was loaded during the call under way: what the old meta
@@ -29,11 +48,24 @@ impl HeldMetaLines {
         self.lines.is_empty()
     }
 
-    /// The lines to send now; the hold is over.
-    pub(crate) fn take(&mut self) -> Vec<String> {
-        self.began_said = false;
+    /// A frame of `elapsed_seconds` went by.
+    pub(crate) fn advance(&mut self, elapsed_seconds: f64) {
+        if elapsed_seconds.is_finite() && elapsed_seconds > 0.0 {
+            self.clock += elapsed_seconds;
+        }
+    }
+
+    /// Every held line, the hold being over: those still worth sending,
+    /// then those held too long, each in the order said.
+    pub(crate) fn take(&mut self) -> (Vec<String>, Vec<String>) {
+        self.logged = 0;
         self.overflow_said = false;
-        std::mem::take(&mut self.lines)
+        let clock = self.clock;
+        let (fresh, stale): (Vec<HeldLine>, Vec<HeldLine>) = std::mem::take(&mut self.lines)
+            .into_iter()
+            .partition(|line| clock - line.held_at <= HELD_META_LINE_MAX_AGE_SECONDS);
+        let text = |lines: Vec<HeldLine>| lines.into_iter().map(|line| line.text).collect();
+        (text(fresh), text(stale))
     }
 
     /// A call into the meta begins.
@@ -57,7 +89,7 @@ impl Core {
             return false;
         };
         let held = &mut self.held_meta_lines;
-        if held.closed_for_call || held.lines.iter().any(|kept| kept == line) {
+        if held.closed_for_call || held.lines.iter().any(|kept| kept.text == line) {
             return true;
         }
         if held.lines.len() >= HELD_META_LINES_LIMIT {
@@ -73,20 +105,57 @@ impl Core {
             }
             return true;
         }
-        held.lines.push(line.to_owned());
-        if !held.began_said {
-            held.began_said = true;
+        held.lines.push(HeldLine {
+            text: line.to_owned(),
+            held_at: held.clock,
+        });
+        if held.logged < HELD_META_LINES_LOGGED {
+            held.logged += 1;
+            let last = held.logged == HELD_META_LINES_LOGGED;
             self.queue_log(
                 MacroLogChannel::RuleInfo,
-                &format!("(meta) chat lines held while {why}"),
+                &format!(
+                    "(meta) chat line held while {why}: {line}{}",
+                    if last {
+                        " (the rest of this hold's are counted when it ends)"
+                    } else {
+                        ""
+                    }
+                ),
             );
         }
         true
     }
 
+    /// The hold is over: the lines still worth sending, in order. Those held
+    /// longer than [`HELD_META_LINE_MAX_AGE_SECONDS`] are dropped, and both
+    /// are said in one line each.
+    pub(crate) fn take_held_meta_lines(&mut self) -> Vec<String> {
+        let (fresh, stale) = self.held_meta_lines.take();
+        if !stale.is_empty() {
+            self.queue_log(
+                MacroLogChannel::RuleInfo,
+                &format!(
+                    "(meta) {} held chat lines dropped: held over {HELD_META_LINE_MAX_AGE_SECONDS} s \
+                     (first: {})",
+                    stale.len(),
+                    stale[0]
+                ),
+            );
+        }
+        if !fresh.is_empty() {
+            self.queue_log(
+                MacroLogChannel::RuleInfo,
+                &format!("(meta) {} held chat lines sent", fresh.len()),
+            );
+        }
+        fresh
+    }
+
     /// Drops the held lines, saying so once when there were any.
     pub(crate) fn drop_held_meta_lines(&mut self, why: &str) {
-        let count = self.held_meta_lines.take().len();
+        let (fresh, stale) = self.held_meta_lines.take();
+        let count = fresh.len() + stale.len();
         if count > 0 {
             self.queue_log(
                 MacroLogChannel::RuleInfo,

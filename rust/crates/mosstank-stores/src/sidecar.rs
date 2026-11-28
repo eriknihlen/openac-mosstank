@@ -687,6 +687,9 @@ pub struct SideCarDocument {
     /// Attack what the team debuffed first (a MossTank extension; on when
     /// absent).
     pub combat_team_focus_debuffed: bool,
+    /// Whether a lost death teleport logs the character out to be entered
+    /// again (a MossTank extension); `None`, written as `null`, until set.
+    pub combat_relog_when_death_teleport_lost: Option<bool>,
     pub inventory_scan_interval_seconds: f64,
     pub inventory_give_range_meters: f64,
     pub inventory_give_delay_seconds: f64,
@@ -871,6 +874,7 @@ impl SideCarDocument {
             vitals_help_network_peers: settings.vitals.help_network_peers,
             vitals_team_overlay: settings.vitals.team_overlay,
             combat_team_focus_debuffed: settings.combat.team_focus_debuffed,
+            combat_relog_when_death_teleport_lost: settings.combat.relog_when_death_teleport_lost,
             inventory_scan_interval_seconds: inventory.scan_interval_seconds,
             inventory_give_range_meters: inventory.give_range_meters,
             inventory_give_delay_seconds: inventory.give_delay_seconds,
@@ -1008,6 +1012,7 @@ impl SideCarDocument {
         settings.vitals.help_network_peers = self.vitals_help_network_peers;
         settings.vitals.team_overlay = self.vitals_team_overlay;
         settings.combat.team_focus_debuffed = self.combat_team_focus_debuffed;
+        settings.combat.relog_when_death_teleport_lost = self.combat_relog_when_death_teleport_lost;
 
         let inventory = &mut settings.inventory;
         inventory.scan_interval_seconds = self.inventory_scan_interval_seconds.clamp(0.05, 10.0);
@@ -1198,6 +1203,11 @@ impl SideCarDocument {
                 (
                     "CombatTeamFocusDebuffed".into(),
                     JsonValue::Bool(self.combat_team_focus_debuffed),
+                ),
+                (
+                    "CombatRelogWhenDeathTeleportLost".into(),
+                    self.combat_relog_when_death_teleport_lost
+                        .map_or(JsonValue::Null, JsonValue::Bool),
                 ),
                 (
                     "InventoryScanIntervalSeconds".into(),
@@ -1420,6 +1430,8 @@ impl SideCarDocument {
                 || version < CURRENT_VERSION,
             vitals_team_overlay: o.bool("VitalsTeamOverlay", false)?,
             combat_team_focus_debuffed: o.bool("CombatTeamFocusDebuffed", true)?,
+            combat_relog_when_death_teleport_lost: o
+                .optional_bool("CombatRelogWhenDeathTeleportLost")?,
             inventory_scan_interval_seconds: o.double("InventoryScanIntervalSeconds", 0.25)?,
             inventory_give_range_meters: o.double("InventoryGiveRangeMeters", 15.0)?,
             inventory_give_delay_seconds: o.double("InventoryGiveDelaySeconds", 0.0)?,

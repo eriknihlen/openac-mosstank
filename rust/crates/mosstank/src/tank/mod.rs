@@ -297,6 +297,10 @@ pub struct Core {
     /// The newest portal or login transition generation the client has
     /// reported this session (a death teleport is a newer one).
     pub(crate) last_portal_generation: i64,
+    /// A window shows the session, as the client last said: a client
+    /// without one is a bot, which a lost death teleport relogs unless set
+    /// otherwise.
+    pub(crate) window_attached: bool,
     pub(crate) automation_was_available: bool,
     pub(crate) prologue_owns_action: bool,
     /// The last frame did a frame's worth of once-only work (the name tags'
@@ -837,6 +841,7 @@ impl Tank {
             death_hold: None,
             held_meta_lines: held_lines::HeldMetaLines::default(),
             last_portal_generation: 0,
+            window_attached: false,
             automation_was_available: false,
             prologue_owns_action: false,
             heavy_frame: false,
@@ -1285,6 +1290,9 @@ impl Tank {
         // A window attached builds its pickers afresh (register UI-4).
         if matches!(event, Event::WindowAttached(true)) {
             cx.core.panel.listings.relist_all();
+        }
+        if let Event::WindowAttached(attached) = event {
+            cx.core.window_attached = *attached;
         }
         match event {
             Event::Net(ac_plugin_abi::net::NetEvent::HttpCompleted(reply)) => {

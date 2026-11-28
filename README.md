@@ -169,6 +169,15 @@ range, whoever the killer was, and takes everything in it rather than only what
 the loot rules keep, even with Loot Only Rare Corpses on. These
 switches save with the selected settings profile.
 
+After a death MossTank does nothing in the world until the teleport to the
+lifestone is over and the health is back; the meta keeps running, and its
+chat lines that act wait for the end (one held over 30 seconds is dropped).
+If that teleport has not begun a minute after the death, the server has likely
+lost the character. With `RelogWhenDeathTeleportLost` on (`/vt opt`, and under
+Misc in Advanced Options), MossTank then logs the character out and the client
+enters it again. Until set, it is on when no window shows the session (a bot)
+and off with one.
+
 Selecting Custom for `BuffProfile_Prots` or `BuffProfile_Banes` also shows the
 corresponding `BuffProfile-Prots` or `BuffProfile-Banes` text field. Enter element
 letters (A acid, L lightning, F fire, C cold, B bludgeon, P pierce, S slash), then

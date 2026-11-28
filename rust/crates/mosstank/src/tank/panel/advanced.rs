@@ -8,7 +8,8 @@ use mosstank_expr::ExpressionValue;
 use mosstank_settings::defaults::setting_enum_values;
 use mosstank_settings::options::{
     self, ADVANCED_NAMES, CATEGORY_BITS, CATEGORY_NAMES_BY_BIT, LOOT_OWN_DEATH_CORPSE,
-    UNUSED_SETTING, VtankOptionPage, VtankSettingValueType, WALK_TO_RARE_CORPSE,
+    RELOG_WHEN_DEATH_TELEPORT_LOST, UNUSED_SETTING, VtankOptionPage, VtankSettingValueType,
+    WALK_TO_RARE_CORPSE,
 };
 
 use super::{Arg, b, i, t, tl};
@@ -267,6 +268,8 @@ impl TankCx<'_> {
                     })
                     && if **name == WALK_TO_RARE_CORPSE || **name == LOOT_OWN_DEATH_CORPSE {
                         enabled_mask & VtankOptionPage::LOOTING.0 != 0
+                    } else if **name == RELOG_WHEN_DEATH_TELEPORT_LOST {
+                        enabled_mask & VtankOptionPage::MISC.0 != 0
                     } else {
                         options::page_of(name)
                             .is_none_or(|mask| mask.0 == 0 || mask.0 & enabled_mask != 0)

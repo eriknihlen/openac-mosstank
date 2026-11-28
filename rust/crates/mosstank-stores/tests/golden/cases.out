@@ -33,6 +33,7 @@ selected By char
   "VitalsHelpNetworkPeers": true,\r\n
   "VitalsTeamOverlay": false,\r\n
   "CombatTeamFocusDebuffed": true,\r\n
+  "CombatRelogWhenDeathTeleportLost": null,\r\n
   "InventoryScanIntervalSeconds": 0.25,\r\n
   "InventoryGiveRangeMeters": 15,\r\n
   "InventoryGiveDelaySeconds": 0,\r\n
@@ -130,6 +131,7 @@ save True
   "VitalsHelpNetworkPeers": true,\r\n
   "VitalsTeamOverlay": false,\r\n
   "CombatTeamFocusDebuffed": true,\r\n
+  "CombatRelogWhenDeathTeleportLost": null,\r\n
   "InventoryScanIntervalSeconds": 0.25,\r\n
   "InventoryGiveRangeMeters": 20.5,\r\n
   "InventoryGiveDelaySeconds": 0,\r\n
@@ -226,6 +228,7 @@ selected By char
   "VitalsHelpNetworkPeers": true,\r\n
   "VitalsTeamOverlay": false,\r\n
   "CombatTeamFocusDebuffed": true,\r\n
+  "CombatRelogWhenDeathTeleportLost": null,\r\n
   "InventoryScanIntervalSeconds": 0.25,\r\n
   "InventoryGiveRangeMeters": 15,\r\n
   "InventoryGiveDelaySeconds": 0,\r\n
@@ -305,6 +308,7 @@ setinall 2
   "VitalsHelpNetworkPeers": true,\r\n
   "VitalsTeamOverlay": false,\r\n
   "CombatTeamFocusDebuffed": true,\r\n
+  "CombatRelogWhenDeathTeleportLost": null,\r\n
   "InventoryScanIntervalSeconds": 0.25,\r\n
   "InventoryGiveRangeMeters": 15,\r\n
   "InventoryGiveDelaySeconds": 0,\r\n
@@ -355,6 +359,7 @@ setinall 2
   "VitalsHelpNetworkPeers": true,\r\n
   "VitalsTeamOverlay": false,\r\n
   "CombatTeamFocusDebuffed": true,\r\n
+  "CombatRelogWhenDeathTeleportLost": null,\r\n
   "InventoryScanIntervalSeconds": 0.25,\r\n
   "InventoryGiveRangeMeters": 15,\r\n
   "InventoryGiveDelaySeconds": 0,\r\n
@@ -438,6 +443,7 @@ range 30
   "VitalsHelpNetworkPeers": true,\r\n
   "VitalsTeamOverlay": false,\r\n
   "CombatTeamFocusDebuffed": true,\r\n
+  "CombatRelogWhenDeathTeleportLost": null,\r\n
   "InventoryScanIntervalSeconds": 0.25,\r\n
   "InventoryGiveRangeMeters": 15,\r\n
   "InventoryGiveDelaySeconds": 0,\r\n
@@ -512,6 +518,7 @@ names By char|--Acdream_Coldeve_Hunt.usd
   "VitalsHelpNetworkPeers": true,\r\n
   "VitalsTeamOverlay": false,\r\n
   "CombatTeamFocusDebuffed": true,\r\n
+  "CombatRelogWhenDeathTeleportLost": null,\r\n
   "InventoryScanIntervalSeconds": 0.25,\r\n
   "InventoryGiveRangeMeters": 15,\r\n
   "InventoryGiveDelaySeconds": 0,\r\n

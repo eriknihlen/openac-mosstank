@@ -1,8 +1,8 @@
 //! The macro while the character can do nothing in the world (register
-//! MACRO-1): from a death until the server has carried it out (the health
-//! back, or for a death the health never showed, the death teleport over),
-//! and in portal space, no rule acts and the meta's chat lines wait. Not a
-//! port: the C# and the reference run their rules through both.
+//! MACRO-1): from a death until the server has carried it out (the death
+//! teleport over and the health back, whether or not the health showed
+//! the death), and in portal space, no rule acts and the meta's chat lines
+//! wait. Not a port: the C# and the reference run their rules through both.
 
 mod common;
 
@@ -305,9 +305,34 @@ fn a_death_teleport_alone_does_not_end_a_death_the_health_still_shows() {
     assert_eq!(recalls(&world), 1);
 }
 
+/// The log outs asked for.
+fn logouts(world: &World) -> usize {
+    world.requests::<calls::LoginLogout>().len()
+}
+
+/// The chat lines saying the death teleport never came.
+fn said_lost(world: &World) -> usize {
+    posted(world, "Death teleport never came")
+}
+
 #[test]
 fn a_death_teleport_that_never_comes_is_said_once_and_still_holds() {
-    let (mut world, mut plugin) = dead_by_the_clients_word_alone();
+    // A window shows the session: not logged out by default.
+    let mut world = World::with_character("Acdream");
+    world.set_reply::<calls::HostWindowAttached>(&true);
+    stand(&mut world, false);
+    wield_wand(&mut world);
+    world.set_reply::<calls::MagicCast>(&CastResult::Sent);
+    let route = mosstank_formats::nav::save(&recall_route()).unwrap();
+    world.profiles.insert("mosstank/navs/VitaeRun.nav", &route);
+    let mut plugin = world.enable();
+    world.with_tank(&mut plugin, |tank, client| {
+        tank.set_macro_running(client, true)
+    });
+    frames(&mut world, &mut plugin, 4);
+    world.send(&mut plugin, Event::LocalPlayerDied("You died!".to_owned()));
+    world.vt(&mut plugin, "nav load VitaeRun");
+    world.vt(&mut plugin, "opt set EnableNav true");
     let said = |world: &World| {
         world
             .chat()
@@ -334,6 +359,7 @@ fn a_death_teleport_that_never_comes_is_said_once_and_still_holds() {
     frames(&mut world, &mut plugin, 1200);
     assert_eq!(said(&world), 1);
     assert_eq!(recalls(&world), 0, "still held");
+    assert_eq!(logouts(&world), 0, "a windowed client is not logged out");
 }
 
 #[test]
@@ -722,4 +748,224 @@ fn a_meta_function_that_acts_answers_refused_while_the_world_is_held() {
         ["[MossTank] Result: 0", "[MossTank] Result: 0"],
         "{answers:#?}"
     );
+}
+
+// The server gives the health back 3 s after the death teleport begins,
+// while the character is still in portal space (ACE
+// `WorldObjects/Player_Death.cs`): the health back is no sign the teleport
+// is over.
+#[test]
+fn health_back_mid_teleport_still_holds_until_the_teleport_is_over() {
+    let (mut world, mut plugin) = dead_with_the_recall_route();
+    frames(&mut world, &mut plugin, 20);
+    // The client reports the death teleport under way; this frame's look
+    // at the world does not show portal space yet.
+    world.send(
+        &mut plugin,
+        Event::PortalTransition(PortalTransition {
+            generation: 1,
+            kind: 2,
+            ..PortalTransition::default()
+        }),
+    );
+    health(&mut world, 75);
+    frames(&mut world, &mut plugin, 100);
+    assert_eq!(recalls(&world), 0, "held while the teleport is under way");
+
+    trip(&mut world, &mut plugin, 1, Trip::Completed);
+    frames(&mut world, &mut plugin, 60);
+    assert_eq!(recalls(&world), 1, "the recall goes after the teleport");
+}
+
+// As a bot's log showed it: dead, then the health back, and no portal space
+// seen in between.
+#[test]
+fn health_back_before_the_death_teleport_still_holds() {
+    let (mut world, mut plugin) = dead_with_the_recall_route();
+    frames(&mut world, &mut plugin, 100);
+    health(&mut world, 75);
+    frames(&mut world, &mut plugin, 200);
+    assert_eq!(recalls(&world), 0, "held until the death teleport");
+
+    after_the_death_teleport(&mut world, &mut plugin);
+    frames(&mut world, &mut plugin, 40);
+    assert_eq!(recalls(&world), 1);
+}
+
+#[test]
+fn a_death_teleport_that_never_comes_logs_a_bot_out_to_enter_it_again() {
+    // No window shows the session: a bot.
+    let (mut world, mut plugin) = dead_by_the_clients_word_alone();
+    world.set_reply::<calls::LoginLogout>(&true);
+    world.set_reply::<calls::LoginSetNext>(&true);
+    frames(&mut world, &mut plugin, 1180);
+    assert_eq!(logouts(&world), 0, "not before 60 s");
+
+    frames(&mut world, &mut plugin, 40);
+    assert_eq!(logouts(&world), 1);
+    assert_eq!(
+        world.requests::<calls::LoginSetNext>(),
+        vec![0x5000_0001],
+        "the same character is entered again"
+    );
+    assert_eq!(said_lost(&world), 1);
+    assert!(
+        world
+            .logs(LogLevel::Warn)
+            .iter()
+            .any(|line| line.contains("Logging out to enter it again")),
+        "{:?}",
+        world.all_logs()
+    );
+    // Asked once; still held until the session ends.
+    frames(&mut world, &mut plugin, 1200);
+    assert_eq!(logouts(&world), 1);
+    assert_eq!(recalls(&world), 0, "still held");
+}
+
+#[test]
+fn a_bot_set_not_to_relog_holds_without_logging_out() {
+    let (mut world, mut plugin) = dead_by_the_clients_word_alone();
+    world.set_reply::<calls::LoginLogout>(&true);
+    world.vt(&mut plugin, "opt set RelogWhenDeathTeleportLost false");
+    frames(&mut world, &mut plugin, 1300);
+    assert_eq!(logouts(&world), 0);
+    assert_eq!(said_lost(&world), 1, "{:#?}", world.chat());
+    assert!(
+        world
+            .chat()
+            .iter()
+            .any(|line| line.contains("Holding until a relog")),
+        "{:#?}",
+        world.chat()
+    );
+    assert_eq!(recalls(&world), 0, "still held");
+}
+
+#[test]
+fn a_windowed_client_set_to_relog_logs_out() {
+    let (mut world, mut plugin) = dead_by_the_clients_word_alone();
+    world.set_reply::<calls::HostWindowAttached>(&true);
+    world.set_reply::<calls::LoginLogout>(&true);
+    world.vt(&mut plugin, "opt set RelogWhenDeathTeleportLost true");
+    frames(&mut world, &mut plugin, 1300);
+    assert_eq!(logouts(&world), 1);
+}
+
+#[test]
+fn the_relog_option_follows_the_window_until_set() {
+    let mut world = World::with_character("Acdream");
+    let mut plugin = world.enable();
+    let value = |world: &mut World, plugin: &mut MossTank| {
+        world.clear_chat();
+        world.vt(plugin, "opt get RelogWhenDeathTeleportLost");
+        world
+            .chat()
+            .into_iter()
+            .find(|line| line.contains("RelogWhenDeathTeleportLost"))
+            .unwrap_or_default()
+    };
+    assert!(
+        value(&mut world, &mut plugin).ends_with("= True"),
+        "no window"
+    );
+    world.send(&mut plugin, Event::WindowAttached(true));
+    assert!(
+        value(&mut world, &mut plugin).ends_with("= False"),
+        "a window"
+    );
+    world.vt(&mut plugin, "opt set RelogWhenDeathTeleportLost true");
+    assert!(value(&mut world, &mut plugin).ends_with("= True"), "set");
+}
+
+/// The macro running with the meta `text` on, and a death the health
+/// shows (at 0).
+fn dead_at_0_with_meta(text: &str) -> (World, MossTank) {
+    let mut world = World::with_character("Acdream");
+    stand(&mut world, false);
+    world.profiles.insert("mosstank/metas/Deaths.af", text);
+    let mut plugin = world.enable();
+    world.vt(&mut plugin, "meta load Deaths");
+    world.vt(&mut plugin, "opt set EnableMeta true");
+    world.with_tank(&mut plugin, |tank, client| {
+        tank.set_macro_running(client, true)
+    });
+    frames(&mut world, &mut plugin, 4);
+    health(&mut world, 0);
+    world.send(&mut plugin, Event::LocalPlayerDied("You died!".to_owned()));
+    frames(&mut world, &mut plugin, 1);
+    (world, plugin)
+}
+
+/// One rule of a state: `condition`, then a DoAll of `actions`.
+fn rule(condition: &str, actions: &str) -> String {
+    format!("\tIF:\t{condition}\r\n\t\tDO:\tDoAll\r\n{actions}")
+}
+
+#[test]
+fn an_exit_portal_rule_still_fires_in_the_hold_and_its_line_waits() {
+    let meta = death_meta(
+        "",
+        &rule(
+            "ExitPortal",
+            &[act("Chat {/say arrived}"), act("SetState {Other}")].concat(),
+        ),
+    );
+    let (mut world, mut plugin) = dead_at_0_with_meta(&meta);
+    frames(&mut world, &mut plugin, 20);
+    assert_eq!(plugin.tank().unwrap().meta_state(), "Dead");
+    // The teleport ends while the health still shows the death.
+    death_teleport(&mut world, &mut plugin, true);
+    frames(&mut world, &mut plugin, 20);
+    death_teleport(&mut world, &mut plugin, false);
+    frames(&mut world, &mut plugin, 20);
+    assert_eq!(
+        plugin.tank().unwrap().meta_state(),
+        "Other",
+        "the rule fired"
+    );
+    assert!(said_lines(&world).is_empty(), "{:?}", said_lines(&world));
+
+    health(&mut world, 75);
+    frames(&mut world, &mut plugin, 4);
+    assert_eq!(said_lines(&world), vec!["/say arrived"]);
+}
+
+#[test]
+fn a_ub_line_said_in_the_hold_goes_only_after_the_teleport() {
+    let meta = death_meta(&act("Chat {/ub printcolors}"), "");
+    let (mut world, mut plugin) = dead_at_0_with_meta(&meta);
+    frames(&mut world, &mut plugin, 20);
+    death_teleport(&mut world, &mut plugin, true);
+    frames(&mut world, &mut plugin, 20);
+    // The health back mid-teleport, as the server sends it.
+    health(&mut world, 75);
+    frames(&mut world, &mut plugin, 60);
+    assert_eq!(posted(&world, "[PrintColors]"), 0, "held mid-teleport");
+
+    death_teleport(&mut world, &mut plugin, false);
+    frames(&mut world, &mut plugin, 4);
+    assert!(posted(&world, "[PrintColors]") > 0, "{:#?}", world.chat());
+}
+
+#[test]
+fn a_line_held_over_30_seconds_is_dropped_and_a_fresh_one_goes() {
+    let meta = death_meta(
+        &act("Chat {/say stale}"),
+        &rule("IntoPortal", &act("Chat {/say fresh}")),
+    );
+    let (mut world, mut plugin) = dead_with_meta(&meta);
+    world.vt(&mut plugin, "log RuleInfo on");
+    // 35 s without the teleport, then the teleport.
+    frames(&mut world, &mut plugin, 700);
+    after_the_death_teleport(&mut world, &mut plugin);
+    assert_eq!(said_lines(&world), vec!["/say fresh"]);
+    let logs = world.all_logs();
+    let has = |text: &str| logs.iter().any(|line| line.contains(text));
+    assert!(has("chat line held while"), "{logs:#?}");
+    assert!(
+        has("1 held chat lines dropped: held over 30 s"),
+        "{logs:#?}"
+    );
+    assert!(has("1 held chat lines sent"), "{logs:#?}");
 }

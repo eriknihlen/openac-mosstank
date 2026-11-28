@@ -368,6 +368,9 @@ impl MetaHost for ClientProxy<'_, '_> {
     fn login_clear_next(&mut self) -> bool {
         meta!(self.login_clear_next())
     }
+    fn logout(&mut self) -> bool {
+        meta!(self.logout())
+    }
     fn peer_clients(&mut self) -> Vec<NetworkClient> {
         meta!(self.peer_clients())
     }

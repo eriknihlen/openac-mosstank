@@ -180,10 +180,7 @@ impl Tank {
             Some(death) => {
                 let step = death.step(elapsed_seconds, dead, portal_space);
                 if step.say_lost {
-                    Core::announce(cx.client, super::death_hold::DEATH_TELEPORT_LOST_NOTICE);
-                    cx.client
-                        .rules()
-                        .log_warn(super::death_hold::DEATH_TELEPORT_LOST_NOTICE);
+                    cx.death_teleport_lost();
                 }
                 step.holds
             }
@@ -220,7 +217,9 @@ impl Tank {
         }
         cx.core.world_hold = world_hold;
         cx.core.combat.set_world_hold(world_hold.is_some());
-        // Before the meta's pass, so what it says now follows them.
+        // Before the meta's pass, so what it says now follows them; a line
+        // held too long is dropped.
+        cx.core.held_meta_lines.advance(elapsed_seconds);
         cx.release_held_meta_lines();
         cx.meta
             .current_state()
@@ -455,6 +454,7 @@ impl TankCx<'_> {
         self.meta.views().destroy_all(self.client.meta());
         self.reset_command_session();
         self.core.buff_rule.reset();
+        self.core.window_attached = self.client.meta().has_ui();
         "Idle.".clone_into(&mut self.core.status);
     }
 
@@ -622,6 +622,39 @@ impl TankCx<'_> {
         self.handle_death(macro_running);
     }
 
+    /// The death teleport never began: the server has likely lost the
+    /// character, and only a relog brings it back (register MACRO-1). With
+    /// `RelogWhenDeathTeleportLost` on, the character is logged out and,
+    /// unless another next login is set, entered again at once; otherwise
+    /// the death holds until a relog. The hold stays either way: the
+    /// session's end lets it go.
+    fn death_teleport_lost(&mut self) {
+        use super::death_hold::{
+            DEATH_TELEPORT_LOST_NOTICE, DEATH_TELEPORT_RELOG_NOTICE,
+            DEATH_TELEPORT_RELOG_REFUSED_NOTICE,
+        };
+        self.core.window_attached = self.client.meta().has_ui();
+        if !self.core.relogs_when_death_teleport_lost() {
+            Core::announce(self.client, DEATH_TELEPORT_LOST_NOTICE);
+            self.client.rules().log_warn(DEATH_TELEPORT_LOST_NOTICE);
+            return;
+        }
+        Core::announce(self.client, DEATH_TELEPORT_RELOG_NOTICE);
+        self.client.rules().log_warn(DEATH_TELEPORT_RELOG_NOTICE);
+        // The client enters the next login's character when it is back at
+        // the list; one already set (a character rotation) is kept.
+        let character_id = self.client.rules().character().id;
+        if character_id != 0 && self.client.meta().login().next_login_id == 0 {
+            let _ = self.client.meta().login_set_next(character_id);
+        }
+        if !self.client.meta().logout() {
+            Core::announce(self.client, DEATH_TELEPORT_RELOG_REFUSED_NOTICE);
+            self.client
+                .rules()
+                .log_warn(DEATH_TELEPORT_RELOG_REFUSED_NOTICE);
+        }
+    }
+
     /// The meta's chat lines held while the character could do nothing in
     /// the world (register MACRO-1): once the hold is over they are sent in
     /// order, each as the meta sends a line (its UB verb run before the
@@ -642,7 +675,7 @@ impl TankCx<'_> {
         if self.core.world_hold.is_some() {
             return;
         }
-        let lines = self.core.held_meta_lines.take();
+        let lines = self.core.take_held_meta_lines();
         self.with_engine(|engine, host, services| {
             for line in &lines {
                 if let Some(profile) = services.submit_chat(host, line) {
@@ -844,6 +877,16 @@ impl TankCx<'_> {
 }
 
 impl Core {
+    /// Whether a lost death teleport logs the character out to be entered
+    /// again: as set, or until set, when no window shows the session (a
+    /// bot).
+    pub(crate) fn relogs_when_death_teleport_lost(&self) -> bool {
+        self.settings
+            .combat
+            .relog_when_death_teleport_lost
+            .unwrap_or(!self.window_attached)
+    }
+
     /// `HoldPass`.
     pub(crate) fn hold_pass(&mut self) {
         self.transaction_suspension_held = true;

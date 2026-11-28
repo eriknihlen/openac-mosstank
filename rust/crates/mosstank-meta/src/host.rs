@@ -239,6 +239,9 @@ pub trait MetaHost {
     fn login_set_next(&mut self, character_id: u32) -> bool;
     /// No next login.
     fn login_clear_next(&mut self) -> bool;
+    /// Logs the character out to the character list (entered again at
+    /// once when a next login is set); false when the client refused.
+    fn logout(&mut self) -> bool;
     /// The other clients on this computer.
     fn peer_clients(&mut self) -> Vec<NetworkClient>;
     /// The casts they announced after `after_sequence`.

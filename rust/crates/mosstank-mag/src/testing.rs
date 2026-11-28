@@ -329,6 +329,10 @@ impl MetaHost for FakeMagHost {
         self.meta.login_clear_next()
     }
 
+    fn logout(&mut self) -> bool {
+        self.meta.logout()
+    }
+
     fn peer_clients(&mut self) -> Vec<NetworkClient> {
         self.meta.peer_clients()
     }

@@ -3,17 +3,26 @@
 //! The server carries a death out in steps (ACE
 //! `WorldObjects/Player_Death.cs`): the health goes to 0 at once; the death
 //! animation plays and a second later the character is teleported to its
-//! lifestone; some seconds after that teleport its health, stamina and mana
-//! come back. Until all of that is over the character can do nothing in
-//! the world, and a line sent for it meanwhile (a recall above all) has
-//! left it unplaced on the server until a relog.
+//! lifestone; 3 seconds after that teleport begins, while the character is
+//! still in portal space, its health, stamina and mana come back at 75%.
+//! The server keeps the character teleporting until the client says it has
+//! arrived (ACE `WorldObjects/Player_Location.cs`). Until all of that is
+//! over the character can do nothing in the world, and a line sent for it
+//! meanwhile (a recall above all) has left it unplaced on the server until
+//! a relog.
 //!
-//! The client may say the character died without its health ever showing
-//! 0. Such a death holds until a teleport that began after the death has
-//! ended (the character has left portal space) and the health is not 0;
-//! one whose health showed 0 holds until the health comes back, as before.
-//! A portal trip already under way at the death, a login and a cancelled
-//! teleport are not the death teleport.
+//! So the health coming back is no sign the death is over. Every death
+//! holds until a teleport that began after the death has ended (the
+//! character has left portal space) and the health is not 0, whether the
+//! health showed 0 or only the client's word told of the death. A portal
+//! trip already under way at the death, a login and a cancelled teleport
+//! are not the death teleport.
+//!
+//! The client reports every portal transition, in order, even one that
+//! begins and ends between two plugin frames, so the death teleport cannot
+//! pass unseen and no release by time is needed. A death teleport that
+//! never begins is another matter: the server has likely lost the
+//! character, and only a relog brings it back.
 
 use ac_plugin_abi::world::PortalTransition;
 
@@ -29,9 +38,18 @@ const PORTAL_TRANSITION_PORTAL: u8 = 2;
 /// waits before the teleport.
 pub(crate) const DEATH_TELEPORT_WAIT_SECONDS: f64 = 60.0;
 
-/// What is said once when the death teleport never began.
+/// What is said once when the death teleport never began and the
+/// character is not logged out for it.
 pub(crate) const DEATH_TELEPORT_LOST_NOTICE: &str =
     "Death teleport never came; the character is likely lost. Holding until a relog.";
+
+/// What is said once when the death teleport never began and the
+/// character is logged out for it, to be entered again.
+pub(crate) const DEATH_TELEPORT_RELOG_NOTICE: &str = "Death teleport never came; the character is likely lost. Logging out to enter it again (RelogWhenDeathTeleportLost).";
+
+/// What is said when the client would not log the character out.
+pub(crate) const DEATH_TELEPORT_RELOG_REFUSED_NOTICE: &str =
+    "The client did not log the character out. Holding until a relog.";
 
 /// Where the death teleport has got to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -58,8 +76,6 @@ pub(crate) struct DeathHold {
     was_portal_space: bool,
     /// The newest transition reported was a login's.
     last_report_login: bool,
-    /// The health showed 0 during this death.
-    health_showed_death: bool,
     /// The lost-character notice was said.
     lost_said: bool,
 }
@@ -84,7 +100,6 @@ impl DeathHold {
             generation_at_death,
             was_portal_space: portal_space,
             last_report_login: false,
-            health_showed_death: false,
             lost_said: false,
         }
     }
@@ -125,9 +140,6 @@ impl DeathHold {
         portal_space: bool,
     ) -> DeathHoldStep {
         self.seconds += elapsed_seconds.max(0.0);
-        if dead {
-            self.health_showed_death = true;
-        }
         // Portal space entered after the death begins a teleport (a login's
         // does not); left again, it ends one. The reports above say the
         // same, and a cancelled one has already put the teleport back.
@@ -141,7 +153,9 @@ impl DeathHold {
             Teleport::UnderWay(_) if left => self.teleport = Teleport::Done,
             _ => {}
         }
-        let holds = dead || !(self.health_showed_death || self.teleport == Teleport::Done);
+        // The health comes back while the teleport is still under way, so
+        // neither alone ends the death.
+        let holds = dead || self.teleport != Teleport::Done;
         let say_lost = holds
             && !self.lost_said
             && self.teleport == Teleport::Awaited
@@ -235,6 +249,38 @@ mod tests {
         hold.on_portal_transition(&portal(1, true, false));
         assert!(hold.step(1.0, true, false).holds);
         assert!(!hold.step(1.0, false, false).holds);
+    }
+
+    #[test]
+    fn the_health_back_mid_teleport_still_holds() {
+        let mut hold = DeathHold::begin(0, false);
+        assert!(hold.step(1.0, true, false).holds);
+        hold.on_portal_transition(&portal(1, false, false));
+        assert!(hold.step(1.0, true, true).holds);
+        assert!(
+            hold.step(3.0, false, true).holds,
+            "health back in portal space"
+        );
+        assert!(!hold.step(0.05, false, false).holds, "portal space left");
+
+        // The report under way, the frames' looks never showing portal
+        // space.
+        let mut hold = DeathHold::begin(0, false);
+        assert!(hold.step(1.0, true, false).holds);
+        hold.on_portal_transition(&portal(1, false, false));
+        assert!(hold.step(3.0, false, false).holds, "health back");
+        hold.on_portal_transition(&portal(1, true, false));
+        assert!(!hold.step(0.05, false, false).holds);
+    }
+
+    #[test]
+    fn the_health_back_before_the_teleport_still_holds() {
+        let mut hold = DeathHold::begin(0, false);
+        assert!(hold.step(1.0, true, false).holds);
+        assert!(hold.step(5.0, false, false).holds);
+        hold.on_portal_transition(&portal(1, false, false));
+        hold.on_portal_transition(&portal(1, true, false));
+        assert!(!hold.step(0.05, false, false).holds);
     }
 
     #[test]
