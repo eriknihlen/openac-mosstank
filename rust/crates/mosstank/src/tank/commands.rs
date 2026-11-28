@@ -45,6 +45,21 @@ const VTANK_HELP: [&str; 4] = [
 /// The log channels the reference lists.
 const LOG_TYPES: &str = "Log types: ActiveRule SalvageList SpellCast RuleInfo Timers CastInfo DebuffChoice Loot CharProps Misc BusyState";
 
+/// The `/vt` verbs that make the character act in the world or send to the
+/// server: the jumps (`addnavjump` jumps too), one equipment step, and the
+/// item test (it may ask for the selection's appraisal). A meta's line with
+/// one of them waits while the world is held (register MACRO-1); every
+/// other `/vt` line only changes or reads MossTank and runs at once.
+const WORLD_VERBS: [&str; 5] = ["jump", "tapjump", "addnavjump", "equipitemsfor", "testitem"];
+
+/// Whether a line typed under `/vt` (`arguments`, without the `/vt`) acts
+/// in the world or sends to the server.
+pub(crate) fn is_world_line(arguments: &str) -> bool {
+    let (typed, _) = split_head(arguments);
+    let verb = casing::to_lower_invariant(&typed);
+    WORLD_VERBS.contains(&verb.as_str())
+}
+
 /// `/vt meta load <name>` or `/vt metaaf load <name>`, read from a line: the
 /// name and whether it is the `.af` form.
 pub(crate) fn meta_load_request(input: &str) -> Option<(String, bool)> {

@@ -969,3 +969,37 @@ fn a_line_held_over_30_seconds_is_dropped_and_a_fresh_one_goes() {
     );
     assert!(has("1 held chat lines sent"), "{logs:#?}");
 }
+
+#[test]
+fn a_vt_jump_said_in_the_hold_waits_and_runs_after_the_teleport() {
+    let meta = death_meta(
+        &[
+            act("Chat {/vt jump 0 false 100}"),
+            act("Chat {/vt opt set EnableLooting true}"),
+        ]
+        .concat(),
+        "",
+    );
+    let (mut world, mut plugin) = dead_with_meta(&meta);
+    let accepted = ac_plugin_abi::navigation::NavigationStatus::Accepted;
+    world.set_reply::<calls::NavigationJump>(&accepted);
+    world.set_reply::<calls::NavigationMove>(&accepted);
+    world.set_reply::<calls::NavigationSetIntent>(&accepted);
+    world.set_reply::<calls::NavigationClearIntent>(&accepted);
+    world.set_reply::<calls::NavigationFace>(&accepted);
+    frames(&mut world, &mut plugin, 40);
+    assert_eq!(plugin.tank().unwrap().meta_state(), "Dead");
+    // The option line ran at once; the jump waits.
+    assert_eq!(world.option_text(&mut plugin, "EnableLooting"), "True");
+    assert!(world.requests::<calls::NavigationJump>().is_empty());
+
+    death_teleport(&mut world, &mut plugin, true);
+    frames(&mut world, &mut plugin, 20);
+    assert!(
+        world.requests::<calls::NavigationJump>().is_empty(),
+        "no jump in portal space"
+    );
+    death_teleport(&mut world, &mut plugin, false);
+    frames(&mut world, &mut plugin, 20);
+    assert_eq!(world.requests::<calls::NavigationJump>().len(), 1);
+}
