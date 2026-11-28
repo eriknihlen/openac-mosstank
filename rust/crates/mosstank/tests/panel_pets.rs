@@ -185,7 +185,7 @@ fn an_items_page_essence_is_appraised_in_a_fresh_session_and_then_summoned_with(
 // Register MACRO-1 (no C# source: the C# summons while the character is
 // dead).
 #[test]
-fn a_dead_summoner_summons_nothing_until_its_health_comes_back() {
+fn a_dead_summoner_summons_nothing_until_the_death_is_carried_out() {
     let mut automation = essence_and_spirit(50);
     automation.hostile_targets = vec![CombatTarget {
         object_id: 30,
@@ -217,7 +217,27 @@ fn a_dead_summoner_summons_nothing_until_its_health_comes_back() {
         tick(&mut world, p, 0.3);
     }
     assert!(
+        !world.automation().used_item_ids.contains(&10),
+        "no summon before the death teleport is over"
+    );
+
+    // The death teleport, reported begun and over.
+    for completed in [false, true] {
+        world.send(
+            p,
+            ac_plugin_abi::Event::PortalTransition(ac_plugin_abi::world::PortalTransition {
+                generation: 1,
+                kind: 2,
+                is_completed: completed,
+                ..ac_plugin_abi::world::PortalTransition::default()
+            }),
+        );
+    }
+    for _ in 0..10 {
+        tick(&mut world, p, 0.3);
+    }
+    assert!(
         world.automation().used_item_ids.contains(&10),
-        "the summon once alive"
+        "the summon once alive and out of the teleport"
     );
 }

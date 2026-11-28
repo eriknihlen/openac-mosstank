@@ -225,6 +225,10 @@ pub struct CombatSettings {
     /// Attack a monster the team has debuffed rather than one it has not
     /// (a MossTank extension; on by default).
     pub team_focus_debuffed: bool,
+    /// Log the character out, to be entered again, when the teleport after
+    /// a death never begins (a MossTank extension). `None` until set: on
+    /// for a client without a window, off for one with a window.
+    pub relog_when_death_teleport_lost: Option<bool>,
     pub use_special_ammo: i32,
     pub auto_fellow_management: bool,
     pub blacklisted_spell_components: String,
@@ -298,6 +302,7 @@ impl Default for CombatSettings {
             pet_refill_count_normal: 1,
             allow_debuff_fallback: false,
             team_focus_debuffed: true,
+            relog_when_death_teleport_lost: None,
             use_special_ammo: 0,
             auto_fellow_management: true,
             blacklisted_spell_components: String::new(),

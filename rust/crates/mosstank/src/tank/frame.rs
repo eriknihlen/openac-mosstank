@@ -176,14 +176,12 @@ impl Tank {
         // carries out the death has left the character unplaced on the
         // server until a relog.
         let portal_space = cx.client.rules().navigation_snapshot().is_portal_space;
+        cx.watch_pending_relog(elapsed_seconds);
         let death_holds = match cx.core.death_hold.as_mut() {
             Some(death) => {
                 let step = death.step(elapsed_seconds, dead, portal_space);
                 if step.say_lost {
-                    Core::announce(cx.client, super::death_hold::DEATH_TELEPORT_LOST_NOTICE);
-                    cx.client
-                        .rules()
-                        .log_warn(super::death_hold::DEATH_TELEPORT_LOST_NOTICE);
+                    cx.death_teleport_lost();
                 }
                 step.holds
             }
@@ -220,7 +218,17 @@ impl Tank {
         }
         cx.core.world_hold = world_hold;
         cx.core.combat.set_world_hold(world_hold.is_some());
-        // Before the meta's pass, so what it says now follows them.
+        // Before the meta's pass, so what it says now follows them. A held
+        // line ages only while the hold could have ended (out of portal
+        // space, no death teleport still to come), and one held too long
+        // then is dropped.
+        let could_end = !portal_space
+            && cx
+                .core
+                .death_hold
+                .as_ref()
+                .is_none_or(super::death_hold::DeathHold::teleport_over);
+        cx.core.held_meta_lines.advance(elapsed_seconds, could_end);
         cx.release_held_meta_lines();
         cx.meta
             .current_state()
@@ -429,6 +437,8 @@ impl TankCx<'_> {
         // A death the gone character's health never showed holds nobody
         // else, and the meta lines it held go with it (register MACRO-1).
         self.core.death_hold = None;
+        // The character left: a log out asked for it happened.
+        self.core.pending_relog = None;
         self.core.last_portal_generation = 0;
         self.core.drop_held_meta_lines("the session ended");
         self.core.world_hold = None;
@@ -455,6 +465,7 @@ impl TankCx<'_> {
         self.meta.views().destroy_all(self.client.meta());
         self.reset_command_session();
         self.core.buff_rule.reset();
+        self.core.window_attached = self.client.meta().has_ui();
         "Idle.".clone_into(&mut self.core.status);
     }
 
@@ -622,6 +633,80 @@ impl TankCx<'_> {
         self.handle_death(macro_running);
     }
 
+    /// The death teleport never began: the server has likely lost the
+    /// character, and only a relog brings it back (register MACRO-1). With
+    /// `RelogWhenDeathTeleportLost` on, the character is logged out and,
+    /// unless another next login is set, entered again at once; otherwise
+    /// the death holds until a relog. The hold stays either way: the
+    /// session's end lets it go.
+    fn death_teleport_lost(&mut self) {
+        use super::death_hold::{
+            DEATH_TELEPORT_LOST_NOTICE, DEATH_TELEPORT_RELOG_NOTICE,
+            DEATH_TELEPORT_RELOG_REFUSED_NOTICE,
+        };
+        self.core.window_attached = self.client.meta().has_ui();
+        if !self.core.relogs_when_death_teleport_lost() {
+            Core::announce(self.client, DEATH_TELEPORT_LOST_NOTICE);
+            self.client.rules().log_warn(DEATH_TELEPORT_LOST_NOTICE);
+            return;
+        }
+        Core::announce(self.client, DEATH_TELEPORT_RELOG_NOTICE);
+        self.client.rules().log_warn(DEATH_TELEPORT_RELOG_NOTICE);
+        // The client enters the next login's character when it is back at
+        // the list; one already set (a character rotation) is kept.
+        let character_id = self.client.rules().character().id;
+        let set_next_login = character_id != 0
+            && self.client.meta().login().next_login_id == 0
+            && self.client.meta().login_set_next(character_id);
+        if self.client.meta().logout() {
+            // Asked for, not yet done: the client or the server may still
+            // refuse it.
+            self.core.pending_relog = Some(super::death_hold::PendingRelog {
+                seconds: 0.0,
+                set_next_login,
+            });
+            return;
+        }
+        self.relog_not_done(set_next_login, DEATH_TELEPORT_RELOG_REFUSED_NOTICE);
+    }
+
+    /// The log out for a lost death teleport was refused, or the character
+    /// has not left the world in [`RELOG_LOGOUT_WAIT_SECONDS`]: the next
+    /// login set for it is cleared (no other), so no stray relog follows a
+    /// later log out, and the death holds until a relog.
+    ///
+    /// [`RELOG_LOGOUT_WAIT_SECONDS`]: super::death_hold::RELOG_LOGOUT_WAIT_SECONDS
+    fn relog_not_done(&mut self, set_next_login: bool, notice: &str) {
+        if set_next_login {
+            let _ = self.client.meta().login_clear_next();
+        }
+        let line = if set_next_login {
+            format!("{notice} (The next login set for it was cleared.)")
+        } else {
+            notice.to_owned()
+        };
+        Core::announce(self.client, &line);
+        self.client.rules().log_warn(&line);
+    }
+
+    /// Watches a log out asked for a lost death teleport: the character
+    /// leaving the world ends the watch.
+    fn watch_pending_relog(&mut self, elapsed_seconds: f64) {
+        let Some(pending) = self.core.pending_relog.as_mut() else {
+            return;
+        };
+        pending.seconds += elapsed_seconds.max(0.0);
+        if pending.seconds < super::death_hold::RELOG_LOGOUT_WAIT_SECONDS {
+            return;
+        }
+        let set_next_login = pending.set_next_login;
+        self.core.pending_relog = None;
+        self.relog_not_done(
+            set_next_login,
+            super::death_hold::DEATH_TELEPORT_RELOG_MISSED_NOTICE,
+        );
+    }
+
     /// The meta's chat lines held while the character could do nothing in
     /// the world (register MACRO-1): once the hold is over they are sent in
     /// order, each as the meta sends a line (its UB verb run before the
@@ -642,7 +727,7 @@ impl TankCx<'_> {
         if self.core.world_hold.is_some() {
             return;
         }
-        let lines = self.core.held_meta_lines.take();
+        let lines = self.core.take_held_meta_lines();
         self.with_engine(|engine, host, services| {
             for line in &lines {
                 if let Some(profile) = services.submit_chat(host, line) {
@@ -844,6 +929,16 @@ impl TankCx<'_> {
 }
 
 impl Core {
+    /// Whether a lost death teleport logs the character out to be entered
+    /// again: as set, or until set, when no window shows the session (a
+    /// bot).
+    pub(crate) fn relogs_when_death_teleport_lost(&self) -> bool {
+        self.settings
+            .combat
+            .relog_when_death_teleport_lost
+            .unwrap_or(!self.window_attached)
+    }
+
     /// `HoldPass`.
     pub(crate) fn hold_pass(&mut self) {
         self.transaction_suspension_held = true;

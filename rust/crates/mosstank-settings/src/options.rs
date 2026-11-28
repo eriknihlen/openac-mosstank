@@ -67,10 +67,14 @@ pub const HELP_NETWORK_PEERS: &str = "HelpNetworkPeers";
 pub const TEAM_FOCUS_DEBUFFED: &str = "TeamFocusDebuffed";
 /// MossTank's own option: show the team overlay.
 pub const TEAM_OVERLAY: &str = "TeamOverlay";
+/// MossTank's own option: log the character out, to be entered again, when
+/// the teleport after a death never begins (the server has likely lost the
+/// character). Unset, it is on without a window and off with one.
+pub const RELOG_WHEN_DEATH_TELEPORT_LOST: &str = "RelogWhenDeathTeleportLost";
 
 /// MossTank's own options, which VTank's Settings table does not have, in
 /// the order `/vt opt list` lists them after VTank's.
-const OWN_OPTIONS: [&str; 7] = [
+const OWN_OPTIONS: [&str; 8] = [
     WALK_TO_RARE_CORPSE,
     LOOT_OWN_DEATH_CORPSE,
     SHOW_NAV_LINES,
@@ -78,6 +82,7 @@ const OWN_OPTIONS: [&str; 7] = [
     HELP_NETWORK_PEERS,
     TEAM_FOCUS_DEBUFFED,
     TEAM_OVERLAY,
+    RELOG_WHEN_DEATH_TELEPORT_LOST,
 ];
 
 /// The one name the reference's settings table holds that nothing reads.
@@ -90,7 +95,7 @@ use VtankSettingValueType as T;
 /// Every option MossTank answers to, with its default and declared type,
 /// in catalogue order: VTank's settings plus MossTank's own
 /// ([`OWN_OPTIONS`]).
-pub const OPTIONS: [(&str, OptionDefault, VtankSettingValueType); 144] = [
+pub const OPTIONS: [(&str, OptionDefault, VtankSettingValueType); 145] = [
     ("EnableLooting", D::Bool(false), T::Bool),
     (WALK_TO_RARE_CORPSE, D::Bool(false), T::Bool),
     (LOOT_OWN_DEATH_CORPSE, D::Bool(true), T::Bool),
@@ -99,6 +104,8 @@ pub const OPTIONS: [(&str, OptionDefault, VtankSettingValueType); 144] = [
     (HELP_NETWORK_PEERS, D::Bool(true), T::Bool),
     (TEAM_FOCUS_DEBUFFED, D::Bool(true), T::Bool),
     (TEAM_OVERLAY, D::Bool(false), T::Bool),
+    // On for a client without a window (a bot) until set; off with one.
+    (RELOG_WHEN_DEATH_TELEPORT_LOST, D::Bool(true), T::Bool),
     ("EnableNav", D::Bool(false), T::Bool),
     ("EnableBuffing", D::Bool(true), T::Bool),
     ("EnableCombat", D::Bool(true), T::Bool),
@@ -327,12 +334,13 @@ pub fn profile_name(name: &str) -> &str {
     }
 }
 
-/// The names the advanced options edit: the settings, the rare walk and
-/// the own death corpse.
+/// The names the advanced options edit: the settings, the rare walk, the
+/// own death corpse and the relog after a lost death teleport.
 pub static ADVANCED_NAMES: LazyLock<Vec<&'static str>> = LazyLock::new(|| {
     let mut names = NAMES.clone();
     names.push(WALK_TO_RARE_CORPSE);
     names.push(LOOT_OWN_DEATH_CORPSE);
+    names.push(RELOG_WHEN_DEATH_TELEPORT_LOST);
     names
 });
 
@@ -637,7 +645,7 @@ pub fn page_of(name: &str) -> Option<VtankOptionPage> {
 }
 
 /// What each setting does, in MossTank's words.
-pub const DESCRIPTIONS: [(&str, &str); 137] = [
+pub const DESCRIPTIONS: [(&str, &str); 138] = [
     (
         "EnableLooting",
         "Opens corpses and picks up what the loot profile keeps.",
@@ -824,6 +832,10 @@ pub const DESCRIPTIONS: [(&str, &str); 137] = [
     (
         "StopMacroOnDeath",
         "Turns the macro off when the character dies.",
+    ),
+    (
+        RELOG_WHEN_DEATH_TELEPORT_LOST,
+        "Logs the character out to be entered again when the teleport to the lifestone has not begun a minute after a death (the server has likely lost the character). On by default without a window, off with one; VTank waits.",
     ),
     (
         "UseArcs",

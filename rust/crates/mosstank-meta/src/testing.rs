@@ -280,6 +280,8 @@ pub struct FakeHost {
     pub fellows: Vec<FellowMember>,
     /// The account's characters and the next login.
     pub login: LoginState,
+    /// How many log outs were asked for.
+    pub logouts: usize,
     /// The other clients.
     pub peers: Vec<NetworkClient>,
     /// Their casts.
@@ -368,6 +370,7 @@ impl FakeHost {
             fellowship: FellowshipState::default(),
             fellows: Vec::new(),
             login: LoginState::default(),
+            logouts: 0,
             peers: Vec::new(),
             peer_casts: Vec::new(),
             has_ui: false,
@@ -703,6 +706,11 @@ impl MetaHost for FakeHost {
 
     fn login_clear_next(&mut self) -> bool {
         self.login.next_login_id = 0;
+        true
+    }
+
+    fn logout(&mut self) -> bool {
+        self.logouts += 1;
         true
     }
 

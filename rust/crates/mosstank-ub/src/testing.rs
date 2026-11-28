@@ -502,6 +502,10 @@ impl MetaHost for FakeUbHost {
         self.meta.login_clear_next()
     }
 
+    fn logout(&mut self) -> bool {
+        self.meta.logout()
+    }
+
     fn peer_clients(&mut self) -> Vec<NetworkClient> {
         self.peer_capture_count += 1;
         self.meta.peer_clients()

@@ -5,28 +5,28 @@ fnv64=2d00f40584ab1ccd bytes=28987
 fnv64=90d692d4d7c40609 bytes=28913
 
 ##### usd defaultsettings
-fnv64=c1dacfa931e75a69 bytes=5619
+fnv64=aebd67df08d75a67 bytes=5650
 --- saved:
 fnv64=4473aef24cfd7622 bytes=29516
 --- edited:
 fnv64=3fa5c3ca55a413c2 bytes=29842
 
 ##### usd owner-a
-fnv64=4bef721860166d38 bytes=6113
+fnv64=331e9711942542a4 bytes=6144
 --- saved:
 fnv64=6b6de7690322a296 bytes=3879
 --- edited:
 fnv64=86620a33677335d2 bytes=4236
 
 ##### usd owner-b
-fnv64=851df90f8dc21d0d bytes=5699
+fnv64=6082cc63940dc891 bytes=5730
 --- saved:
 fnv64=7657da9c7cc55316 bytes=3479
 --- edited:
 fnv64=953b79d647bb20f2 bytes=3836
 
 ##### usd owner-c
-fnv64=d0ab17c9b1f4d6f9 bytes=6091
+fnv64=cff0a26d3a8c8c95 bytes=6122
 --- saved:
 fnv64=293566d6e8021cbc bytes=3884
 --- edited:
@@ -180,6 +180,7 @@ HelpFellows = -
 HelpNetworkPeers = -
 TeamFocusDebuffed = -
 TeamOverlay = -
+RelogWhenDeathTeleportLost = -
 rule "DEFAULT" flags=320 p=1 dmg=Auto extra=None pet=PlayerAuto w=00000000 o=00000000 wr=-1 sr=0 ignored=False default=True dynamic=False
 items 
 extra 
@@ -570,6 +571,7 @@ HelpFellows = -
 HelpNetworkPeers = -
 TeamFocusDebuffed = -
 TeamOverlay = -
+RelogWhenDeathTeleportLost = -
 rule "DEFAULT" flags=320 p=1 dmg=Auto extra=None pet=PlayerAuto w=00000000 o=00000000 wr=-1 sr=0 ignored=False default=True dynamic=False
 items 
 extra 
@@ -964,6 +966,7 @@ HelpFellows = -
 HelpNetworkPeers = -
 TeamFocusDebuffed = -
 TeamOverlay = -
+RelogWhenDeathTeleportLost = -
 rule "DEFAULT" flags=320 p=1 dmg=Auto extra=None pet=PlayerAuto w=00000000 o=00000000 wr=-1 sr=0 ignored=False default=True dynamic=False
 items 
 extra 

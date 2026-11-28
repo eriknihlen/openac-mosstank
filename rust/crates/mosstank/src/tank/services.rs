@@ -368,6 +368,9 @@ impl MetaHost for ClientProxy<'_, '_> {
     fn login_clear_next(&mut self) -> bool {
         meta!(self.login_clear_next())
     }
+    fn logout(&mut self) -> bool {
+        meta!(self.logout())
+    }
     fn peer_clients(&mut self) -> Vec<NetworkClient> {
         meta!(self.peer_clients())
     }
@@ -658,14 +661,15 @@ impl MetaServices for TankServices<'_, '_> {
     /// to lend itself (register META-9); anything else goes to the client.
     /// While the character can do nothing in the world, every line that
     /// could act for it is held and sent once it can (register MACRO-1): a
-    /// `/ub` line that may start a tool, and any line that reaches the
-    /// server. A `/vt` line and a `/ub` line that only changes MossTank
-    /// itself (its options, an expression, a delay) run at once. With the
+    /// `/ub` line that may start a tool, a `/vt` line that acts in the world
+    /// (a jump, an equipment step, an item test), and any line that reaches
+    /// the server. A `/vt` or `/ub` line that only changes MossTank itself
+    /// (its options, a route, an expression, a delay) runs at once. With the
     /// macro off (the meta does not run then) a line goes at once.
     fn submit_chat(&mut self, _host: &mut dyn MetaHost, line: &str) -> Option<MetaProfile> {
         let split = ac_plugin_abi::verbs::split_command_line(line);
         let local = split.as_ref().is_some_and(|(_, verb, arguments)| {
-            verb.eq_ignore_ascii_case(commands::VTANK_VERB)
+            (verb.eq_ignore_ascii_case(commands::VTANK_VERB) && !commands::is_world_line(arguments))
                 || (verb.eq_ignore_ascii_case(commands::UB_VERB)
                     && mosstank_ub::commands::is_local_line(arguments))
         });

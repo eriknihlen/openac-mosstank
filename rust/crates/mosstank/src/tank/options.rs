@@ -114,6 +114,7 @@ impl Core {
             "helpnetworkpeers" => boolean(vitals.help_network_peers),
             "teamfocusdebuffed" => boolean(combat.team_focus_debuffed),
             "teamoverlay" => boolean(vitals.team_overlay),
+            "relogwhendeathteleportlost" => boolean(self.relogs_when_death_teleport_lost()),
             "attackdistance" => number(combat.maximum_range / METERS_PER_UNIT),
             "attackminimumdistance" => number(combat.minimum_range / METERS_PER_UNIT),
             "approachdistance" => number(combat.approach_distance / METERS_PER_UNIT),
@@ -302,6 +303,9 @@ impl Core {
                 "helpnetworkpeers" => vitals.help_network_peers = truthy,
                 "teamfocusdebuffed" => combat.team_focus_debuffed = truthy,
                 "teamoverlay" => vitals.team_overlay = truthy,
+                "relogwhendeathteleportlost" => {
+                    combat.relog_when_death_teleport_lost = Some(truthy);
+                }
                 "attackdistance" => {
                     combat.maximum_range = single_meters(value, "AttackDistance", 1.0, 100.0)?;
                 }

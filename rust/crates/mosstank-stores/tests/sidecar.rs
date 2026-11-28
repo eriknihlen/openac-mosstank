@@ -190,3 +190,37 @@ fn the_team_focus_and_overlay_switches_round_trip() {
     assert!(fresh.combat.team_focus_debuffed);
     assert!(!fresh.vitals.team_overlay);
 }
+
+/// The relog after a lost death teleport is written to the side-car, read
+/// back, and unset (`null`, or absent in an older file) until set.
+#[test]
+fn the_relog_switch_round_trips_and_is_unset_when_absent() {
+    let apply = |text: &str| {
+        let mut settings = AllSettings::default();
+        SideCarDocument::read(text).unwrap().unwrap().apply(
+            &mut settings,
+            &mut OrdinalStringSet::new(),
+            &mut IgnoreCaseStringSet::new(),
+            &mut |_| {},
+        );
+        settings.combat.relog_when_death_teleport_lost
+    };
+    let write = |value: Option<bool>| {
+        let mut settings = AllSettings::default();
+        settings.combat.relog_when_death_teleport_lost = value;
+        SideCarDocument::capture_and_write(
+            &settings,
+            &OrdinalStringSet::new(),
+            &IgnoreCaseStringSet::new(),
+        )
+        .unwrap()
+    };
+
+    let off = write(Some(false));
+    assert!(off.contains("\"CombatRelogWhenDeathTeleportLost\": false"));
+    assert_eq!(apply(&off), Some(false));
+    let unset = write(None);
+    assert!(unset.contains("\"CombatRelogWhenDeathTeleportLost\": null"));
+    assert_eq!(apply(&unset), None);
+    assert_eq!(apply("{}"), None);
+}

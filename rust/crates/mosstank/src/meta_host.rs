@@ -257,6 +257,10 @@ impl MetaHost for HostAutomation<'_, '_> {
         self.host.login_clear_next()
     }
 
+    fn logout(&mut self) -> bool {
+        self.host.logout()
+    }
+
     fn peer_clients(&mut self) -> Vec<NetworkClient> {
         self.host.peer_clients()
     }
