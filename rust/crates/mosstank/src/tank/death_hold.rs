@@ -51,6 +51,27 @@ pub(crate) const DEATH_TELEPORT_RELOG_NOTICE: &str = "Death teleport never came;
 pub(crate) const DEATH_TELEPORT_RELOG_REFUSED_NOTICE: &str =
     "The client did not log the character out. Holding until a relog.";
 
+/// How long after the log out was asked for the character must have left
+/// the world, seconds; past it the log out is taken as not done. Not a game
+/// value: our own margin, past the client's own wait for the server to
+/// answer a log off.
+pub(crate) const RELOG_LOGOUT_WAIT_SECONDS: f64 = 60.0;
+
+/// What is said when the character has not left the world in that time.
+pub(crate) const DEATH_TELEPORT_RELOG_MISSED_NOTICE: &str =
+    "The log out did not happen. Holding until a relog.";
+
+/// A log out asked for a lost death teleport, until the character leaves
+/// the world.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct PendingRelog {
+    /// Seconds since it was asked for.
+    pub(crate) seconds: f64,
+    /// This character was made the next login for it (and is unmade if the
+    /// log out does not happen).
+    pub(crate) set_next_login: bool,
+}
+
 /// Where the death teleport has got to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Teleport {
@@ -129,6 +150,11 @@ impl DeathHold {
             Teleport::Awaited => self.teleport = Teleport::UnderWay(generation),
             Teleport::UnderWay(_) => {}
         }
+    }
+
+    /// The death teleport is over (the hold may still wait for the health).
+    pub(crate) fn teleport_over(&self) -> bool {
+        self.teleport == Teleport::Done
     }
 
     /// One frame: whether the death still holds, with the health at 0 now

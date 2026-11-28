@@ -171,7 +171,8 @@ switches save with the selected settings profile.
 
 After a death MossTank does nothing in the world until the teleport to the
 lifestone is over and the health is back; the meta keeps running, and its
-chat lines that act wait for the end (one held over 30 seconds is dropped).
+chat lines that act wait for the end (one still waiting 30 seconds after the
+teleport is over is dropped).
 If that teleport has not begun a minute after the death, the server has likely
 lost the character. With `RelogWhenDeathTeleportLost` on (`/vt opt`, and under
 Misc in Advanced Options), MossTank then logs the character out and the client

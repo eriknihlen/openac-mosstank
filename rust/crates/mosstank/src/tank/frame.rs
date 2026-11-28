@@ -176,6 +176,7 @@ impl Tank {
         // carries out the death has left the character unplaced on the
         // server until a relog.
         let portal_space = cx.client.rules().navigation_snapshot().is_portal_space;
+        cx.watch_pending_relog(elapsed_seconds);
         let death_holds = match cx.core.death_hold.as_mut() {
             Some(death) => {
                 let step = death.step(elapsed_seconds, dead, portal_space);
@@ -217,9 +218,17 @@ impl Tank {
         }
         cx.core.world_hold = world_hold;
         cx.core.combat.set_world_hold(world_hold.is_some());
-        // Before the meta's pass, so what it says now follows them; a line
-        // held too long is dropped.
-        cx.core.held_meta_lines.advance(elapsed_seconds);
+        // Before the meta's pass, so what it says now follows them. A held
+        // line ages only while the hold could have ended (out of portal
+        // space, no death teleport still to come), and one held too long
+        // then is dropped.
+        let could_end = !portal_space
+            && cx
+                .core
+                .death_hold
+                .as_ref()
+                .is_none_or(super::death_hold::DeathHold::teleport_over);
+        cx.core.held_meta_lines.advance(elapsed_seconds, could_end);
         cx.release_held_meta_lines();
         cx.meta
             .current_state()
@@ -428,6 +437,8 @@ impl TankCx<'_> {
         // A death the gone character's health never showed holds nobody
         // else, and the meta lines it held go with it (register MACRO-1).
         self.core.death_hold = None;
+        // The character left: a log out asked for it happened.
+        self.core.pending_relog = None;
         self.core.last_portal_generation = 0;
         self.core.drop_held_meta_lines("the session ended");
         self.core.world_hold = None;
@@ -644,15 +655,56 @@ impl TankCx<'_> {
         // The client enters the next login's character when it is back at
         // the list; one already set (a character rotation) is kept.
         let character_id = self.client.rules().character().id;
-        if character_id != 0 && self.client.meta().login().next_login_id == 0 {
-            let _ = self.client.meta().login_set_next(character_id);
+        let set_next_login = character_id != 0
+            && self.client.meta().login().next_login_id == 0
+            && self.client.meta().login_set_next(character_id);
+        if self.client.meta().logout() {
+            // Asked for, not yet done: the client or the server may still
+            // refuse it.
+            self.core.pending_relog = Some(super::death_hold::PendingRelog {
+                seconds: 0.0,
+                set_next_login,
+            });
+            return;
         }
-        if !self.client.meta().logout() {
-            Core::announce(self.client, DEATH_TELEPORT_RELOG_REFUSED_NOTICE);
-            self.client
-                .rules()
-                .log_warn(DEATH_TELEPORT_RELOG_REFUSED_NOTICE);
+        self.relog_not_done(set_next_login, DEATH_TELEPORT_RELOG_REFUSED_NOTICE);
+    }
+
+    /// The log out for a lost death teleport was refused, or the character
+    /// has not left the world in [`RELOG_LOGOUT_WAIT_SECONDS`]: the next
+    /// login set for it is cleared (no other), so no stray relog follows a
+    /// later log out, and the death holds until a relog.
+    ///
+    /// [`RELOG_LOGOUT_WAIT_SECONDS`]: super::death_hold::RELOG_LOGOUT_WAIT_SECONDS
+    fn relog_not_done(&mut self, set_next_login: bool, notice: &str) {
+        if set_next_login {
+            let _ = self.client.meta().login_clear_next();
         }
+        let line = if set_next_login {
+            format!("{notice} (The next login set for it was cleared.)")
+        } else {
+            notice.to_owned()
+        };
+        Core::announce(self.client, &line);
+        self.client.rules().log_warn(&line);
+    }
+
+    /// Watches a log out asked for a lost death teleport: the character
+    /// leaving the world ends the watch.
+    fn watch_pending_relog(&mut self, elapsed_seconds: f64) {
+        let Some(pending) = self.core.pending_relog.as_mut() else {
+            return;
+        };
+        pending.seconds += elapsed_seconds.max(0.0);
+        if pending.seconds < super::death_hold::RELOG_LOGOUT_WAIT_SECONDS {
+            return;
+        }
+        let set_next_login = pending.set_next_login;
+        self.core.pending_relog = None;
+        self.relog_not_done(
+            set_next_login,
+            super::death_hold::DEATH_TELEPORT_RELOG_MISSED_NOTICE,
+        );
     }
 
     /// The meta's chat lines held while the character could do nothing in

@@ -291,6 +291,9 @@ pub struct Core {
     /// the health at 0 until the server has carried it out (register
     /// MACRO-1).
     pub(crate) death_hold: Option<death_hold::DeathHold>,
+    /// A log out asked for a lost death teleport, until the character
+    /// leaves the world (register MACRO-2).
+    pub(crate) pending_relog: Option<death_hold::PendingRelog>,
     /// The meta's chat lines held while the character can do nothing in
     /// the world, sent in order once it can (register MACRO-1).
     pub(crate) held_meta_lines: held_lines::HeldMetaLines,
@@ -839,6 +842,7 @@ impl Tank {
             was_dead_for_macro: false,
             world_hold: None,
             death_hold: None,
+            pending_relog: None,
             held_meta_lines: held_lines::HeldMetaLines::default(),
             last_portal_generation: 0,
             window_attached: false,
@@ -1307,6 +1311,9 @@ impl Tank {
                 cx.meta.on_login_complete();
             }
             Event::Logoff => {
+                // The character leaves the world: a log out asked for a
+                // lost death teleport happened.
+                cx.core.pending_relog = None;
                 cx.with_engine(|engine, host, services| engine.on_logoff(host, services));
             }
             Event::LocalPlayerDied(message) => {
